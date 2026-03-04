@@ -1,0 +1,58 @@
+[project]
+name = "cogent"
+version = "0.1.0"
+description = "Autonomous software engineering agent built on the Viable System Model"
+requires-python = ">=3.12"
+dependencies = [
+    "asyncpg>=0.30.0",
+    "click>=8.1",
+    "pydantic>=2.0",
+    "uvloop>=0.21.0",
+    "pyyaml>=6.0",
+    "boto3>=1.35",
+    "aiohttp>=3.11",
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+    "websockets>=14.0",
+    "PyJWT>=2.8",
+    "cryptography>=42.0",
+    "rich>=13.0",
+    "discord.py>=2.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-timeout>=2.3",
+    "testcontainers[postgres]>=4.0",
+    "ruff>=0.11",
+    "pyright>=1.1.400",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+cogent = "cli.__main__:main"
+mind = "mind.cli:mind"
+polis = "polis.cli:polis"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+packages = ["src/cli", "src/body", "src/brain", "src/mind", "src/memory", "src/channels", "src/polis"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+include = ["src/body", "src/cli", "src/mind", "src/memory", "src/polis", "tests"]
+exclude = [".venv", "dist", "node_modules"]
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+timeout = 60

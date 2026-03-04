@@ -1,0 +1,42 @@
+line-length = 120
+target-version = "py312"
+src = ["src"]
+
+exclude = [
+  ".git",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".venv",
+  "venv",
+  "__pypackages__",
+  "dist",
+  "node_modules",
+  ".agents",
+  ".agent",
+]
+
+[lint.isort]
+known-first-party = ["body", "brain", "channels", "cli", "memory", "mind", "polis"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[lint]
+select = ["E", "F", "B", "I", "TID"]
+ignore = [
+  "D100",
+  "D101",
+  "D102",
+  "D103",
+  "D106",
+  "D107",
+  "E203",
+]
+
+[lint.per-file-ignores]
+".agents/**" = ["E501"]
+".agent/**" = ["E501"]
+fixable = ["E", "F", "B", "I"]
+unfixable = []
+extend-safe-fixes = ["E501"]
+
+[lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]

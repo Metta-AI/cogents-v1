@@ -1,0 +1,36 @@
+name: Validate CloudFormation Template
+
+on:
+  pull_request:
+    paths:
+      - 'src/body/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install boto3
+
+      - name: Validate CloudFormation template
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: |
+          python -c "
+          import json
+          from body.cfn.template import build_template
+
+          template = build_template('test')
+          assert isinstance(template, dict), f'Expected dict, got {type(template)}'
+          template_json = json.dumps(template)
+          assert 'Resources' in template, 'Missing Resources key'
+          print(f'CloudFormation template is valid ({len(template_json)} bytes, {len(template[\"Resources\"])} resources)')
+          "
