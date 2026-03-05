@@ -704,8 +704,8 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
           })()}
           {editingPriorityId === task.id ? (
             <input
-              type="number"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               autoFocus
               value={editingPriorityValue}
               onChange={(e) => setEditingPriorityValue(e.target.value)}
