@@ -23,7 +23,7 @@ class BrainStack(Stack):
 
         safe_name = config.cogent_name.replace(".", "-")
 
-        # 1. Network (VPC for ECS and Aurora only — Lambdas don't need VPC)
+        # 1. Network (minimal VPC for Aurora + ECS, no NAT gateway)
         self.network = NetworkConstruct(self, "Network", config=config)
 
         # 2. Database
@@ -35,23 +35,17 @@ class BrainStack(Stack):
             security_group=self.network.db_sg,
         )
 
-        # 3. Storage (EFS for ECS tasks only)
-        self.storage = StorageConstruct(
-            self,
-            "Storage",
-            config=config,
-            vpc=self.network.vpc,
-            security_group=self.network.ecs_sg,
-        )
+        # 3. Storage (S3 bucket for sessions)
+        self.storage = StorageConstruct(self, "Storage", config=config)
 
-        # 4. EventBridge bus (created before compute so we have the name)
+        # 4. EventBridge bus
         self.event_bus = events.EventBus(
             self,
             "EventBus",
             event_bus_name=f"cogent-{safe_name}",
         )
 
-        # 5. Compute (needs bus name, db ARNs, storage)
+        # 5. Compute (Lambdas outside VPC, ECS in public subnets)
         self.compute = ComputeConstruct(
             self,
             "Compute",
@@ -60,12 +54,11 @@ class BrainStack(Stack):
             ecs_sg=self.network.ecs_sg,
             db_cluster_arn=self.database.cluster_arn,
             db_secret_arn=self.database.secret.secret_arn if self.database.secret else "",
-            filesystem=self.storage.filesystem,
-            access_point=self.storage.access_point,
+            sessions_bucket=self.storage.bucket,
             event_bus_name=self.event_bus.event_bus_name,
         )
 
-        # 6. EventBridge rule (needs orchestrator from compute)
+        # 6. EventBridge rule
         events.Rule(
             self,
             "CatchAllRule",
@@ -90,3 +83,4 @@ class BrainStack(Stack):
         CfnOutput(self, "ClusterArn", value=self.database.cluster_arn)
         CfnOutput(self, "EventBusName", value=self.event_bus.event_bus_name)
         CfnOutput(self, "EcsClusterArn", value=self.compute.ecs_cluster_arn)
+        CfnOutput(self, "SessionsBucket", value=self.storage.bucket.bucket_name)

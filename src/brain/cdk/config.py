@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from aws_cdk import Duration
+
 
 @dataclass
 class BrainConfig:
@@ -20,3 +22,4 @@ class BrainConfig:
     ecs_cpu: int = 2048
     ecs_memory: int = 4096
     ecs_timeout_s: int = 3600
+    session_expiry_days: Duration = Duration.days(30)

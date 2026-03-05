@@ -1,4 +1,4 @@
-"""ECS Fargate entry point — runs programs via Claude Code CLI."""
+"""ECS Fargate entry point — runs programs via Claude Code CLI with S3 session sync."""
 
 from __future__ import annotations
 
@@ -17,6 +17,44 @@ from brain.lambdas.shared.logging import setup_logging
 
 logger = setup_logging()
 
+CLAUDE_DIR = os.path.expanduser("~/.claude")
+WORKSPACE_DIR = "/tmp/workspace"
+SYNC_INTERVAL_S = 30
+
+
+def s3_sync_down(bucket: str, session_id: str) -> None:
+    """Download a Claude Code session from S3."""
+    prefix = f"s3://{bucket}/sessions/{session_id}/.claude/"
+    logger.info(f"Restoring session {session_id} from {prefix}")
+    os.makedirs(CLAUDE_DIR, exist_ok=True)
+    subprocess.run(
+        ["aws", "s3", "sync", prefix, CLAUDE_DIR + "/", "--size-only"],
+        capture_output=True,
+        timeout=120,
+    )
+
+
+def s3_sync_up(bucket: str, session_id: str) -> None:
+    """Upload the Claude Code session to S3."""
+    if not os.path.isdir(CLAUDE_DIR):
+        return
+    prefix = f"s3://{bucket}/sessions/{session_id}/.claude/"
+    subprocess.run(
+        ["aws", "s3", "sync", CLAUDE_DIR + "/", prefix, "--size-only"],
+        capture_output=True,
+        timeout=120,
+    )
+
+
+def start_periodic_sync(bucket: str, session_id: str) -> subprocess.Popen | None:
+    """Start a background process that syncs to S3 every SYNC_INTERVAL_S seconds."""
+    script = (
+        f"while true; do sleep {SYNC_INTERVAL_S}; "
+        f"aws s3 sync {CLAUDE_DIR}/ s3://{bucket}/sessions/{session_id}/.claude/ --size-only "
+        f"2>/dev/null || true; done"
+    )
+    return subprocess.Popen(["bash", "-c", script])
+
 
 def main() -> None:
     """Parse payload from env, execute program via Claude Code CLI."""
@@ -31,6 +69,13 @@ def main() -> None:
     program_name = trigger_data.get("program_name", "")
 
     logger.info(f"ECS executor starting for program: {program_name}")
+
+    # Session management: use CLAUDE_CODE_SESSION or generate from run context
+    session_id = os.environ.get("CLAUDE_CODE_SESSION", "")
+
+    # Restore session from S3 if requested
+    if session_id and config.sessions_bucket:
+        s3_sync_down(config.sessions_bucket, session_id)
 
     # Load program
     program = repo.get_program(program_name)
@@ -47,6 +92,15 @@ def main() -> None:
     )
     run_id = repo.insert_run(run)
     logger.info(f"Created run {run_id}")
+
+    # Use session_id from env or fall back to run_id
+    if not session_id:
+        session_id = str(run_id)
+
+    # Start periodic S3 sync
+    sync_proc = None
+    if config.sessions_bucket:
+        sync_proc = start_periodic_sync(config.sessions_bucket, session_id)
 
     start_time = time.time()
 
@@ -68,8 +122,7 @@ def main() -> None:
         cmd.extend(["--prompt", prompt])
 
         # Set working directory
-        workdir = os.path.join(config.efs_path, "workspace")
-        os.makedirs(workdir, exist_ok=True)
+        os.makedirs(WORKSPACE_DIR, exist_ok=True)
 
         logger.info(f"Running Claude Code CLI: {cmd[0]} --model {model}")
 
@@ -78,7 +131,7 @@ def main() -> None:
             capture_output=True,
             text=True,
             timeout=config.ecs_timeout_s if hasattr(config, "ecs_timeout_s") else 3600,
-            cwd=workdir,
+            cwd=WORKSPACE_DIR,
         )
 
         duration_ms = int((time.time() - start_time) * 1000)
@@ -118,7 +171,6 @@ def main() -> None:
         run.completed_at = datetime.now(timezone.utc)
         repo.update_run(run)
         logger.error(f"Run {run_id} timed out after {duration_ms}ms")
-        sys.exit(1)
 
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
@@ -128,6 +180,19 @@ def main() -> None:
         run.completed_at = datetime.now(timezone.utc)
         repo.update_run(run)
         logger.error(f"Run {run_id} failed: {e}")
+
+    finally:
+        # Final S3 sync before exit
+        if config.sessions_bucket:
+            logger.info(f"Final session sync to S3 for {session_id}")
+            s3_sync_up(config.sessions_bucket, session_id)
+
+        # Stop periodic sync
+        if sync_proc:
+            sync_proc.terminate()
+            sync_proc.wait(timeout=5)
+
+    if run.status in (RunStatus.TIMEOUT, RunStatus.FAILED):
         sys.exit(1)
 
 

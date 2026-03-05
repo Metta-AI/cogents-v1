@@ -1,4 +1,4 @@
-"""VPC and networking constructs."""
+"""Minimal VPC for Aurora and ECS Fargate (no NAT gateway)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from brain.cdk.config import BrainConfig
 
 
 class NetworkConstruct(Construct):
-    """VPC with private and public subnets for brain infrastructure."""
+    """Minimal VPC: public subnets for ECS, isolated subnets for Aurora."""
 
     def __init__(self, scope: Construct, id: str, *, config: BrainConfig) -> None:
         super().__init__(scope, id)
@@ -19,7 +19,7 @@ class NetworkConstruct(Construct):
             "Vpc",
             vpc_name=f"cogent-{config.cogent_name}-brain",
             max_azs=2,
-            nat_gateways=1,
+            nat_gateways=0,
             subnet_configuration=[
                 ec2.SubnetConfiguration(
                     name="Public",
@@ -27,8 +27,8 @@ class NetworkConstruct(Construct):
                     cidr_mask=24,
                 ),
                 ec2.SubnetConfiguration(
-                    name="Private",
-                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
+                    name="Isolated",
+                    subnet_type=ec2.SubnetType.PRIVATE_ISOLATED,
                     cidr_mask=24,
                 ),
             ],
@@ -47,11 +47,4 @@ class NetworkConstruct(Construct):
             "DbSg",
             vpc=self.vpc,
             description="Security group for Aurora database",
-        )
-
-        # Allow ECS to connect to Aurora
-        self.db_sg.add_ingress_rule(
-            self.ecs_sg,
-            ec2.Port.tcp(5432),
-            "ECS to Aurora",
         )

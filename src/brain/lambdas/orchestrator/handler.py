@@ -152,7 +152,7 @@ def _dispatch_ecs(config, ecs_client, payload: str, program_name: str):
             "awsvpcConfiguration": {
                 "subnets": subnets,
                 "securityGroups": [config.ecs_security_group],
-                "assignPublicIp": "DISABLED",
+                "assignPublicIp": "ENABLED",
             }
         },
         overrides={

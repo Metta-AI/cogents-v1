@@ -5,9 +5,9 @@ from __future__ import annotations
 from aws_cdk import Duration
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
-from aws_cdk import aws_efs as efs
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
+from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
 from brain.cdk.config import BrainConfig
@@ -26,8 +26,7 @@ class ComputeConstruct(Construct):
         ecs_sg: ec2.ISecurityGroup,
         db_cluster_arn: str,
         db_secret_arn: str,
-        filesystem: efs.IFileSystem,
-        access_point: efs.IAccessPoint,
+        sessions_bucket: s3.IBucket,
         event_bus_name: str,
     ) -> None:
         super().__init__(scope, id)
@@ -42,6 +41,7 @@ class ComputeConstruct(Construct):
             "DB_SECRET_ARN": db_secret_arn,
             "DB_NAME": "cogent",
             "EVENT_BUS_NAME": event_bus_name,
+            "SESSIONS_BUCKET": sessions_bucket.bucket_name,
         }
 
         # Shared policy statements for Data API access
@@ -64,7 +64,7 @@ class ComputeConstruct(Construct):
             "service-role/AWSLambdaBasicExecutionRole"
         )
 
-        # Orchestrator role
+        # Orchestrator role (no VPC needed — uses Data API)
         orchestrator_role = iam.Role(
             self,
             "OrchestratorRole",
@@ -86,7 +86,7 @@ class ComputeConstruct(Construct):
             )
         )
 
-        # Executor role
+        # Executor role (no VPC needed — uses Data API)
         executor_role = iam.Role(
             self,
             "ExecutorRole",
@@ -119,7 +119,7 @@ class ComputeConstruct(Construct):
             },
         )
 
-        # Executor Lambda (no VPC — uses only AWS APIs: Data API, Bedrock, EventBridge)
+        # Executor Lambda (no VPC — uses only AWS APIs)
         self.executor = lambda_.Function(
             self,
             "Executor",
@@ -147,24 +147,9 @@ class ComputeConstruct(Construct):
             "TaskRole",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
         )
-        task_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement"],
-                resources=[db_cluster_arn],
-            )
-        )
-        task_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["secretsmanager:GetSecretValue"],
-                resources=[db_secret_arn],
-            )
-        )
-        task_role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["events:PutEvents"],
-                resources=["*"],
-            )
-        )
+        for stmt in data_api_statements:
+            task_role.add_to_policy(stmt)
+        sessions_bucket.grant_read_write(task_role)
 
         # ECS Task Definition
         self.task_definition = ecs.FargateTaskDefinition(
@@ -176,37 +161,17 @@ class ComputeConstruct(Construct):
             task_role=task_role,
         )
 
-        # Add EFS volume
-        self.task_definition.add_volume(
-            name="cogent-efs",
-            efs_volume_configuration=ecs.EfsVolumeConfiguration(
-                file_system_id=filesystem.file_system_id,
-                transit_encryption="ENABLED",
-                authorization_config=ecs.AuthorizationConfig(
-                    access_point_id=access_point.access_point_id,
-                    iam="ENABLED",
-                ),
-            ),
-        )
-
-        container = self.task_definition.add_container(
+        self.task_definition.add_container(
             "Executor",
             image=ecs.ContainerImage.from_registry("python:3.12-slim"),
             logging=ecs.LogDrivers.aws_logs(stream_prefix="executor"),
             environment=env,
-        )
-        container.add_mount_points(
-            ecs.MountPoint(
-                container_path="/mnt/cogent",
-                source_volume="cogent-efs",
-                read_only=False,
-            )
         )
 
         # Store for orchestrator to reference
         self.ecs_cluster_arn = self.cluster.cluster_arn
         self.ecs_task_definition_arn = self.task_definition.task_definition_arn
         self.ecs_subnets = ",".join(
-            s.subnet_id for s in vpc.select_subnets(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS).subnets
+            s.subnet_id for s in vpc.select_subnets(subnet_type=ec2.SubnetType.PUBLIC).subnets
         )
         self.ecs_security_group_id = ecs_sg.security_group_id

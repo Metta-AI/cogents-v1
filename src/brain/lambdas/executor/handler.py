@@ -208,7 +208,7 @@ def _execute_tool(tool_use: dict, config) -> str:
             capture_output=True,
             text=True,
             timeout=300,
-            cwd=config.efs_path,
+            cwd="/tmp",
         )
         output = result.stdout
         if result.returncode != 0:

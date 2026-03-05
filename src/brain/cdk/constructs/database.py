@@ -35,7 +35,7 @@ class DatabaseConstruct(Construct):
             serverless_v2_min_capacity=config.db_min_acu,
             serverless_v2_max_capacity=config.db_max_acu,
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
             security_groups=[security_group],
             removal_policy=RemovalPolicy.RETAIN,
             writer=rds.ClusterInstance.serverless_v2("Writer"),
