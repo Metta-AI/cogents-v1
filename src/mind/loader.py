@@ -13,7 +13,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel, Field
 
+from brain.db.models import Resource, ResourceType
 from brain.db.repository import Repository
 
 # Valid tool names: mind CLI subcommands and memory CLI commands.
@@ -180,3 +182,64 @@ def validate_program_exists(name: str, program_name: str, repo: Repository) -> l
             message=f"program '{program_name}' not found",
         )]
     return []
+
+
+# ─── Resources ──────────────────────────────────────────────
+
+
+class CogentMindResource(BaseModel):
+    """Pydantic config for resource definitions."""
+
+    name: str
+    resource_type: str = "pool"
+    capacity: float = 1.0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def load_resources(path: Path) -> list[Resource]:
+    """Load resources from a .py file containing a `resources` list of CogentMindResource."""
+    source = path.read_text()
+    tree = ast.parse(source)
+
+    results: list[Resource] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        # Look for `resources = [...]`
+        targets = [t for t in node.targets if isinstance(t, ast.Name) and t.id == "resources"]
+        if not targets or not isinstance(node.value, ast.List):
+            continue
+        for elt in node.value.elts:
+            if not isinstance(elt, ast.Call):
+                continue
+            func = elt.func
+            if not (
+                (isinstance(func, ast.Name) and func.id == "CogentMindResource")
+                or (isinstance(func, ast.Attribute) and func.attr == "CogentMindResource")
+            ):
+                continue
+            kwargs: dict[str, Any] = {}
+            for kw in elt.keywords:
+                if kw.arg is None:
+                    continue
+                kwargs[kw.arg] = ast.literal_eval(kw.value)
+            cfg = CogentMindResource(**kwargs)
+            results.append(Resource(
+                name=cfg.name,
+                resource_type=ResourceType(cfg.resource_type),
+                capacity=cfg.capacity,
+                metadata=cfg.metadata,
+            ))
+        return results
+
+    raise ValueError(f"{path}: no `resources = [...]` list found")
+
+
+def sync_resources(path: Path, repo: Repository) -> list[str]:
+    """Load and upsert all resources from a file. Returns list of synced names."""
+    resources = load_resources(path)
+    synced: list[str] = []
+    for r in resources:
+        repo.upsert_resource(r)
+        synced.append(r.name)
+    return synced

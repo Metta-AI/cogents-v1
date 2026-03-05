@@ -26,6 +26,7 @@ from brain.db.models import (
     TriggerConfig,
 )
 from brain.db.repository import Repository
+from mind.loader import load_resources, sync_resources
 from mind.program import load_program, load_programs_dir, sync_program, validate_bundle
 
 
@@ -77,6 +78,7 @@ def mind(ctx: click.Context, use_json: bool) -> None:
 
 
 _DEFAULT_PROGRAMS_DIR = "eggs/ovo/programs"
+_DEFAULT_RESOURCES_FILE = "eggs/ovo/resources.py"
 
 
 @mind.group()
@@ -206,11 +208,17 @@ def program_runs(ctx: click.Context, name: str, limit: int) -> None:
 
 @program.command("update")
 @click.argument("path", default=_DEFAULT_PROGRAMS_DIR, type=click.Path())
+@click.option("--resources", "resources_file", default=_DEFAULT_RESOURCES_FILE,
+              type=click.Path(), help="Resources file to sync first")
+@click.option("--no-resources", is_flag=True, help="Skip resource syncing")
 @click.option("--dry-run", is_flag=True, help="Show what would change without writing")
 @click.pass_context
-def program_update(ctx: click.Context, path: str, dry_run: bool) -> None:
+def program_update(
+    ctx: click.Context, path: str, resources_file: str, no_resources: bool, dry_run: bool,
+) -> None:
     """Sync programs from a directory (recursive .py/.md files).
 
+    Loads resources first (from eggs/ovo/resources.py), then programs.
     Validates tools, checks memory includes, and registers triggers.
     Default path: eggs/ovo/programs/
     """
@@ -219,12 +227,27 @@ def program_update(ctx: click.Context, path: str, dry_run: bool) -> None:
         click.echo(f"Not a directory: {root}", err=True)
         sys.exit(1)
 
+    # ── Resources ──
+    res_path = Path(resources_file)
+    has_resources = not no_resources and res_path.is_file()
+    if has_resources:
+        try:
+            res_list = load_resources(res_path)
+        except ValueError as exc:
+            click.echo(f"Resource load error: {exc}", err=True)
+            sys.exit(1)
+
+    # ── Programs ──
     bundles = load_programs_dir(root)
     if not bundles:
         click.echo(f"No .py or .md program files found under {root}", err=True)
         sys.exit(1)
 
     if dry_run:
+        if has_resources:
+            for r in res_list:
+                click.echo(f"  resource: {r.name} ({r.resource_type.value}, capacity={r.capacity})")
+            click.echo(f"  {len(res_list)} resource(s) would be synced.\n")
         all_issues: list = []
         for b in bundles:
             tool_issues = validate_bundle(b)
@@ -238,6 +261,15 @@ def program_update(ctx: click.Context, path: str, dry_run: bool) -> None:
         return
 
     repo = _repo()
+
+    # Sync resources before programs
+    if has_resources:
+        synced_res = sync_resources(res_path, repo)
+        for name in synced_res:
+            click.echo(f"  resource: {name}")
+        click.echo(f"  {len(synced_res)} resource(s) synced.\n")
+
+    # Sync programs
     results = []
     had_errors = False
     for b in bundles:
@@ -518,20 +550,45 @@ def resource() -> None:
     """Manage resources."""
 
 
-@resource.command("create")
+@resource.command("list")
+@click.pass_context
+def resource_list(ctx: click.Context) -> None:
+    """List all resources with current usage."""
+    repo = _repo()
+    resources = repo.list_resources()
+    data = []
+    for r in resources:
+        entry: dict = {
+            "name": r.name,
+            "type": r.resource_type.value,
+            "capacity": r.capacity,
+        }
+        if r.resource_type == ResourceType.POOL:
+            usage = repo.get_pool_usage(r.name)
+            entry["usage"] = usage
+            entry["available"] = max(0, r.capacity - usage)
+        else:
+            usage = repo.get_consumable_usage(r.name)
+            entry["consumed"] = usage
+            entry["available"] = max(0.0, r.capacity - usage)
+        data.append(entry)
+    _output(data, use_json=ctx.obj["json"])
+
+
+@resource.command("add")
 @click.argument("name")
 @click.option("--type", "resource_type", type=click.Choice(["pool", "consumable"]), required=True)
 @click.option("--capacity", type=float, required=True)
 @click.option("--metadata", "metadata_json", default="{}", help="JSON metadata")
 @click.pass_context
-def resource_create(
+def resource_add(
     ctx: click.Context,
     name: str,
     resource_type: str,
     capacity: float,
     metadata_json: str,
 ) -> None:
-    """Create or update a resource."""
+    """Add or update a single resource."""
     r = Resource(
         name=name,
         resource_type=ResourceType(resource_type),
@@ -540,49 +597,7 @@ def resource_create(
     )
     repo = _repo()
     repo.upsert_resource(r)
-    _output({"name": name, "type": resource_type, "capacity": capacity, "status": "created"}, use_json=ctx.obj["json"])
-
-
-@resource.command("list")
-@click.pass_context
-def resource_list(ctx: click.Context) -> None:
-    """List all resources."""
-    repo = _repo()
-    resources = repo.list_resources()
-    data = [
-        {
-            "name": r.name,
-            "type": r.resource_type.value,
-            "capacity": r.capacity,
-        }
-        for r in resources
-    ]
-    _output(data, use_json=ctx.obj["json"])
-
-
-@resource.command("show")
-@click.argument("name")
-@click.pass_context
-def resource_show(ctx: click.Context, name: str) -> None:
-    """Show a resource's details and current usage."""
-    repo = _repo()
-    r = repo.get_resource(name)
-    if not r:
-        click.echo(f"Resource '{name}' not found.", err=True)
-        sys.exit(1)
-
-    data = r.model_dump(mode="json")
-
-    if r.resource_type == ResourceType.POOL:
-        usage = repo.get_pool_usage(name)
-        data["current_usage"] = usage
-        data["available"] = max(0, r.capacity - usage)
-    else:
-        usage = repo.get_consumable_usage(name)
-        data["consumed"] = usage
-        data["available"] = max(0.0, r.capacity - usage)
-
-    _output(data, use_json=ctx.obj["json"])
+    _output({"name": name, "type": resource_type, "capacity": capacity, "status": "added"}, use_json=ctx.obj["json"])
 
 
 @resource.command("delete")
@@ -596,6 +611,37 @@ def resource_delete(ctx: click.Context, name: str) -> None:
     else:
         click.echo(f"Resource '{name}' not found.", err=True)
         sys.exit(1)
+
+
+@resource.command("update")
+@click.argument("path", default=_DEFAULT_RESOURCES_FILE, type=click.Path(exists=True))
+@click.option("--dry-run", is_flag=True, help="Show what would change without writing")
+@click.pass_context
+def resource_update(ctx: click.Context, path: str, dry_run: bool) -> None:
+    """Sync resources from a .py file (default: eggs/ovo/resources.py)."""
+    res_path = Path(path)
+    try:
+        res_list = load_resources(res_path)
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    if not res_list:
+        click.echo("No resources found.", err=True)
+        sys.exit(1)
+
+    if dry_run:
+        for r in res_list:
+            click.echo(f"  {r.name} ({r.resource_type.value}, capacity={r.capacity})")
+        click.echo(f"\n{len(res_list)} resource(s) would be synced.")
+        return
+
+    synced = sync_resources(res_path, _repo())
+    for name in synced:
+        click.echo(f"  synced: {name}")
+    click.echo(f"\n{len(synced)} resource(s) synced.")
+    if ctx.obj["json"]:
+        click.echo(json.dumps([{"name": n} for n in synced], indent=2))
 
 
 # ═══════════════════════════════════════════════════════════
