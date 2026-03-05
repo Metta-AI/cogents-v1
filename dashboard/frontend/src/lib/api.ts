@@ -209,7 +209,7 @@ export async function getAlerts(name: string): Promise<Alert[]> {
 
 export async function getResolvedAlerts(name: string, limit = 25): Promise<Alert[]> {
   const r = await fetchJSON<{ alerts: Alert[] }>(
-    `/api/cogents/${name}/alerts/resolved?limit=${limit}`,
+    `/api/cogents/${name}/alerts?status=resolved&limit=${limit}`,
   );
   return r.alerts;
 }

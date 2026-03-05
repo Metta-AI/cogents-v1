@@ -12,29 +12,12 @@ router = APIRouter(tags=["alerts"])
 
 
 @router.get("/alerts", response_model=AlertsResponse)
-def list_alerts(name: str) -> AlertsResponse:
+def list_alerts(name: str, status: str = "unresolved", limit: int = 100) -> AlertsResponse:
     repo = get_repo()
-    db_alerts = repo.get_unresolved_alerts()
-    alerts = [
-        Alert(
-            id=str(a.id),
-            severity=a.severity.value if a.severity else None,
-            alert_type=a.alert_type,
-            source=a.source,
-            message=a.message,
-            metadata=a.metadata,
-            resolved_at=str(a.resolved_at) if a.resolved_at else None,
-            created_at=str(a.created_at) if a.created_at else None,
-        )
-        for a in db_alerts
-    ]
-    return AlertsResponse(cogent_name=name, count=len(alerts), alerts=alerts)
-
-
-@router.get("/alerts/resolved", response_model=AlertsResponse)
-def list_resolved_alerts(name: str, limit: int = 25) -> AlertsResponse:
-    repo = get_repo()
-    db_alerts = repo.get_resolved_alerts(limit)
+    if status == "resolved":
+        db_alerts = repo.get_resolved_alerts(limit)
+    else:
+        db_alerts = repo.get_unresolved_alerts()
     alerts = [
         Alert(
             id=str(a.id),
