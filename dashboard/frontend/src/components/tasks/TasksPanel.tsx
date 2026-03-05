@@ -29,6 +29,9 @@ const STATUSES = ["runnable", "running", "completed", "disabled"];
 
 const STUCK_THRESHOLD_MS = 10 * 60 * 1000;
 const RECENT_THRESHOLD_MS = 60 * 60 * 1000;
+const TIME_WINDOWS = ["1m", "5m", "1h", "24h", "7d"] as const;
+type TimeWindow = typeof TIME_WINDOWS[number];
+const STORAGE_KEY = "tasks-time-window";
 
 function getPrefix(name: string): string {
   const lastSlash = name.lastIndexOf("/");
@@ -53,7 +56,29 @@ interface TaskRun {
   started_at: string | null;
   completed_at: string | null;
   duration_ms: number | null;
+  tokens_input: number | null;
+  tokens_output: number | null;
+  cost_usd: number;
   error: string | null;
+}
+
+function fmtDuration(ms: number | null): string {
+  if (ms == null) return "--";
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s % 60);
+  if (m < 60) return `${m}m${rem}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h${m % 60}m`;
+}
+
+function fmtTokens(n: number | null): string {
+  if (n == null || n === 0) return "";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }
 
 interface UndoToast {
@@ -194,7 +219,33 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [undoToast, setUndoToast] = useState<UndoToast | null>(null);
   const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && TIME_WINDOWS.includes(saved as TimeWindow)) return saved as TimeWindow;
+    }
+    return "24h";
+  });
   const undoRef = useRef<UndoToast | null>(null);
+
+  const selectTimeWindow = useCallback((w: TimeWindow) => {
+    setTimeWindow(w);
+    localStorage.setItem(STORAGE_KEY, w);
+  }, []);
+
+  // Filter tasks: only show tasks with runs in the selected window (or running/stuck)
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      // Always show running/stuck tasks
+      if (t.status === "running") return true;
+      // Show tasks with runs in the selected window
+      const c = t.run_counts?.[timeWindow];
+      if (c && c.runs > 0) return true;
+      // Show tasks with no run data at all (new tasks, etc.)
+      if (!t.run_counts || Object.values(t.run_counts).every((v) => v.runs === 0)) return true;
+      return false;
+    });
+  }, [tasks, timeWindow]);
 
   // Typeahead suggestion sources
   const memoryKeySuggestions = useMemo(
@@ -225,26 +276,26 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
     return [...set].sort();
   }, [tasks, programs]);
 
-  // Categorized task lists
+  // Categorized task lists (from filtered)
   const runningTasks = useMemo(
-    () => tasks.filter((t) => t.status === "running" && !isStuck(t)),
-    [tasks],
+    () => filteredTasks.filter((t) => t.status === "running" && !isStuck(t)),
+    [filteredTasks],
   );
   const stuckTasks = useMemo(
-    () => tasks.filter((t) => isStuck(t)),
-    [tasks],
+    () => filteredTasks.filter((t) => isStuck(t)),
+    [filteredTasks],
   );
   const recentlyFinished = useMemo(
-    () => tasks.filter((t) => t.status === "completed" && isRecent(t.completed_at)),
-    [tasks],
+    () => filteredTasks.filter((t) => t.status === "completed" && isRecent(t.completed_at)),
+    [filteredTasks],
   );
   const recentlyFailed = useMemo(
-    () => tasks.filter((t) =>
+    () => filteredTasks.filter((t) =>
       (t.last_run_status === "failed" || t.last_run_status === "timeout") &&
       isRecent(t.last_run_at) &&
       t.status !== "running",
     ),
-    [tasks],
+    [filteredTasks],
   );
 
   const highlightIds = useMemo(() => {
@@ -256,7 +307,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
   }, [runningTasks, stuckTasks, recentlyFinished, recentlyFailed]);
 
   const grouped = useMemo(() => {
-    const remaining = tasks.filter((t) => !highlightIds.has(t.id) && !pendingDeletes.has(t.id));
+    const remaining = filteredTasks.filter((t) => !highlightIds.has(t.id) && !pendingDeletes.has(t.id));
     const groups: Record<string, Task[]> = {};
     for (const t of remaining) {
       const prefix = getPrefix(t.name || "");
@@ -265,7 +316,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
       groups[key].push(t);
     }
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  }, [tasks, highlightIds, pendingDeletes]);
+  }, [filteredTasks, highlightIds, pendingDeletes]);
 
   useEffect(() => {
     if (!expandedId) { setExpandedRuns([]); return; }
@@ -626,34 +677,31 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
             </span>
           )}
           <div className="flex-1" />
-          {/* Run counts as separated blocks */}
-          {task.run_counts && (
-            <span className="flex gap-1 text-[10px] font-mono">
-              {["5m", "1h", "24h", "7d"].map((w) => {
-                const c = task.run_counts![w];
-                const runs = c?.runs ?? 0;
-                const failed = c?.failed ?? 0;
-                return (
+          {/* Run counts as separated blocks — only windows with runs */}
+          {task.run_counts && (() => {
+            const entries = TIME_WINDOWS
+              .map((w) => ({ w, c: task.run_counts![w] }))
+              .filter(({ c }) => c && c.runs > 0);
+            if (entries.length === 0) return null;
+            return (
+              <span className="flex gap-1 text-[10px] font-mono">
+                {entries.map(({ w, c }) => (
                   <span
                     key={w}
                     className="flex items-center gap-1 px-1.5 py-0.5 rounded"
                     style={{
-                      background: runs > 0 ? "var(--bg-hover)" : "transparent",
+                      background: "var(--bg-hover)",
                       border: "1px solid var(--border)",
                     }}
                   >
                     <span className="text-[var(--text-muted)]">{w}</span>
-                    {runs > 0 && (
-                      <>
-                        <span className="text-[var(--text-secondary)]">{runs}</span>
-                        {failed > 0 && <span className="text-[var(--error)]">{failed}✗</span>}
-                      </>
-                    )}
+                    <span className="text-[#22c55e]">{c.runs}</span>
+                    {c.failed > 0 && <span className="text-[var(--error)]">{c.failed}</span>}
                   </span>
-                );
-              })}
-            </span>
-          )}
+                ))}
+              </span>
+            );
+          })()}
           {editingPriorityId === task.id ? (
             <input
               type="number"
@@ -833,14 +881,15 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
                   {task.run_counts && (
                     <span className="flex items-center gap-1.5 font-mono">
                       <span className="text-[var(--text-muted)]">runs:</span>
-                      {["1m", "5m", "1h", "24h", "7d"].map((w) => {
+                      {TIME_WINDOWS.map((w) => {
                         const c = task.run_counts![w];
                         const runs = c?.runs ?? 0;
                         const failed = c?.failed ?? 0;
+                        if (runs === 0) return null;
                         return (
                           <span key={w} className="text-[var(--text-muted)]">
-                            {w}:<span className="text-[var(--text-secondary)]">{runs}</span>
-                            {failed > 0 && <span className="text-[var(--error)] ml-0.5">{failed}✗</span>}
+                            {w}:<span className="text-[#22c55e]">{runs}</span>
+                            {failed > 0 && <span className="text-[var(--error)] ml-0.5">{failed}</span>}
                           </span>
                         );
                       })}
@@ -878,26 +927,39 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
             {/* Recent Runs */}
             {expandedRuns.length > 0 && (
               <div>
-                <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium mb-1">
-                  Runs ({expandedRuns.length})
+                <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium mb-1">
+                  <span>Runs ({expandedRuns.length})</span>
+                  {task.runner && <span className="normal-case text-[var(--text-secondary)]">{task.runner}</span>}
                 </div>
                 <div className="space-y-0.5">
-                  {expandedRuns.map((run) => (
-                    <div
-                      key={run.id}
-                      className="flex items-center gap-2 px-2 py-0.5 rounded text-[10px]"
-                      style={{ background: "var(--bg-surface)" }}
-                    >
-                      <Badge variant={STATUS_VARIANT[run.status ?? ""] ?? "neutral"}>
-                        {run.status ?? "?"}
-                      </Badge>
-                      <span className="font-mono text-[var(--text-secondary)]">{run.program_name}</span>
-                      {run.duration_ms != null && <span className="text-[var(--text-muted)]">{run.duration_ms}ms</span>}
-                      <div className="flex-1" />
-                      <span className="text-[var(--text-muted)]">{fmtRelative(run.started_at)}</span>
-                      {run.error && <span className="text-red-400 truncate max-w-[200px]" title={run.error}>{run.error}</span>}
-                    </div>
-                  ))}
+                  {expandedRuns.map((run) => {
+                    const totalTokens = (run.tokens_input ?? 0) + (run.tokens_output ?? 0);
+                    const statusChar = run.status?.[0]?.toUpperCase() ?? "?";
+                    return (
+                      <div
+                        key={run.id}
+                        className="flex items-center gap-2 px-2 py-0.5 rounded text-[10px]"
+                        style={{ background: "var(--bg-surface)" }}
+                      >
+                        <Badge variant={STATUS_VARIANT[run.status ?? ""] ?? "neutral"}>
+                          <span title={run.status ?? "unknown"}>{statusChar}</span>
+                        </Badge>
+                        <span className="font-mono text-[var(--text-secondary)]">{run.program_name}</span>
+                        <span className="text-[var(--text-muted)]">{fmtDuration(run.duration_ms)}</span>
+                        {totalTokens > 0 && (
+                          <span className="text-[var(--text-muted)]" title={`in: ${run.tokens_input ?? 0} out: ${run.tokens_output ?? 0}`}>
+                            {fmtTokens(totalTokens)} tok
+                          </span>
+                        )}
+                        {run.cost_usd > 0 && (
+                          <span className="text-[var(--text-muted)]">${run.cost_usd.toFixed(4)}</span>
+                        )}
+                        <div className="flex-1" />
+                        <span className="text-[var(--text-muted)]">{fmtRelative(run.started_at)}</span>
+                        {run.error && <span className="text-red-400 truncate max-w-[200px]" title={run.error}>{run.error}</span>}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -942,9 +1004,28 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
-        <div className="text-[var(--text-muted)] text-xs">
-          {tasks.length} task{tasks.length !== 1 ? "s" : ""}
-          {grouped.length > 1 && ` in ${grouped.length} groups`}
+        <div className="flex items-center gap-2">
+          <span className="text-[var(--text-muted)] text-xs">
+            {filteredTasks.length}/{tasks.length} task{tasks.length !== 1 ? "s" : ""}
+          </span>
+          <span className="flex gap-0.5 text-[10px] font-mono">
+            {TIME_WINDOWS.map((w) => (
+              <button
+                key={w}
+                onClick={() => selectTimeWindow(w)}
+                className="border-0 cursor-pointer rounded px-1.5 py-0.5 transition-colors"
+                style={{
+                  background: timeWindow === w ? "var(--accent)" : "var(--bg-hover)",
+                  color: timeWindow === w ? "var(--bg-deep)" : "var(--text-muted)",
+                  fontWeight: timeWindow === w ? 700 : 400,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "10px",
+                }}
+              >
+                {w}
+              </button>
+            ))}
+          </span>
         </div>
         <button
           onClick={() => setCreating(!creating)}
@@ -977,21 +1058,6 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
               Create
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Run count column headers */}
-      {tasks.length > 0 && (
-        <div className="flex items-center gap-3 px-3 py-1 mb-1">
-          <div className="flex-1" />
-          <span className="flex gap-1.5 text-[9px] font-mono text-[var(--text-muted)] uppercase tracking-wide">
-            {["1m", "5m", "1h", "24h", "7d"].map((w) => (
-              <span key={w} style={{ minWidth: "16px", textAlign: "center" }}>{w}</span>
-            ))}
-          </span>
-          <span className="text-[9px] text-[var(--text-muted)]" style={{ minWidth: "28px" }} />
-          <span className="text-[9px] text-[var(--text-muted)]" style={{ minWidth: "70px" }} />
-          <span style={{ minWidth: "60px" }} />
         </div>
       )}
 
