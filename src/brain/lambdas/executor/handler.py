@@ -92,8 +92,15 @@ def execute_program(program: Program, event_data: dict, run: Run, config) -> Run
     """Execute program via Bedrock converse API with tool-use loop."""
     bedrock = boto3.client("bedrock-runtime", region_name=config.region)
 
-    # Build system prompt
-    system = [{"text": program.content}]
+    # Build system prompt with memory context
+    from memory.context_engine import ContextEngine
+    from memory.store import MemoryStore
+
+    repo = get_repo()
+    memory_store = MemoryStore(repo)
+    context_engine = ContextEngine(memory_store)
+
+    system = context_engine.build_system_prompt(program, event_data)
 
     # Build user message with event context
     user_text = f"Event: {event_data.get('event_type', 'unknown')}\n"

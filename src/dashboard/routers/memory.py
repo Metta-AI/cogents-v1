@@ -38,7 +38,7 @@ def list_memory(
 
     if scope:
         rows = repo.query(
-            "SELECT id::text, scope, type, name, content, provenance, "
+            "SELECT id::text, scope, name, content, provenance, "
             "created_at::text, updated_at::text "
             "FROM memory WHERE scope = :scope "
             "ORDER BY name, scope LIMIT :lim",
@@ -46,7 +46,7 @@ def list_memory(
         )
     else:
         rows = repo.query(
-            "SELECT id::text, scope, type, name, content, provenance, "
+            "SELECT id::text, scope, name, content, provenance, "
             "created_at::text, updated_at::text "
             "FROM memory "
             "ORDER BY name, scope LIMIT :lim",
@@ -57,7 +57,6 @@ def list_memory(
         MemoryItem(
             id=r["id"],
             scope=r.get("scope"),
-            type=r.get("type"),
             name=r.get("name", ""),
             group=_derive_group(r.get("name", "")),
             content=r.get("content", ""),

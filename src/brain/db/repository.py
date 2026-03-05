@@ -25,7 +25,6 @@ from brain.db.models import (
     Event,
     MemoryRecord,
     MemoryScope,
-    MemoryType,
     Program,
     ProgramType,
     Run,
@@ -288,16 +287,15 @@ class Repository:
 
     def insert_memory(self, mem: MemoryRecord) -> UUID:
         response = self._execute(
-            """INSERT INTO memory (id, scope, type, name, content, provenance)
-               VALUES (:id, :scope, :type, :name, :content, :provenance::jsonb)
+            """INSERT INTO memory (id, scope, name, content, provenance)
+               VALUES (:id, :scope, :name, :content, :provenance::jsonb)
                ON CONFLICT (scope, name) WHERE name IS NOT NULL
                DO UPDATE SET content = EXCLUDED.content, provenance = EXCLUDED.provenance,
-                            type = EXCLUDED.type, updated_at = now()
+                            updated_at = now()
                RETURNING id, created_at, updated_at""",
             [
                 self._param("id", mem.id),
                 self._param("scope", mem.scope.value),
-                self._param("type", mem.type.value),
                 self._param("name", mem.name),
                 self._param("content", mem.content),
                 self._param("provenance", mem.provenance),
@@ -322,8 +320,8 @@ class Repository:
         self,
         *,
         scope: MemoryScope | None = None,
-        type: MemoryType | None = None,
         name: str | None = None,
+        prefix: str | None = None,
         limit: int = 50,
     ) -> list[MemoryRecord]:
         conditions = []
@@ -332,19 +330,18 @@ class Repository:
         if scope:
             conditions.append("scope = :scope")
             params.append(self._param("scope", scope.value))
-        if type:
-            conditions.append("type = :type")
-            params.append(self._param("type", type.value))
         if name:
             conditions.append("name = :name")
             params.append(self._param("name", name))
+        if prefix:
+            conditions.append("name LIKE :prefix")
+            params.append(self._param("prefix", prefix + "%"))
 
-        conditions.append("TRUE")
         where = " AND ".join(conditions)
         params.append(self._param("limit", limit))
 
         response = self._execute(
-            f"SELECT * FROM memory WHERE {where} ORDER BY updated_at DESC LIMIT :limit",
+            f"SELECT * FROM memory WHERE {where} ORDER BY name ASC LIMIT :limit",
             params,
         )
         return [self._memory_from_row(r) for r in self._rows_to_dicts(response)]
@@ -390,6 +387,47 @@ class Repository:
         )
         return response.get("numberOfRecordsUpdated", 0) == 1
 
+    def get_memories_by_names(
+        self,
+        names: list[str],
+    ) -> list[MemoryRecord]:
+        """Batch fetch memory records by exact name match."""
+        if not names:
+            return []
+        # Build IN clause with individual params
+        name_params = []
+        conditions = []
+        for i, name in enumerate(names):
+            param_name = f"name_{i}"
+            name_params.append(self._param(param_name, name))
+            conditions.append(f":{param_name}")
+
+        in_clause = ", ".join(conditions)
+
+        response = self._execute(
+            f"""SELECT * FROM memory
+                WHERE name IN ({in_clause})
+                ORDER BY scope ASC, name ASC""",
+            name_params,
+        )
+        return [self._memory_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def delete_memories_by_prefix(
+        self,
+        prefix: str,
+        scope: MemoryScope | None = None,
+    ) -> int:
+        """Delete all memory records matching a name prefix."""
+        conditions = ["name LIKE :prefix"]
+        params = [self._param("prefix", prefix + "%")]
+        if scope:
+            conditions.append("scope = :scope")
+            params.append(self._param("scope", scope.value))
+
+        where = " AND ".join(conditions)
+        response = self._execute(f"DELETE FROM memory WHERE {where}", params)
+        return response.get("numberOfRecordsUpdated", 0)
+
     def _memory_from_row(self, row: dict) -> MemoryRecord:
         provenance = row.get("provenance", {})
         if isinstance(provenance, str):
@@ -397,7 +435,6 @@ class Repository:
         return MemoryRecord(
             id=UUID(row["id"]),
             scope=MemoryScope(row["scope"]),
-            type=MemoryType(row["type"]),
             name=row.get("name"),
             content=row.get("content", ""),
             provenance=provenance,
@@ -412,12 +449,15 @@ class Repository:
     def upsert_program(self, program: Program) -> UUID:
         """Insert or update a program by name."""
         response = self._execute(
-            """INSERT INTO programs (id, name, program_type, content, includes, tools, metadata)
-               VALUES (:id, :name, :program_type, :content, :includes::jsonb, :tools::jsonb, :metadata::jsonb)
+            """INSERT INTO programs
+                   (id, name, program_type, content, includes, tools, memory_keys, metadata)
+               VALUES (:id, :name, :program_type, :content, :includes::jsonb,
+                       :tools::jsonb, :memory_keys::jsonb, :metadata::jsonb)
                ON CONFLICT (name)
                DO UPDATE SET program_type = EXCLUDED.program_type, content = EXCLUDED.content,
                             includes = EXCLUDED.includes, tools = EXCLUDED.tools,
-                            metadata = EXCLUDED.metadata, updated_at = now()
+                            memory_keys = EXCLUDED.memory_keys, metadata = EXCLUDED.metadata,
+                            updated_at = now()
                RETURNING id, created_at, updated_at""",
             [
                 self._param("id", program.id),
@@ -426,6 +466,7 @@ class Repository:
                 self._param("content", program.content),
                 self._param("includes", program.includes),
                 self._param("tools", program.tools),
+                self._param("memory_keys", program.memory_keys),
                 self._param("metadata", program.metadata),
             ],
         )
@@ -474,6 +515,11 @@ class Repository:
             content=row.get("content", ""),
             includes=includes,
             tools=tools,
+            memory_keys=(
+                json.loads(row["memory_keys"])
+                if isinstance(row.get("memory_keys"), str)
+                else row.get("memory_keys", [])
+            ),
             metadata=metadata,
             created_at=datetime.fromisoformat(row["created_at"]) if row.get("created_at") else None,
             updated_at=datetime.fromisoformat(row["updated_at"]) if row.get("updated_at") else None,

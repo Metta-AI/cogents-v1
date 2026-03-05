@@ -128,7 +128,6 @@ class ToggleResponse(BaseModel):
 class MemoryItem(BaseModel):
     id: str
     scope: str | None = None
-    type: str | None = None
     name: str = ""
     group: str = ""
     content: str = ""

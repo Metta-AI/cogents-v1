@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import click
 
+from cli import get_cogent_name  # noqa: F401 — re-export for back-compat
+
 
 class DefaultCommandGroup(click.Group):
     """Group that defaults to a given subcommand when none is provided."""
@@ -16,15 +18,6 @@ class DefaultCommandGroup(click.Group):
         if not args or (args[0].startswith("-") and args[0] != "--help"):
             args = [self.default_cmd] + list(args)
         return super().parse_args(ctx, args)
-
-
-def get_cogent_name(ctx: click.Context) -> str:
-    """Return the cogent name from the root context."""
-    obj = ctx.find_root().obj
-    name = obj.get("cogent_name") if obj else None
-    if not name:
-        raise click.UsageError("No cogent specified. Use: cogent <name> <command> or set COGENT_NAME env var.")
-    return name
 
 
 @click.group(cls=DefaultCommandGroup, default_cmd="status")
@@ -70,6 +63,10 @@ def create_cmd(ctx: click.Context, profile: str, watch: bool):
         raise click.ClickException("CDK deploy failed")
     click.echo(f"Brain infrastructure for cogent-{name} deployed.")
 
+    # Apply memory schema
+    click.echo("Applying memory schema...")
+    ctx.invoke(_memory_create)
+
 
 @brain.command("destroy")
 @click.option("--profile", default="softmax-org", help="AWS profile")
@@ -103,3 +100,6 @@ def destroy_cmd(ctx: click.Context, profile: str, yes: bool):
 from brain.update_cli import update  # noqa: E402
 
 brain.add_command(update)
+
+# Memory create command (invoked by brain create)
+from memory.cli import create_cmd as _memory_create  # noqa: E402

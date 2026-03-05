@@ -19,7 +19,13 @@ async def get_current_version(conn: asyncpg.Connection) -> int | None:
 
 # Incremental migrations keyed by target version.
 # Add new migrations here as the schema evolves.
-MIGRATIONS: dict[int, str] = {}
+MIGRATIONS: dict[int, str] = {
+    3: """
+        ALTER TABLE memory DROP COLUMN IF EXISTS type;
+        ALTER TABLE programs ADD COLUMN IF NOT EXISTS memory_keys JSONB NOT NULL DEFAULT '[]';
+        INSERT INTO schema_version (version) VALUES (3) ON CONFLICT DO NOTHING;
+    """,
+}
 
 
 async def apply_schema(dsn: str) -> int:

@@ -18,11 +18,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 -- CORE
 -- ═══════════════════════════════════════════════════════════
 
--- Knowledge store: facts, episodic memories, prompts
+-- Knowledge store: hierarchical named memory records
 CREATE TABLE IF NOT EXISTS memory (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     scope       TEXT NOT NULL CHECK (scope IN ('polis', 'cogent')),
-    type        TEXT NOT NULL CHECK (type IN ('fact', 'episodic', 'prompt', 'policy')),
     name        TEXT,
     content     TEXT NOT NULL DEFAULT '',
     provenance  JSONB NOT NULL DEFAULT '{}',
@@ -30,7 +29,7 @@ CREATE TABLE IF NOT EXISTS memory (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_unique_name ON memory (scope, name) WHERE name IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory (scope, type);
+CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory (scope);
 CREATE INDEX IF NOT EXISTS idx_memory_name ON memory (name) WHERE name IS NOT NULL;
 
 -- Add embedding column if pgvector is available
@@ -48,6 +47,7 @@ CREATE TABLE IF NOT EXISTS programs (
     content       TEXT NOT NULL DEFAULT '',
     includes      JSONB NOT NULL DEFAULT '[]',
     tools         JSONB NOT NULL DEFAULT '[]',
+    memory_keys   JSONB NOT NULL DEFAULT '[]',
     metadata      JSONB NOT NULL DEFAULT '{}',
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()

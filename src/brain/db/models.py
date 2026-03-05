@@ -18,13 +18,6 @@ class MemoryScope(str, enum.Enum):
     COGENT = "cogent"
 
 
-class MemoryType(str, enum.Enum):
-    FACT = "fact"
-    EPISODIC = "episodic"
-    PROMPT = "prompt"
-    POLICY = "policy"
-
-
 class TaskStatus(str, enum.Enum):
     PENDING = "pending"
     RUNNING = "running"
@@ -76,7 +69,6 @@ class ProgramType(str, enum.Enum):
 class MemoryRecord(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     scope: MemoryScope
-    type: MemoryType
     name: str | None = None
     content: str = ""
     embedding: list[float] | None = None
@@ -92,6 +84,7 @@ class Program(BaseModel):
     content: str = ""
     includes: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
+    memory_keys: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
