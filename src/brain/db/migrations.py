@@ -53,12 +53,12 @@ async def reset_schema(dsn: str) -> int:
     try:
         await conn.execute("""
             DROP TABLE IF EXISTS traces CASCADE;
-            DROP TABLE IF EXISTS executions CASCADE;
+            DROP TABLE IF EXISTS runs CASCADE;
             DROP TABLE IF EXISTS conversations CASCADE;
             DROP TABLE IF EXISTS tasks CASCADE;
             DROP TABLE IF EXISTS channels CASCADE;
             DROP TABLE IF EXISTS triggers CASCADE;
-            DROP TABLE IF EXISTS skills CASCADE;
+            DROP TABLE IF EXISTS programs CASCADE;
             DROP TABLE IF EXISTS memory CASCADE;
             DROP TABLE IF EXISTS events CASCADE;
             DROP TABLE IF EXISTS alerts CASCADE;

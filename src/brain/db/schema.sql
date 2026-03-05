@@ -1,4 +1,4 @@
--- Cogent database schema v1
+-- Cogent database schema v2
 -- Requires: PostgreSQL 16, pgvector optional (for semantic search)
 
 DO $$ BEGIN
@@ -40,33 +40,35 @@ EXCEPTION WHEN OTHERS THEN
     RAISE NOTICE 'pgvector not available, skipping embedding column';
 END $$;
 
--- Skill content + executable metadata
-CREATE TABLE IF NOT EXISTS skills (
-    cogent_id   TEXT NOT NULL,
-    name        TEXT NOT NULL,
-    skill_type  TEXT NOT NULL DEFAULT 'markdown' CHECK (skill_type IN ('markdown', 'python')),
-    source      TEXT NOT NULL DEFAULT 'golden' CHECK (source IN ('golden', 'local')),
-    description TEXT NOT NULL DEFAULT '',
-    content     TEXT NOT NULL DEFAULT '',
-    triggers    JSONB NOT NULL DEFAULT '[]',
-    resources   JSONB NOT NULL DEFAULT '{}',
-    sla         JSONB NOT NULL DEFAULT '{}',
-    enabled     BOOLEAN NOT NULL DEFAULT true,
-    version     INTEGER NOT NULL DEFAULT 1,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+-- Program content + executable metadata
+CREATE TABLE IF NOT EXISTS programs (
+    cogent_id     TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    program_type  TEXT NOT NULL DEFAULT 'markdown' CHECK (program_type IN ('markdown', 'python')),
+    source        TEXT NOT NULL DEFAULT 'golden' CHECK (source IN ('golden', 'local')),
+    description   TEXT NOT NULL DEFAULT '',
+    content       TEXT NOT NULL DEFAULT '',
+    triggers      JSONB NOT NULL DEFAULT '[]',
+    resources     JSONB NOT NULL DEFAULT '{}',
+    sla           JSONB NOT NULL DEFAULT '{}',
+    compute_tier  TEXT NOT NULL DEFAULT 'lambda' CHECK (compute_tier IN ('lambda', 'ecs')),
+    tools         JSONB NOT NULL DEFAULT '[]',
+    enabled       BOOLEAN NOT NULL DEFAULT true,
+    version       INTEGER NOT NULL DEFAULT 1,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (cogent_id, name)
 );
-CREATE INDEX IF NOT EXISTS idx_skills_type ON skills (cogent_id, skill_type);
+CREATE INDEX IF NOT EXISTS idx_programs_type ON programs (cogent_id, program_type);
 
--- Event→skill wiring
+-- Event→program wiring
 CREATE TABLE IF NOT EXISTS triggers (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     cogent_id       TEXT NOT NULL,
     trigger_type    TEXT NOT NULL CHECK (trigger_type IN ('event', 'cron')),
     event_pattern   TEXT NOT NULL DEFAULT '',
     cron_expression TEXT NOT NULL DEFAULT '',
-    skill_name      TEXT NOT NULL,
+    program_name    TEXT NOT NULL,
     priority        INTEGER NOT NULL DEFAULT 10,
     config          JSONB NOT NULL DEFAULT '{}',
     enabled         BOOLEAN NOT NULL DEFAULT true,
@@ -133,10 +135,10 @@ CREATE INDEX IF NOT EXISTS idx_conversations_context ON conversations (cogent_id
 CREATE INDEX IF NOT EXISTS idx_conversations_channel ON conversations (channel_id) WHERE channel_id IS NOT NULL;
 
 -- Per-invocation summary
-CREATE TABLE IF NOT EXISTS executions (
+CREATE TABLE IF NOT EXISTS runs (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     cogent_id       TEXT NOT NULL,
-    skill_name      TEXT NOT NULL,
+    program_name    TEXT NOT NULL,
     trigger_id      UUID REFERENCES triggers(id),
     conversation_id UUID REFERENCES conversations(id),
     status          TEXT NOT NULL DEFAULT 'running'
@@ -145,25 +147,26 @@ CREATE TABLE IF NOT EXISTS executions (
     tokens_output   INTEGER NOT NULL DEFAULT 0,
     cost_usd        NUMERIC(10, 6) NOT NULL DEFAULT 0,
     duration_ms     INTEGER,
+    model_version   TEXT,
     events_emitted  JSONB NOT NULL DEFAULT '[]',
     error           TEXT,
     started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     completed_at    TIMESTAMPTZ
 );
-CREATE INDEX IF NOT EXISTS idx_executions_cogent ON executions (cogent_id, started_at DESC);
-CREATE INDEX IF NOT EXISTS idx_executions_skill ON executions (cogent_id, skill_name, started_at DESC);
-CREATE INDEX IF NOT EXISTS idx_executions_status ON executions (cogent_id, status);
+CREATE INDEX IF NOT EXISTS idx_runs_cogent ON runs (cogent_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_runs_program ON runs (cogent_id, program_name, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs (cogent_id, status);
 
 -- Detailed execution audit
 CREATE TABLE IF NOT EXISTS traces (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    execution_id    UUID NOT NULL REFERENCES executions(id),
+    run_id          UUID NOT NULL REFERENCES runs(id),
     tool_calls      JSONB NOT NULL DEFAULT '[]',
     memory_ops      JSONB NOT NULL DEFAULT '[]',
     model_version   TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_traces_execution ON traces (execution_id);
+CREATE INDEX IF NOT EXISTS idx_traces_run ON traces (run_id);
 
 -- ═══════════════════════════════════════════════════════════
 -- INFRASTRUCTURE
@@ -221,4 +224,4 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 
 -- Insert initial schema version
-INSERT INTO schema_version (version) VALUES (1) ON CONFLICT DO NOTHING;
+INSERT INTO schema_version (version) VALUES (2) ON CONFLICT DO NOTHING;
