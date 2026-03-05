@@ -21,22 +21,21 @@ PostgreSQL + pgvector                  src/brain/db/schema.sql
 
 Memory is a top-level package (`src/memory/`) independent of brain. Brain's executor imports from memory for context assembly. The `brain create` CLI command invokes `memory create` to ensure schema is applied.
 
+Each cogent has its own database — there is no `cogent_id` column in any table. The `cogent_id` is only used in the CLI layer to identify which cogent's infrastructure to target.
+
 ## Data Model
 
 Reuses the `memory` table. Key fields:
 
-- `cogent_id`: owning agent
 - `scope`: `polis` (org-wide) or `cogent` (per-agent)
 - `name`: hierarchical `/`-separated path (e.g., `/mind/channels/discord/api`)
 - `content`: the memory text
 - `embedding`: vector(1536) column exists for future semantic search
 - `provenance`: JSONB metadata (source, timestamps)
 
-Unique constraint on `(cogent_id, scope, name)` enables upsert behavior.
+Unique constraint on `(scope, name)` enables upsert behavior.
 
-The `type` column (`fact`, `episodic`, `prompt`, `policy`) was removed. The `MemoryType` enum was deleted. The hierarchical name structure provides sufficient organization.
-
-Programs have a `memory_keys` JSONB column listing which memory paths to load into context.
+Programs have `memory_keys` and `metadata` JSONB columns. `memory_keys` lists which memory paths to load into context.
 
 ## MemoryStore (`src/memory/store.py`)
 
@@ -78,12 +77,12 @@ Both POLIS and COGENT records are fetched. COGENT-scoped records with the same `
 ```python
 class MemoryStore:
     def __init__(self, repo: Repository, *, embed_model: str = "amazon.titan-embed-text-v2:0")
-    def resolve_keys(cogent_id: str, keys: list[str]) -> list[MemoryRecord]
-    def upsert(cogent_id, name, content, *, scope, provenance, generate_embedding) -> MemoryRecord
-    def get(cogent_id: str, name: str) -> MemoryRecord | None
-    def list_memories(cogent_id, *, prefix, scope, limit) -> list[MemoryRecord]
-    def delete_by_prefix(cogent_id, prefix, *, scope) -> int
-    def search_similar(cogent_id, query, *, limit) -> list[MemoryRecord]  # stub, not yet wired
+    def resolve_keys(keys: list[str]) -> list[MemoryRecord]
+    def upsert(name, content, *, scope, provenance, generate_embedding) -> MemoryRecord
+    def get(name: str) -> MemoryRecord | None
+    def list_memories(*, prefix, scope, limit) -> list[MemoryRecord]
+    def delete_by_prefix(prefix, *, scope) -> int
+    def search_similar(query, *, limit) -> list[MemoryRecord]  # stub, not yet wired
 ```
 
 ## ContextEngine (`src/memory/context_engine.py`)
@@ -123,7 +122,7 @@ class ContextLayer:
 
 class ContextEngine:
     def __init__(self, memory_store: MemoryStore, *, total_budget: int = 50_000)
-    def build_system_prompt(program, cogent_id, event_data) -> list[dict]  # Bedrock system blocks
+    def build_system_prompt(program, event_data) -> list[dict]  # Bedrock system blocks
 ```
 
 Budget enforcement: layers sorted by priority descending; truncatable layers are trimmed to fit within `total_budget` (estimated at 4 chars/token).
@@ -173,7 +172,8 @@ Previews matching records, confirms, then deletes all matching the prefix. Suppo
 ### Base schema (`schema.sql`)
 
 - `memory` table: `type` column removed, `CHECK` constraint removed
-- `programs` table: `memory_keys JSONB NOT NULL DEFAULT '[]'` added
+- `programs` table: `memory_keys JSONB NOT NULL DEFAULT '[]'` and `metadata JSONB NOT NULL DEFAULT '{}'` added
+- Indexes use `(scope, name)` — no `cogent_id` in any table
 - Schema version bumped to 3
 
 ### Migration (`migrations.py`)
@@ -186,8 +186,9 @@ INSERT INTO schema_version (version) VALUES (3) ON CONFLICT DO NOTHING;
 
 ### New repository methods (`repository.py`)
 
-- `get_memories_by_names(cogent_id, names)` — batch fetch by exact name using `IN` clause
-- `delete_memories_by_prefix(cogent_id, prefix, scope)` — delete by name LIKE prefix
+- `get_memories_by_names(names)` — batch fetch by exact name using `IN` clause
+- `delete_memories_by_prefix(prefix, scope)` — delete by name LIKE prefix
+- `query_memory_by_prefixes(prefixes)` — fetch records matching multiple name prefixes with COGENT-over-POLIS dedup
 - `query_memory()` gained a `prefix` parameter (name LIKE filter)
 - `upsert_program()` and `_program_from_row()` handle `memory_keys`
 
@@ -195,6 +196,7 @@ INSERT INTO schema_version (version) VALUES (3) ON CONFLICT DO NOTHING;
 
 - `MemoryType` enum from `models.py` and `__init__.py`
 - `type` parameter from `insert_memory()`, `query_memory()`, `_memory_from_row()`
+- `cogent_id` from all data store interfaces (each cogent has its own database)
 
 ## File Layout
 
@@ -214,10 +216,10 @@ src/cli/__init__.py        # get_cogent_name() shared utility
 
 | File | Change |
 |------|--------|
-| `src/brain/db/models.py` | Removed `MemoryType` enum, removed `type` from `MemoryRecord`, added `memory_keys` to `Program` |
-| `src/brain/db/repository.py` | Removed `MemoryType`, added `get_memories_by_names`, `delete_memories_by_prefix`, `prefix` param on `query_memory`, `memory_keys` on program methods |
+| `src/brain/db/models.py` | Removed `MemoryType` enum, removed `type` from `MemoryRecord`, added `memory_keys` and `metadata` to `Program` |
+| `src/brain/db/repository.py` | Removed `MemoryType`, added `get_memories_by_names`, `delete_memories_by_prefix`, `query_memory_by_prefixes`, `prefix` param on `query_memory`, `memory_keys` on program methods |
 | `src/brain/db/__init__.py` | Removed `MemoryType` export |
-| `src/brain/db/schema.sql` | Dropped `type` from memory, added `memory_keys` to programs, bumped to v3 |
+| `src/brain/db/schema.sql` | Dropped `type` from memory, added `memory_keys` and `metadata` to programs, bumped to v3 |
 | `src/brain/db/migrations.py` | Added migration v3 |
 | `src/brain/lambdas/executor/handler.py` | Replaced static prompt with `ContextEngine.build_system_prompt()` |
 | `src/brain/cli.py` | `brain create` invokes `memory create`; `get_cogent_name` imported from `cli` |
