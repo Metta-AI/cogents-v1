@@ -1,0 +1,93 @@
+import hashlib
+import hmac
+
+from channels.base import ChannelMode, InboundEvent
+from channels.github import GitHubChannel
+from channels.github.webhook import verify_signature
+
+
+class TestGitHubSignature:
+    def test_valid_signature(self):
+        secret = "test-secret"
+        payload = b'{"action":"opened"}'
+        sig = "sha256=" + hmac.new(
+            secret.encode(), payload, hashlib.sha256
+        ).hexdigest()
+        assert verify_signature(payload, sig, secret) is True
+
+    def test_invalid_signature(self):
+        assert verify_signature(b"payload", "sha256=invalid", "secret") is False
+
+    def test_missing_prefix(self):
+        assert verify_signature(b"payload", "invalid", "secret") is False
+
+
+class TestGitHubChannel:
+    def test_mode_is_on_demand(self):
+        ch = GitHubChannel(name="github")
+        assert ch.mode == ChannelMode.ON_DEMAND
+
+    async def test_poll_returns_queued_events(self):
+        ch = GitHubChannel(name="github")
+        event = InboundEvent(channel="github", event_type="push", payload={})
+        ch.add_event(event)
+        events = await ch.poll()
+        assert len(events) == 1
+        assert events[0].event_type == "push"
+
+    async def test_poll_drains_queue(self):
+        ch = GitHubChannel(name="github")
+        for i in range(3):
+            ch.add_event(
+                InboundEvent(
+                    channel="github", event_type=f"event.{i}", payload={}
+                )
+            )
+        events = await ch.poll()
+        assert len(events) == 3
+        events = await ch.poll()
+        assert len(events) == 0
+
+    def test_ingest_issue_assigned(self):
+        ch = GitHubChannel(name="github")
+        event = ch.ingest_webhook(
+            "issues",
+            "assigned",
+            {
+                "sender": {"login": "testuser"},
+                "repository": {"full_name": "org/repo"},
+                "issue": {
+                    "number": 42,
+                    "body": "Fix this",
+                    "html_url": "https://github.com/org/repo/issues/42",
+                },
+            },
+        )
+        assert event.event_type == "issue.assigned"
+        assert event.author == "testuser"
+        assert event.external_id == "github:issue:org/repo:42"
+
+    def test_ingest_ci_failure(self):
+        ch = GitHubChannel(name="github")
+        event = ch.ingest_webhook(
+            "check_suite",
+            "completed",
+            {
+                "sender": {"login": "github-actions"},
+                "repository": {"full_name": "org/repo"},
+                "conclusion": "failure",
+            },
+        )
+        assert event.event_type == "ci.failure"
+
+    def test_ingest_unknown_event(self):
+        ch = GitHubChannel(name="github")
+        event = ch.ingest_webhook(
+            "unknown_event",
+            "triggered",
+            {
+                "sender": {"login": "bot"},
+                "repository": {"full_name": "org/repo"},
+            },
+        )
+        assert event.event_type == "github.unknown_event.triggered"
