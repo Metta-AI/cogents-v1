@@ -17,6 +17,8 @@ from brain.db.models import (
     Event,
     Program,
     ProgramType,
+    Resource,
+    ResourceType,
     Task,
     TaskStatus,
     Trigger,
@@ -208,43 +210,77 @@ def task() -> None:
 
 @task.command("create")
 @click.argument("name")
+@click.option("--program", "program_name", default="do-content", help="Program name")
+@click.option("--content", default="")
+@click.option("--content-file", type=click.Path(exists=True))
 @click.option("--description", "-d", default="")
-@click.option("--priority", "-p", type=int, default=0)
+@click.option("--priority", "-p", type=float, default=0.0)
+@click.option("--runner", type=click.Choice(["lambda", "ecs"]), default=None)
+@click.option("--clear-context", is_flag=True, default=False)
+@click.option("--memory-keys", default="", help="Comma-separated memory keys")
+@click.option("--tools", default="", help="Comma-separated tools")
+@click.option("--resources", default="", help="Comma-separated extra resources")
 @click.option("--parent", type=str, default=None, help="Parent task ID")
 @click.option("--creator", default="cli")
-@click.option("--source-event", default=None)
-@click.option("--limits", default="{}", help="JSON limits: {tokens, attempts, time_seconds}")
+@click.option("--disabled", is_flag=True, default=False, help="Create in DISABLED status")
+@click.option("--limits", default="{}", help="JSON limits")
 @click.option("--metadata", "metadata_json", default="{}", help="JSON metadata")
 @click.pass_context
 def task_create(
     ctx: click.Context,
     name: str,
+    program_name: str,
+    content: str,
+    content_file: str | None,
     description: str,
-    priority: int,
+    priority: float,
+    runner: str | None,
+    clear_context: bool,
+    memory_keys: str,
+    tools: str,
+    resources: str,
     parent: str | None,
     creator: str,
-    source_event: str | None,
+    disabled: bool,
     limits: str,
     metadata_json: str,
 ) -> None:
     """Create a task."""
+    if content_file:
+        content = Path(content_file).read_text()
+
+    memory_keys_list = [s.strip() for s in memory_keys.split(",") if s.strip()] if memory_keys else []
+    tools_list = [s.strip() for s in tools.split(",") if s.strip()] if tools else []
+    resources_list = [s.strip() for s in resources.split(",") if s.strip()] if resources else []
+
     t = Task(
         name=name,
+        program_name=program_name,
+        content=content,
         description=description,
         priority=priority,
+        runner=runner,
+        clear_context=clear_context,
+        memory_keys=memory_keys_list,
+        tools=tools_list,
+        resources=resources_list,
         parent_task_id=UUID(parent) if parent else None,
         creator=creator,
-        source_event=source_event,
+        status=TaskStatus.DISABLED if disabled else TaskStatus.RUNNABLE,
         limits=json.loads(limits),
         metadata=json.loads(metadata_json),
     )
     repo = _repo()
     task_id = repo.create_task(t)
-    _output({"id": str(task_id), "name": name, "status": "created"}, use_json=ctx.obj["json"])
+    _output({"id": str(task_id), "name": name, "status": t.status.value}, use_json=ctx.obj["json"])
 
 
 @task.command("list")
-@click.option("--status", type=click.Choice(["pending", "running", "failed", "completed"]), default=None)
+@click.option(
+    "--status",
+    type=click.Choice(["runnable", "running", "completed", "disabled"]),
+    default=None,
+)
 @click.option("--limit", type=int, default=50)
 @click.pass_context
 def task_list(ctx: click.Context, status: str | None, limit: int) -> None:
@@ -253,7 +289,15 @@ def task_list(ctx: click.Context, status: str | None, limit: int) -> None:
     task_status = TaskStatus(status) if status else None
     tasks = repo.list_tasks(status=task_status, limit=limit)
     data = [
-        {"id": str(t.id), "name": t.name, "status": t.status.value, "priority": t.priority, "creator": t.creator}
+        {
+            "id": str(t.id),
+            "name": t.name,
+            "status": t.status.value,
+            "priority": t.priority,
+            "program_name": t.program_name,
+            "runner": t.runner,
+            "creator": t.creator,
+        }
         for t in tasks
     ]
     _output(data, use_json=ctx.obj["json"])
@@ -274,15 +318,169 @@ def task_show(ctx: click.Context, task_id: str) -> None:
 
 @task.command("update")
 @click.argument("task_id")
-@click.option("--status", type=click.Choice(["pending", "running", "failed", "completed"]), required=True)
+@click.option(
+    "--status",
+    type=click.Choice(["runnable", "running", "completed", "disabled"]),
+    default=None,
+)
+@click.option("--priority", "-p", type=float, default=None)
+@click.option("--content", default=None)
+@click.option("--runner", type=click.Choice(["lambda", "ecs"]), default=None)
 @click.pass_context
-def task_update(ctx: click.Context, task_id: str, status: str) -> None:
-    """Update a task's status."""
+def task_update(
+    ctx: click.Context,
+    task_id: str,
+    status: str | None,
+    priority: float | None,
+    content: str | None,
+    runner: str | None,
+) -> None:
+    """Update a task."""
     repo = _repo()
-    if repo.update_task_status(UUID(task_id), TaskStatus(status)):
-        _output({"id": task_id, "status": status}, use_json=ctx.obj["json"])
+    t = repo.get_task(UUID(task_id))
+    if not t:
+        click.echo(f"Task '{task_id}' not found.", err=True)
+        sys.exit(1)
+
+    updated: dict[str, object] = {"id": task_id}
+
+    if status is not None:
+        repo.update_task_status(UUID(task_id), TaskStatus(status))
+        t.status = TaskStatus(status)
+        updated["status"] = status
+
+    if priority is not None:
+        t.priority = priority
+        updated["priority"] = priority
+
+    if content is not None:
+        t.content = content
+        updated["content"] = "(updated)"
+
+    if runner is not None:
+        t.runner = runner
+        updated["runner"] = runner
+
+    # If any field besides status was changed, upsert the full task
+    if any(k in updated for k in ("priority", "content", "runner")):
+        repo.upsert_task(t, update_priority=True)
+
+    _output(updated, use_json=ctx.obj["json"])
+
+
+@task.command("disable")
+@click.argument("task_id")
+@click.pass_context
+def task_disable(ctx: click.Context, task_id: str) -> None:
+    """Disable a task (set status to DISABLED)."""
+    repo = _repo()
+    if repo.update_task_status(UUID(task_id), TaskStatus.DISABLED):
+        _output({"id": task_id, "status": "disabled"}, use_json=ctx.obj["json"])
     else:
         click.echo(f"Task '{task_id}' not found.", err=True)
+        sys.exit(1)
+
+
+@task.command("enable")
+@click.argument("task_id")
+@click.pass_context
+def task_enable(ctx: click.Context, task_id: str) -> None:
+    """Enable a task (set status to RUNNABLE)."""
+    repo = _repo()
+    if repo.update_task_status(UUID(task_id), TaskStatus.RUNNABLE):
+        _output({"id": task_id, "status": "runnable"}, use_json=ctx.obj["json"])
+    else:
+        click.echo(f"Task '{task_id}' not found.", err=True)
+        sys.exit(1)
+
+
+# ═══════════════════════════════════════════════════════════
+# RESOURCES
+# ═══════════════════════════════════════════════════════════
+
+
+@mind.group()
+def resource() -> None:
+    """Manage resources."""
+
+
+@resource.command("create")
+@click.argument("name")
+@click.option("--type", "resource_type", type=click.Choice(["pool", "consumable"]), required=True)
+@click.option("--capacity", type=float, required=True)
+@click.option("--metadata", "metadata_json", default="{}", help="JSON metadata")
+@click.pass_context
+def resource_create(
+    ctx: click.Context,
+    name: str,
+    resource_type: str,
+    capacity: float,
+    metadata_json: str,
+) -> None:
+    """Create or update a resource."""
+    r = Resource(
+        name=name,
+        resource_type=ResourceType(resource_type),
+        capacity=capacity,
+        metadata=json.loads(metadata_json),
+    )
+    repo = _repo()
+    repo.upsert_resource(r)
+    _output({"name": name, "type": resource_type, "capacity": capacity, "status": "created"}, use_json=ctx.obj["json"])
+
+
+@resource.command("list")
+@click.pass_context
+def resource_list(ctx: click.Context) -> None:
+    """List all resources."""
+    repo = _repo()
+    resources = repo.list_resources()
+    data = [
+        {
+            "name": r.name,
+            "type": r.resource_type.value,
+            "capacity": r.capacity,
+        }
+        for r in resources
+    ]
+    _output(data, use_json=ctx.obj["json"])
+
+
+@resource.command("show")
+@click.argument("name")
+@click.pass_context
+def resource_show(ctx: click.Context, name: str) -> None:
+    """Show a resource's details and current usage."""
+    repo = _repo()
+    r = repo.get_resource(name)
+    if not r:
+        click.echo(f"Resource '{name}' not found.", err=True)
+        sys.exit(1)
+
+    data = r.model_dump(mode="json")
+
+    if r.resource_type == ResourceType.POOL:
+        usage = repo.get_pool_usage(name)
+        data["current_usage"] = usage
+        data["available"] = max(0, r.capacity - usage)
+    else:
+        usage = repo.get_consumable_usage(name)
+        data["consumed"] = usage
+        data["available"] = max(0.0, r.capacity - usage)
+
+    _output(data, use_json=ctx.obj["json"])
+
+
+@resource.command("delete")
+@click.argument("name")
+@click.pass_context
+def resource_delete(ctx: click.Context, name: str) -> None:
+    """Delete a resource."""
+    repo = _repo()
+    if repo.delete_resource(name):
+        _output({"name": name, "status": "deleted"}, use_json=ctx.obj["json"])
+    else:
+        click.echo(f"Resource '{name}' not found.", err=True)
         sys.exit(1)
 
 
