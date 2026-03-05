@@ -15,6 +15,7 @@ downloads/
 # eggs/  — excluded: polis/eggs/ is a project directory
 .eggs/
 lib/
+!dashboard/frontend/src/lib/
 lib64/
 parts/
 sdist/
