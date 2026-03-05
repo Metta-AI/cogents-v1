@@ -293,7 +293,7 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
                 Message
               </th>
               <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">
-                Created
+                First Seen
               </th>
               <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium text-right">
                 Actions
@@ -422,13 +422,14 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
                   <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Type</th>
                   <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Source</th>
                   <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Message</th>
+                  <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">First Seen</th>
                   <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Resolved</th>
                 </tr>
               </thead>
               <tbody>
                 {resolvedAlerts.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="text-[var(--text-muted)] text-[13px] py-6 text-center">
+                    <td colSpan={6} className="text-[var(--text-muted)] text-[13px] py-6 text-center">
                       No resolved alerts
                     </td>
                   </tr>
@@ -445,6 +446,7 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
                       <td className="px-3 py-2 font-mono text-[var(--text-secondary)]">{a.alert_type ?? "--"}</td>
                       <td className="px-3 py-2 font-mono text-[var(--text-muted)]">{a.source ?? "--"}</td>
                       <td className="px-3 py-2 text-[var(--text-secondary)]" title={msg}>{truncated}</td>
+                      <td className="px-3 py-2 text-[var(--text-muted)] text-[11px]">{fmtRelative(a.created_at)}</td>
                       <td className="px-3 py-2 text-[var(--text-muted)] text-[11px]">{fmtRelative(a.resolved_at)}</td>
                     </tr>
                   );
