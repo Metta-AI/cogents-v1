@@ -25,6 +25,60 @@ MIGRATIONS: dict[int, str] = {
         ALTER TABLE programs ADD COLUMN IF NOT EXISTS memory_keys JSONB NOT NULL DEFAULT '[]';
         INSERT INTO schema_version (version) VALUES (3) ON CONFLICT DO NOTHING;
     """,
+    4: """
+        -- New task columns
+        ALTER TABLE tasks ADD COLUMN IF NOT EXISTS program_name TEXT NOT NULL DEFAULT 'do-content';
+        ALTER TABLE tasks ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT '';
+        ALTER TABLE tasks ADD COLUMN IF NOT EXISTS memory_keys JSONB NOT NULL DEFAULT '[]';
+        ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tools JSONB NOT NULL DEFAULT '[]';
+        ALTER TABLE tasks ADD COLUMN IF NOT EXISTS runner TEXT CHECK (runner IN ('lambda', 'ecs')) DEFAULT NULL;
+        ALTER TABLE tasks ADD COLUMN IF NOT EXISTS clear_context BOOLEAN NOT NULL DEFAULT false;
+        ALTER TABLE tasks ADD COLUMN IF NOT EXISTS resources JSONB NOT NULL DEFAULT '[]';
+
+        -- Change priority from int to double precision
+        ALTER TABLE tasks ALTER COLUMN priority TYPE DOUBLE PRECISION;
+
+        -- Update status CHECK constraint
+        ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+        ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
+            CHECK (status IN ('runnable', 'running', 'completed', 'disabled'));
+        UPDATE tasks SET status = 'runnable' WHERE status = 'pending';
+        UPDATE tasks SET status = 'runnable' WHERE status = 'failed';
+        ALTER TABLE tasks ALTER COLUMN status SET DEFAULT 'runnable';
+
+        -- Unique index on tasks.name
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_unique_name ON tasks (name);
+
+        -- Add runner column to programs
+        ALTER TABLE programs ADD COLUMN IF NOT EXISTS runner TEXT CHECK (runner IN ('lambda', 'ecs')) DEFAULT NULL;
+
+        -- Add FK from tasks.program_name to programs.name (ensure program exists first)
+        INSERT INTO programs (name, content) VALUES ('do-content', '')
+            ON CONFLICT (name) DO NOTHING;
+        ALTER TABLE tasks ADD CONSTRAINT tasks_program_name_fkey
+            FOREIGN KEY (program_name) REFERENCES programs(name);
+
+        -- Resources tables
+        CREATE TABLE IF NOT EXISTS resources (
+            name          TEXT PRIMARY KEY,
+            resource_type TEXT NOT NULL CHECK (resource_type IN ('pool', 'consumable')),
+            capacity      DOUBLE PRECISION NOT NULL DEFAULT 1,
+            metadata      JSONB NOT NULL DEFAULT '{}',
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS resource_usage (
+            id            BIGSERIAL PRIMARY KEY,
+            resource_name TEXT NOT NULL REFERENCES resources(name),
+            run_id        UUID NOT NULL REFERENCES runs(id),
+            amount        DOUBLE PRECISION NOT NULL,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_resource_usage_resource ON resource_usage (resource_name);
+        CREATE INDEX IF NOT EXISTS idx_resource_usage_run ON resource_usage (run_id);
+
+        INSERT INTO schema_version (version) VALUES (4) ON CONFLICT DO NOTHING;
+    """,
 }
 
 
@@ -54,6 +108,8 @@ async def reset_schema(dsn: str) -> int:
     conn = await asyncpg.connect(dsn)
     try:
         await conn.execute("""
+            DROP TABLE IF EXISTS resource_usage CASCADE;
+            DROP TABLE IF EXISTS resources CASCADE;
             DROP TABLE IF EXISTS traces CASCADE;
             DROP TABLE IF EXISTS runs CASCADE;
             DROP TABLE IF EXISTS conversations CASCADE;

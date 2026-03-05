@@ -19,10 +19,10 @@ class MemoryScope(str, enum.Enum):
 
 
 class TaskStatus(str, enum.Enum):
-    PENDING = "pending"
+    RUNNABLE = "runnable"
     RUNNING = "running"
-    FAILED = "failed"
     COMPLETED = "completed"
+    DISABLED = "disabled"
 
 
 class RunStatus(str, enum.Enum):
@@ -86,6 +86,7 @@ class Program(BaseModel):
     tools: list[str] = Field(default_factory=list)
     memory_keys: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    runner: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -108,8 +109,15 @@ class Task(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     name: str
     description: str = ""
-    status: TaskStatus = TaskStatus.PENDING
-    priority: int = 0
+    program_name: str = "do-content"
+    content: str = ""
+    memory_keys: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    status: TaskStatus = TaskStatus.RUNNABLE
+    priority: float = 0.0
+    runner: str | None = None
+    clear_context: bool = False
+    resources: list[str] = Field(default_factory=list)
     parent_task_id: UUID | None = None
     creator: str = ""
     source_event: str | None = None
@@ -220,4 +228,25 @@ class Cron(BaseModel):
     event_pattern: str
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+
+class ResourceType(str, enum.Enum):
+    POOL = "pool"
+    CONSUMABLE = "consumable"
+
+
+class Resource(BaseModel):
+    name: str
+    resource_type: ResourceType = ResourceType.POOL
+    capacity: float = 1.0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+
+class ResourceUsage(BaseModel):
+    id: int | None = None
+    resource_name: str
+    run_id: UUID
+    amount: float
     created_at: datetime | None = None

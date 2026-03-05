@@ -1,4 +1,4 @@
--- Cogent database schema v3
+-- Cogent database schema v4
 -- Requires: PostgreSQL 16, pgvector optional (for semantic search)
 -- Each cogent has its own database; no cogent_id column needed.
 
@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS programs (
     tools         JSONB NOT NULL DEFAULT '[]',
     memory_keys   JSONB NOT NULL DEFAULT '[]',
     metadata      JSONB NOT NULL DEFAULT '{}',
+    runner          TEXT CHECK (runner IN ('lambda', 'ecs')) DEFAULT NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -101,9 +102,16 @@ CREATE TABLE IF NOT EXISTS tasks (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name            TEXT NOT NULL,
     description     TEXT NOT NULL DEFAULT '',
-    status          TEXT NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending', 'running', 'failed', 'completed')),
-    priority        INTEGER NOT NULL DEFAULT 0,
+    program_name    TEXT NOT NULL REFERENCES programs(name),
+    content         TEXT NOT NULL DEFAULT '',
+    memory_keys     JSONB NOT NULL DEFAULT '[]',
+    tools           JSONB NOT NULL DEFAULT '[]',
+    status          TEXT NOT NULL DEFAULT 'runnable'
+                    CHECK (status IN ('runnable', 'running', 'completed', 'disabled')),
+    priority        DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    runner          TEXT CHECK (runner IN ('lambda', 'ecs')) DEFAULT NULL,
+    clear_context   BOOLEAN NOT NULL DEFAULT false,
+    resources       JSONB NOT NULL DEFAULT '[]',
     parent_task_id  UUID REFERENCES tasks(id),
     creator         TEXT NOT NULL DEFAULT '',
     source_event    TEXT,
@@ -115,6 +123,26 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks (status, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks (parent_task_id) WHERE parent_task_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_unique_name ON tasks (name);
+
+-- Resource pool and budget tracking
+CREATE TABLE IF NOT EXISTS resources (
+    name          TEXT PRIMARY KEY,
+    resource_type TEXT NOT NULL CHECK (resource_type IN ('pool', 'consumable')),
+    capacity      DOUBLE PRECISION NOT NULL DEFAULT 1,
+    metadata      JSONB NOT NULL DEFAULT '{}',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS resource_usage (
+    id            BIGSERIAL PRIMARY KEY,
+    resource_name TEXT NOT NULL REFERENCES resources(name),
+    run_id        UUID NOT NULL REFERENCES runs(id),
+    amount        DOUBLE PRECISION NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_resource_usage_resource ON resource_usage (resource_name);
+CREATE INDEX IF NOT EXISTS idx_resource_usage_run ON resource_usage (run_id);
 
 -- Multi-turn conversation routing
 CREATE TABLE IF NOT EXISTS conversations (
@@ -218,4 +246,4 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 
 -- Insert initial schema version
-INSERT INTO schema_version (version) VALUES (3) ON CONFLICT DO NOTHING;
+INSERT INTO schema_version (version) VALUES (4) ON CONFLICT DO NOTHING;

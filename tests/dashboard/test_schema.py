@@ -17,6 +17,8 @@ EXPECTED_TABLES = [
     "channels",
     "traces",
     "budget",
+    "resources",
+    "resource_usage",
 ]
 
 
