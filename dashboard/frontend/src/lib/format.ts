@@ -1,4 +1,15 @@
-import type { Timezone } from "./types";
+import type { Timezone, TimeRange } from "./types";
+
+/** Convert a TimeRange value to milliseconds. */
+export function timeRangeToMs(range: TimeRange): number {
+  switch (range) {
+    case "1m": return 60_000;
+    case "10m": return 600_000;
+    case "1h": return 3_600_000;
+    case "24h": return 86_400_000;
+    case "1w": return 604_800_000;
+  }
+}
 
 /** Format a number with locale-aware separators (e.g. 1,234). */
 export function fmtNum(n: number | null | undefined): string {

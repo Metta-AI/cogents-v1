@@ -90,7 +90,7 @@ export default function DashboardPage() {
           <ChannelsPanel channels={data.channels} cogentName={cogentName} onRefresh={refresh} />
         )}
         {activeTab === "events" && (
-          <EventsPanel events={data.events} cogentName={cogentName} />
+          <EventsPanel events={data.events} cogentName={cogentName} triggers={data.triggers} timeRange={timeRange} />
         )}
         {activeTab === "triggers" && (
           <TriggersPanel triggers={data.triggers} cogentName={cogentName} programs={data.programs.map(p => p.name)} onRefresh={refresh} />
@@ -102,7 +102,7 @@ export default function DashboardPage() {
           <ResourcesPanel data={data} />
         )}
         {activeTab === "tasks" && (
-          <TasksPanel tasks={data.tasks} cogentName={cogentName} onRefresh={refresh} memory={data.memory} programs={data.programs} />
+          <TasksPanel tasks={data.tasks} cogentName={cogentName} onRefresh={refresh} memory={data.memory} programs={data.programs} timeRange={timeRange} />
         )}
         {activeTab === "cron" && (
           <CronPanel crons={data.crons} cogentName={cogentName} onRefresh={refresh} />

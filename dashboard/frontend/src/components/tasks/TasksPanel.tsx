@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import type { Task, MemoryItem, Program } from "@/lib/types";
+import type { Task, MemoryItem, Program, TimeRange } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
 import * as api from "@/lib/api";
 import { fmtRelative } from "@/lib/format";
@@ -12,6 +12,7 @@ interface TasksPanelProps {
   onRefresh: () => void;
   memory: MemoryItem[];
   programs: Program[];
+  timeRange: TimeRange;
 }
 
 type BadgeVariant = "success" | "warning" | "error" | "info" | "neutral" | "accent";
@@ -29,9 +30,16 @@ const STATUSES = ["runnable", "running", "completed", "disabled"];
 
 const STUCK_THRESHOLD_MS = 10 * 60 * 1000;
 const RECENT_THRESHOLD_MS = 60 * 60 * 1000;
-const TIME_WINDOWS = ["1m", "5m", "1h", "24h", "7d"] as const;
-type TimeWindow = typeof TIME_WINDOWS[number];
-const STORAGE_KEY = "tasks-time-window";
+const RUN_COUNT_WINDOWS = ["1m", "5m", "1h", "24h", "7d"] as const;
+
+// Map page-level TimeRange to the closest run_counts window key
+const TIME_RANGE_TO_WINDOW: Record<TimeRange, string> = {
+  "1m": "1m",
+  "10m": "5m",
+  "1h": "1h",
+  "24h": "24h",
+  "1w": "7d",
+};
 
 function getPrefix(name: string): string {
   const lastSlash = name.lastIndexOf("/");
@@ -206,7 +214,7 @@ function TagListEditor({
 
 /* ── Main component ── */
 
-export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: TasksPanelProps) {
+export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, timeRange }: TasksPanelProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedRuns, setExpandedRuns] = useState<TaskRun[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -219,33 +227,19 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [undoToast, setUndoToast] = useState<UndoToast | null>(null);
   const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
-  const [timeWindow, setTimeWindow] = useState<TimeWindow>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && TIME_WINDOWS.includes(saved as TimeWindow)) return saved as TimeWindow;
-    }
-    return "24h";
-  });
   const undoRef = useRef<UndoToast | null>(null);
 
-  const selectTimeWindow = useCallback((w: TimeWindow) => {
-    setTimeWindow(w);
-    localStorage.setItem(STORAGE_KEY, w);
-  }, []);
-
-  // Filter tasks: only show tasks with runs in the selected window (or running/stuck)
+  // Filter tasks: only show tasks with runs in the selected time range (or running/stuck/new)
+  const activeWindow = TIME_RANGE_TO_WINDOW[timeRange];
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
-      // Always show running/stuck tasks
       if (t.status === "running") return true;
-      // Show tasks with runs in the selected window
-      const c = t.run_counts?.[timeWindow];
+      const c = t.run_counts?.[activeWindow];
       if (c && c.runs > 0) return true;
-      // Show tasks with no run data at all (new tasks, etc.)
       if (!t.run_counts || Object.values(t.run_counts).every((v) => v.runs === 0)) return true;
       return false;
     });
-  }, [tasks, timeWindow]);
+  }, [tasks, activeWindow]);
 
   // Typeahead suggestion sources
   const memoryKeySuggestions = useMemo(
@@ -679,7 +673,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
           <div className="flex-1" />
           {/* Run counts as separated blocks — only windows with runs */}
           {task.run_counts && (() => {
-            const entries = TIME_WINDOWS
+            const entries = RUN_COUNT_WINDOWS
               .map((w) => ({ w, c: task.run_counts![w] }))
               .filter(({ c }) => c && c.runs > 0);
             if (entries.length === 0) return null;
@@ -881,7 +875,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
                   {task.run_counts && (
                     <span className="flex items-center gap-1.5 font-mono">
                       <span className="text-[var(--text-muted)]">runs:</span>
-                      {TIME_WINDOWS.map((w) => {
+                      {RUN_COUNT_WINDOWS.map((w) => {
                         const c = task.run_counts![w];
                         const runs = c?.runs ?? 0;
                         const failed = c?.failed ?? 0;
@@ -1004,28 +998,8 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-[var(--text-muted)] text-xs">
-            {filteredTasks.length}/{tasks.length} task{tasks.length !== 1 ? "s" : ""}
-          </span>
-          <span className="flex gap-0.5 text-[10px] font-mono">
-            {TIME_WINDOWS.map((w) => (
-              <button
-                key={w}
-                onClick={() => selectTimeWindow(w)}
-                className="border-0 cursor-pointer rounded px-1.5 py-0.5 transition-colors"
-                style={{
-                  background: timeWindow === w ? "var(--accent)" : "var(--bg-hover)",
-                  color: timeWindow === w ? "var(--bg-deep)" : "var(--text-muted)",
-                  fontWeight: timeWindow === w ? 700 : 400,
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "10px",
-                }}
-              >
-                {w}
-              </button>
-            ))}
-          </span>
+        <div className="text-[var(--text-muted)] text-xs">
+          {filteredTasks.length}/{tasks.length} task{tasks.length !== 1 ? "s" : ""}
         </div>
         <button
           onClick={() => setCreating(!creating)}
