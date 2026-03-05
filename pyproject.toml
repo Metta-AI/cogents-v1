@@ -56,3 +56,4 @@ reportMissingTypeStubs = false
 asyncio_mode = "auto"
 testpaths = ["tests"]
 timeout = 60
+pythonpath = ["src"]

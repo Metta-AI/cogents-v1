@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+import enum
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable
+
+
+class ChannelMode(str, enum.Enum):
+    LIVE = "live"
+    POLL = "poll"
+    ON_DEMAND = "on_demand"
+
+
+@dataclass
+class InboundEvent:
+    channel: str
+    event_type: str
+    payload: dict[str, Any] = field(default_factory=dict)
+    raw_content: str = ""
+    author: str | None = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    external_id: str | None = None
+    external_url: str | None = None
+
+
+class Channel(ABC):
+    mode: ChannelMode
+    name: str
+
+    def __init__(self, name: str):
+        self.name = name
+
+    async def start(self) -> None:
+        pass
+
+    async def stop(self) -> None:
+        pass
+
+    @abstractmethod
+    async def poll(self) -> list[InboundEvent]:
+        ...
+
+    async def send(self, message: str, target: str, **kwargs: Any) -> None:
+        raise NotImplementedError(f"{self.name} does not support sending")
