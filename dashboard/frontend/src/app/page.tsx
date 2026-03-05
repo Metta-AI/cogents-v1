@@ -78,16 +78,16 @@ export default function DashboardPage() {
           <ProgramsPanel programs={data.programs} cogentName={cogentName} />
         )}
         {activeTab === "channels" && (
-          <ChannelsPanel channels={data.channels} />
+          <ChannelsPanel channels={data.channels} cogentName={cogentName} onRefresh={refresh} />
         )}
         {activeTab === "events" && (
           <EventsPanel events={data.events} cogentName={cogentName} />
         )}
         {activeTab === "triggers" && (
-          <TriggersPanel triggers={data.triggers} cogentName={cogentName} />
+          <TriggersPanel triggers={data.triggers} cogentName={cogentName} programs={data.programs.map(p => p.name)} onRefresh={refresh} />
         )}
         {activeTab === "memory" && (
-          <MemoryPanel memory={data.memory} />
+          <MemoryPanel memory={data.memory} cogentName={cogentName} onRefresh={refresh} />
         )}
         {activeTab === "resources" && (
           <ResourcesPanel data={data} />
@@ -99,7 +99,7 @@ export default function DashboardPage() {
           <CronPanel crons={data.crons} cogentName={cogentName} onRefresh={refresh} />
         )}
         {activeTab === "alerts" && (
-          <AlertsPanel alerts={data.alerts} />
+          <AlertsPanel alerts={data.alerts} cogentName={cogentName} onRefresh={refresh} />
         )}
       </main>
     </div>

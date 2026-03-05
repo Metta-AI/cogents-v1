@@ -74,6 +74,41 @@ export async function getMemory(name: string): Promise<MemoryItem[]> {
   return r.memory;
 }
 
+export async function createMemory(
+  name: string,
+  mem: { name: string; content?: string; scope?: string; provenance?: Record<string, unknown> },
+): Promise<MemoryItem> {
+  const resp = await fetch(`/api/cogents/${name}/memory`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(mem),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function updateMemory(
+  name: string,
+  memoryId: string,
+  updates: { name?: string; content?: string; scope?: string },
+): Promise<MemoryItem> {
+  const resp = await fetch(`/api/cogents/${name}/memory/${memoryId}`, {
+    method: "PUT",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function deleteMemory(name: string, memoryId: string): Promise<void> {
+  const resp = await fetch(`/api/cogents/${name}/memory/${memoryId}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+}
+
 export async function getTasks(name: string): Promise<Task[]> {
   const r = await fetchJSON<{ tasks: Task[] }>(
     `/api/cogents/${name}/tasks`,
@@ -130,11 +165,88 @@ export async function getChannels(name: string): Promise<Channel[]> {
   return r.channels;
 }
 
+export async function createChannel(
+  name: string,
+  channel: { name: string; type?: string; enabled?: boolean; config?: Record<string, unknown> },
+): Promise<Channel> {
+  const resp = await fetch(`/api/cogents/${name}/channels`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(channel),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function updateChannel(
+  name: string,
+  channelName: string,
+  updates: { type?: string; enabled?: boolean; config?: Record<string, unknown> },
+): Promise<Channel> {
+  const resp = await fetch(`/api/cogents/${name}/channels/${encodeURIComponent(channelName)}`, {
+    method: "PUT",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function deleteChannel(name: string, channelName: string): Promise<void> {
+  const resp = await fetch(`/api/cogents/${name}/channels/${encodeURIComponent(channelName)}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+}
+
 export async function getAlerts(name: string): Promise<Alert[]> {
   const r = await fetchJSON<{ alerts: Alert[] }>(
     `/api/cogents/${name}/alerts`,
   );
   return r.alerts;
+}
+
+export async function resolveAlert(
+  name: string,
+  alertId: string,
+): Promise<{ resolved: boolean }> {
+  const resp = await fetch(`/api/cogents/${name}/alerts/${alertId}/resolve`, {
+    method: "POST",
+    headers: headers(),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function createAlert(
+  name: string,
+  alert: {
+    severity?: string;
+    alert_type?: string;
+    source?: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<Alert> {
+  const resp = await fetch(`/api/cogents/${name}/alerts`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(alert),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function deleteAlert(
+  name: string,
+  alertId: string,
+): Promise<void> {
+  const resp = await fetch(`/api/cogents/${name}/alerts/${alertId}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
 }
 
 export async function getEventTree(
@@ -199,6 +311,42 @@ export async function toggleCrons(
     headers: { ...headers(), "Content-Type": "application/json" },
     body: JSON.stringify({ ids, enabled }),
   });
+}
+
+export async function createTrigger(
+  name: string,
+  trigger: { program_name: string; event_pattern: string; priority?: number; enabled?: boolean; metadata?: Record<string, unknown> },
+): Promise<Trigger> {
+  const resp = await fetch(`/api/cogents/${name}/triggers`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(trigger),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function updateTrigger(
+  name: string,
+  triggerId: string,
+  updates: { program_name?: string; event_pattern?: string; priority?: number },
+): Promise<Trigger> {
+  const resp = await fetch(`/api/cogents/${name}/triggers/${triggerId}`, {
+    method: "PUT",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function deleteTrigger(name: string, triggerId: string): Promise<{ deleted: boolean }> {
+  const resp = await fetch(`/api/cogents/${name}/triggers/${triggerId}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
 }
 
 export async function toggleTriggers(

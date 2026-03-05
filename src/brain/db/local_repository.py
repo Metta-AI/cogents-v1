@@ -443,6 +443,19 @@ class LocalRepository:
         self._maybe_reload()
         return sorted(self._channels.values(), key=lambda c: c.name)
 
+    def delete_channel(self, name: str) -> bool:
+        """Delete a channel by name. Returns True if found and deleted."""
+        target_id = None
+        for cid, ch in self._channels.items():
+            if ch.name == name:
+                target_id = cid
+                break
+        if target_id is None:
+            return False
+        del self._channels[target_id]
+        self._save()
+        return True
+
     # ── Alerts ───────────────────────────────────────────────
 
     def create_alert(self, alert: Alert) -> UUID:
@@ -454,6 +467,21 @@ class LocalRepository:
     def get_unresolved_alerts(self) -> list[Alert]:
         self._maybe_reload()
         return [a for a in self._alerts.values() if a.resolved_at is None]
+
+    def resolve_alert(self, alert_id: UUID) -> bool:
+        alert = self._alerts.get(alert_id)
+        if not alert:
+            return False
+        alert.resolved_at = datetime.utcnow()
+        self._save()
+        return True
+
+    def delete_alert(self, alert_id: UUID) -> bool:
+        if alert_id in self._alerts:
+            del self._alerts[alert_id]
+            self._save()
+            return True
+        return False
 
     # ── Memory ───────────────────────────────────────────────
 

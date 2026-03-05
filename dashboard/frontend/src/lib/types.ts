@@ -129,6 +129,7 @@ export interface Alert {
   source: string | null;
   message: string | null;
   metadata: Record<string, unknown> | null;
+  resolved_at: string | null;
   created_at: string | null;
 }
 

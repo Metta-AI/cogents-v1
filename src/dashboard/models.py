@@ -115,6 +115,20 @@ class TriggersResponse(BaseModel):
     triggers: list[Trigger]
 
 
+class TriggerCreate(BaseModel):
+    program_name: str
+    event_pattern: str
+    priority: int = 10
+    enabled: bool = True
+    metadata: dict[str, Any] = {}
+
+
+class TriggerUpdate(BaseModel):
+    program_name: str | None = None
+    event_pattern: str | None = None
+    priority: int | None = None
+
+
 class ToggleRequest(BaseModel):
     ids: list[str]
     enabled: bool
@@ -134,6 +148,19 @@ class MemoryItem(BaseModel):
     provenance: dict[str, Any] | None = None
     created_at: str | None = None
     updated_at: str | None = None
+
+
+class MemoryCreate(BaseModel):
+    name: str
+    content: str = ""
+    scope: str = "cogent"
+    provenance: dict[str, Any] = {}
+
+
+class MemoryUpdate(BaseModel):
+    name: str | None = None
+    content: str | None = None
+    scope: str | None = None
 
 
 class MemoryResponse(BaseModel):
@@ -217,6 +244,19 @@ class Channel(BaseModel):
     created_at: str | None = None
 
 
+class ChannelCreate(BaseModel):
+    name: str
+    type: str = "cli"
+    enabled: bool = True
+    config: dict[str, Any] = {}
+
+
+class ChannelUpdate(BaseModel):
+    type: str | None = None
+    enabled: bool | None = None
+    config: dict[str, Any] | None = None
+
+
 class ChannelsResponse(BaseModel):
     cogent_name: str
     count: int
@@ -230,7 +270,16 @@ class Alert(BaseModel):
     source: str | None = None
     message: str | None = None
     metadata: dict[str, Any] | None = None
+    resolved_at: str | None = None
     created_at: str | None = None
+
+
+class AlertCreate(BaseModel):
+    severity: str = "warning"
+    alert_type: str = ""
+    source: str = ""
+    message: str
+    metadata: dict[str, Any] = {}
 
 
 class AlertsResponse(BaseModel):
