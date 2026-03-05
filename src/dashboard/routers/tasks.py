@@ -59,22 +59,25 @@ def list_tasks(
         "24h": timedelta(hours=24),
         "7d": timedelta(days=7),
     }
-    # Build lookup: task_id -> most recent run and run counts
+    # Build lookup: task_id -> most recent run and run counts (with failures)
     last_run_by_task: dict[str, object] = {}
-    run_counts_by_task: dict[str, dict[str, int]] = {}
+    run_counts_by_task: dict[str, dict[str, dict[str, int]]] = {}
     for r in all_runs:
         if r.task_id:
             tid = str(r.task_id)
             if tid not in last_run_by_task:
                 last_run_by_task[tid] = r
             if tid not in run_counts_by_task:
-                run_counts_by_task[tid] = {k: 0 for k in windows}
+                run_counts_by_task[tid] = {k: {"runs": 0, "failed": 0} for k in windows}
             run_time = r.started_at or r.completed_at
+            is_failed = r.status and r.status.value in ("failed", "timeout")
             if run_time:
                 age = now - run_time
                 for label, window in windows.items():
                     if age <= window:
-                        run_counts_by_task[tid][label] += 1
+                        run_counts_by_task[tid][label]["runs"] += 1
+                        if is_failed:
+                            run_counts_by_task[tid][label]["failed"] += 1
 
     for t in tasks:
         r = last_run_by_task.get(t.id)
@@ -82,7 +85,7 @@ def list_tasks(
             t.last_run_status = r.status.value if r.status else None
             t.last_run_error = r.error
             t.last_run_at = str(r.completed_at or r.started_at) if (r.completed_at or r.started_at) else None
-        t.run_counts = run_counts_by_task.get(t.id, {k: 0 for k in windows})
+        t.run_counts = run_counts_by_task.get(t.id, {k: {"runs": 0, "failed": 0} for k in windows})
 
     return TasksResponse(cogent_name=name, count=len(tasks), tasks=tasks)
 

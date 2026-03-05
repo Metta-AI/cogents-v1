@@ -114,7 +114,7 @@ export interface Task {
   last_run_status: string | null;
   last_run_error: string | null;
   last_run_at: string | null;
-  run_counts: Record<string, number> | null;
+  run_counts: Record<string, { runs: number; failed: number }> | null;
 }
 
 export interface Channel {

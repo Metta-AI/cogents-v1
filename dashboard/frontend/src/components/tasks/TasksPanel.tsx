@@ -625,18 +625,33 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
               {task.description}
             </span>
           )}
-          {task.last_run_status && (task.last_run_status === "failed" || task.last_run_status === "timeout") && (
-            <Badge variant="error">{task.last_run_status}</Badge>
-          )}
           <div className="flex-1" />
-          {/* Run counts */}
+          {/* Run counts as separated blocks */}
           {task.run_counts && (
-            <span className="flex gap-1.5 text-[10px] font-mono text-[var(--text-muted)]">
-              {["1m", "5m", "1h", "24h", "7d"].map((w) => (
-                <span key={w} title={`Runs in ${w}`}>
-                  <span className="text-[var(--text-secondary)]">{task.run_counts![w] ?? 0}</span>
-                </span>
-              ))}
+            <span className="flex gap-1 text-[10px] font-mono">
+              {["5m", "1h", "24h", "7d"].map((w) => {
+                const c = task.run_counts![w];
+                const runs = c?.runs ?? 0;
+                const failed = c?.failed ?? 0;
+                return (
+                  <span
+                    key={w}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded"
+                    style={{
+                      background: runs > 0 ? "var(--bg-hover)" : "transparent",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    <span className="text-[var(--text-muted)]">{w}</span>
+                    {runs > 0 && (
+                      <>
+                        <span className="text-[var(--text-secondary)]">{runs}</span>
+                        {failed > 0 && <span className="text-[var(--error)]">{failed}✗</span>}
+                      </>
+                    )}
+                  </span>
+                );
+              })}
             </span>
           )}
           {editingPriorityId === task.id ? (
@@ -818,9 +833,17 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
                   {task.run_counts && (
                     <span className="flex items-center gap-1.5 font-mono">
                       <span className="text-[var(--text-muted)]">runs:</span>
-                      {["1m", "5m", "1h", "24h", "7d"].map((w) => (
-                        <span key={w} className="text-[var(--text-muted)]">{w}:<span className="text-[var(--text-secondary)]">{task.run_counts![w] ?? 0}</span></span>
-                      ))}
+                      {["1m", "5m", "1h", "24h", "7d"].map((w) => {
+                        const c = task.run_counts![w];
+                        const runs = c?.runs ?? 0;
+                        const failed = c?.failed ?? 0;
+                        return (
+                          <span key={w} className="text-[var(--text-muted)]">
+                            {w}:<span className="text-[var(--text-secondary)]">{runs}</span>
+                            {failed > 0 && <span className="text-[var(--error)] ml-0.5">{failed}✗</span>}
+                          </span>
+                        );
+                      })}
                     </span>
                   )}
                 </div>
