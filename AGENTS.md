@@ -151,7 +151,10 @@ The backend serves REST API under `/api/cogents/{name}/`:
 
 ## Development
 
+When starting a new task with a clean repo, always pull latest first:
+
 ```bash
+git pull origin main          # Sync with remote before starting work
 uv sync --all-extras          # Install dependencies
 uv run pytest                 # Run tests
 uv run polis status           # Check infrastructure
