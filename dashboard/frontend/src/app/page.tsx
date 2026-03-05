@@ -43,7 +43,10 @@ export default function DashboardPage() {
         }}
       >
         {activeTab === "overview" && <OverviewPanel data={data} />}
-        {activeTab !== "overview" && (
+        {activeTab === "programs" && (
+          <ProgramsPanel programs={data.programs} cogentName={cogentName} />
+        )}
+        {activeTab !== "overview" && activeTab !== "programs" && (
           <div
             style={{
               color: "var(--text-muted)",
