@@ -45,36 +45,59 @@ class ComputeConstruct(Construct):
             "EVENT_BUS_NAME": event_bus_name,
         }
 
-        # Lambda execution role
-        lambda_role = iam.Role(
-            self,
-            "LambdaRole",
-            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole"),
-            ],
-        )
-
-        # Allow Lambda to use Data API
-        lambda_role.add_to_policy(
+        # Shared policy statements for Data API access
+        data_api_statements = [
             iam.PolicyStatement(
                 actions=["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement"],
                 resources=[db_cluster_arn],
-            )
-        )
-        lambda_role.add_to_policy(
+            ),
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue"],
                 resources=[db_secret_arn],
-            )
-        )
-        lambda_role.add_to_policy(
+            ),
             iam.PolicyStatement(
                 actions=["events:PutEvents"],
                 resources=["*"],
+            ),
+        ]
+
+        vpc_policy = iam.ManagedPolicy.from_aws_managed_policy_name(
+            "service-role/AWSLambdaVPCAccessExecutionRole"
+        )
+
+        # Orchestrator role (separate to avoid circular deps with EventBridge rule)
+        orchestrator_role = iam.Role(
+            self,
+            "OrchestratorRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[vpc_policy],
+        )
+        for stmt in data_api_statements:
+            orchestrator_role.add_to_policy(stmt)
+        # Orchestrator needs to invoke executor Lambda and run ECS tasks
+        orchestrator_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=[f"arn:aws:lambda:*:*:function:cogent-{safe_name}-executor"],
             )
         )
-        lambda_role.add_to_policy(
+        orchestrator_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ecs:RunTask", "iam:PassRole"],
+                resources=["*"],
+            )
+        )
+
+        # Executor role
+        executor_role = iam.Role(
+            self,
+            "ExecutorRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[vpc_policy],
+        )
+        for stmt in data_api_statements:
+            executor_role.add_to_policy(stmt)
+        executor_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["bedrock:InvokeModel", "bedrock:Converse"],
                 resources=["*"],
@@ -91,7 +114,7 @@ class ComputeConstruct(Construct):
             code=lambda_.Code.from_asset("src"),
             memory_size=config.orchestrator_memory_mb,
             timeout=Duration.seconds(config.orchestrator_timeout_s),
-            role=lambda_role,
+            role=orchestrator_role,
             environment={
                 **env,
                 "EXECUTOR_FUNCTION_NAME": f"cogent-{safe_name}-executor",
@@ -111,16 +134,13 @@ class ComputeConstruct(Construct):
             code=lambda_.Code.from_asset("src"),
             memory_size=config.executor_memory_mb,
             timeout=Duration.seconds(config.executor_timeout_s),
-            role=lambda_role,
+            role=executor_role,
             environment=env,
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_sg],
             filesystem=lambda_.FileSystem.from_efs_access_point(access_point, "/mnt/cogent"),
         )
-
-        # Allow orchestrator to invoke executor
-        self.executor.grant_invoke(self.orchestrator)
 
         # ECS Cluster
         self.cluster = ecs.Cluster(

@@ -28,7 +28,7 @@ class DatabaseConstruct(Construct):
             self,
             "Cluster",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
-                version=rds.AuroraPostgresEngineVersion.VER_15_4,
+                version=rds.AuroraPostgresEngineVersion.VER_16_4,
             ),
             default_database_name="cogent",
             enable_data_api=True,

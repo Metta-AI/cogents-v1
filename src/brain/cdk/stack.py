@@ -41,7 +41,7 @@ class BrainStack(Stack):
             "Storage",
             config=config,
             vpc=self.network.vpc,
-            security_group=self.network.ecs_sg,
+            security_groups=[self.network.ecs_sg, self.network.lambda_sg],
         )
 
         # 4. EventBridge bus (created before compute so we have the name)
