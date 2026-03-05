@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import type { TimeRange } from "@/lib/types";
 
 const TIME_RANGES: { value: TimeRange; label: string }[] = [
@@ -32,6 +32,26 @@ export function Header({
   error,
   wsConnected,
 }: HeaderProps) {
+  // Show spin for at least 400ms so the user sees feedback
+  const [spinning, setSpinning] = useState(false);
+  const handleRefresh = useCallback(() => {
+    setSpinning(true);
+    onRefresh();
+    setTimeout(() => setSpinning(false), 400);
+  }, [onRefresh]);
+  const showSpin = loading || spinning;
+
+  // Debounce WS connected state to avoid rapid flickering
+  const [stableConnected, setStableConnected] = useState(false);
+  useEffect(() => {
+    if (wsConnected) {
+      const timer = setTimeout(() => setStableConnected(true), 2000);
+      return () => clearTimeout(timer);
+    } else {
+      setStableConnected(false);
+    }
+  }, [wsConnected]);
+
   return (
     <header
       className="fixed top-0 right-0 flex items-center justify-between px-4 z-40"
@@ -64,13 +84,14 @@ export function Header({
         </span>
         {/* WebSocket connection indicator */}
         <span
-          title={wsConnected ? "Real-time connected" : "Real-time disconnected"}
+          title={stableConnected ? "Real-time connected" : "Real-time disconnected — polling for updates"}
+          className={!stableConnected ? "ws-reconnecting" : ""}
           style={{
             display: "inline-block",
             width: "6px",
             height: "6px",
             borderRadius: "50%",
-            background: wsConnected ? "var(--success)" : "var(--text-muted)",
+            background: stableConnected ? "var(--success)" : "var(--warning)",
             flexShrink: 0,
           }}
         />
@@ -118,15 +139,15 @@ export function Header({
 
         {/* Refresh button */}
         <button
-          onClick={onRefresh}
-          disabled={loading}
+          onClick={handleRefresh}
+          disabled={showSpin}
           className="flex items-center justify-center border-0 rounded-md cursor-pointer transition-colors duration-150"
           style={{
             width: "32px",
             height: "32px",
             background: "var(--bg-surface)",
             border: "1px solid var(--border)",
-            color: loading ? "var(--accent)" : "var(--text-secondary)",
+            color: showSpin ? "var(--accent)" : "var(--text-secondary)",
           }}
           title="Refresh data"
           onMouseEnter={(e) => {
@@ -145,7 +166,7 @@ export function Header({
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className={loading ? "header-spin" : ""}
+            className={showSpin ? "header-spin" : ""}
           >
             <polyline points="23 4 23 10 17 10" />
             <polyline points="1 20 1 14 7 14" />

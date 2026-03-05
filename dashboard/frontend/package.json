@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "next dev -p 5174",
+    "clean": "rm -rf .next",
+    "dev:clean": "rm -rf .next && next dev -p 5174",
     "build": "next build",
     "start": "next start -p 5174",
     "type-check": "tsc --noEmit",

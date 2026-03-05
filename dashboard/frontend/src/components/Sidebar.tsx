@@ -107,6 +107,7 @@ const TABS = [
 ] as const;
 
 export type TabId = (typeof TABS)[number]["id"];
+export const VALID_TABS = new Set<string>(TABS.map((t) => t.id));
 
 interface SidebarProps {
   activeTab: TabId;
@@ -137,7 +138,7 @@ export function Sidebar({ activeTab, onTabChange, alertCount, triggerCount }: Si
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
             title={tab.label}
-            className="relative flex flex-col items-center justify-center gap-0.5 w-full cursor-pointer border-0 bg-transparent transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] focus-visible:outline-offset-[-2px]"
+            className="sidebar-btn relative flex flex-col items-center justify-center gap-0.5 w-full cursor-pointer border-0 bg-transparent transition-colors duration-150"
             style={{
               width: "var(--sidebar-w)",
               height: "var(--sidebar-w)",

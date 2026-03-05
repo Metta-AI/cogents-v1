@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Sidebar, type TabId } from "@/components/Sidebar";
+import { useState, useEffect, useCallback } from "react";
+import { Sidebar, type TabId, VALID_TABS } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 import { useCogentData } from "@/hooks/useCogentData";
 import { OverviewPanel } from "@/components/overview/OverviewPanel";
@@ -15,8 +15,25 @@ import { ResourcesPanel } from "@/components/resources/ResourcesPanel";
 import { TasksPanel } from "@/components/tasks/TasksPanel";
 import { AlertsPanel } from "@/components/alerts/AlertsPanel";
 
+function getTabFromHash(): TabId {
+  if (typeof window === "undefined") return "overview";
+  const hash = window.location.hash.replace("#", "");
+  return VALID_TABS.has(hash as TabId) ? (hash as TabId) : "overview";
+}
+
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [activeTab, setActiveTab] = useState<TabId>(getTabFromHash);
+
+  const handleTabChange = useCallback((tab: TabId) => {
+    setActiveTab(tab);
+    window.location.hash = tab === "overview" ? "" : tab;
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => setActiveTab(getTabFromHash());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
   // For now, hardcode cogent name. Will come from URL/config later.
   const cogentName = "cogent";
   const { data, loading, error, refresh, timeRange, setTimeRange, connected } = useCogentData(cogentName);
@@ -33,7 +50,7 @@ export default function DashboardPage() {
     <div className="h-screen overflow-hidden">
       <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         alertCount={data.status?.unresolved_alerts}
         triggerCount={data.status?.trigger_count}
       />
