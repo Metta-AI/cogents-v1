@@ -25,6 +25,7 @@ export function useCogentData(cogentName: string) {
     tasks: [],
     channels: [],
     alerts: [],
+    crons: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +45,7 @@ export function useCogentData(cogentName: string) {
       api.getTasks(cogentName),
       api.getChannels(cogentName),
       api.getAlerts(cogentName),
+      api.getCrons(cogentName),
     ]);
     const failCount = results.filter((r) => r.status === "rejected").length;
     if (failCount === results.length) {
@@ -63,6 +65,7 @@ export function useCogentData(cogentName: string) {
       tasks: results[6].status === "fulfilled" ? results[6].value : [],
       channels: results[7].status === "fulfilled" ? results[7].value : [],
       alerts: results[8].status === "fulfilled" ? results[8].value : [],
+      crons: results[9].status === "fulfilled" ? results[9].value : [],
     });
     setLoading(false);
   }, [cogentName, timeRange]);

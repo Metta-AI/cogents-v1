@@ -132,6 +132,15 @@ export interface Alert {
   created_at: string | null;
 }
 
+export interface CronItem {
+  id: string;
+  cron_expression: string;
+  event_pattern: string;
+  enabled: boolean;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+}
+
 export type TimeRange = "1m" | "10m" | "1h" | "24h" | "1w";
 export type Timezone = "local" | "utc" | "pst";
 
@@ -145,4 +154,5 @@ export interface DashboardData {
   tasks: Task[];
   channels: Channel[];
   alerts: Alert[];
+  crons: CronItem[];
 }

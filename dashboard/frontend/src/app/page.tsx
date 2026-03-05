@@ -13,6 +13,7 @@ import { MemoryPanel } from "@/components/memory/MemoryPanel";
 import { ResourcesPanel } from "@/components/resources/ResourcesPanel";
 import { TasksPanel } from "@/components/tasks/TasksPanel";
 import { AlertsPanel } from "@/components/alerts/AlertsPanel";
+import { CronPanel } from "@/components/cron/CronPanel";
 
 function getTabFromHash(): TabId {
   if (typeof window === "undefined") return "overview";
@@ -93,6 +94,9 @@ export default function DashboardPage() {
         )}
         {activeTab === "tasks" && (
           <TasksPanel tasks={data.tasks} cogentName={cogentName} onRefresh={refresh} memory={data.memory} programs={data.programs} />
+        )}
+        {activeTab === "cron" && (
+          <CronPanel crons={data.crons} cogentName={cogentName} onRefresh={refresh} />
         )}
         {activeTab === "alerts" && (
           <AlertsPanel alerts={data.alerts} />

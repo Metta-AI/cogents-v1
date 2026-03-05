@@ -28,6 +28,7 @@ def create_app() -> FastAPI:
     from dashboard.routers import (
         alerts,
         channels,
+        cron,
         events,
         memory,
         programs,
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router, prefix="/api/cogents/{name}")
     app.include_router(triggers.router, prefix="/api/cogents/{name}")
     app.include_router(memory.router, prefix="/api/cogents/{name}")
+    app.include_router(cron.router, prefix="/api/cogents/{name}")
 
     @app.get("/healthz")
     async def healthz() -> dict:

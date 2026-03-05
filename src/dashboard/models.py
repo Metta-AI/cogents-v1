@@ -239,6 +239,35 @@ class AlertsResponse(BaseModel):
     alerts: list[Alert]
 
 
+class CronItem(BaseModel):
+    id: str
+    cron_expression: str
+    event_pattern: str
+    enabled: bool = True
+    metadata: dict[str, Any] = {}
+    created_at: str | None = None
+
+
+class CronCreate(BaseModel):
+    cron_expression: str
+    event_pattern: str
+    enabled: bool = True
+    metadata: dict[str, Any] = {}
+
+
+class CronUpdate(BaseModel):
+    cron_expression: str | None = None
+    event_pattern: str | None = None
+    enabled: bool | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class CronsResponse(BaseModel):
+    cogent_name: str
+    count: int
+    crons: list[CronItem]
+
+
 class ResourcesResponse(BaseModel):
     cogent_name: str
     active_sessions: int = 0

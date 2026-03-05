@@ -8,6 +8,7 @@ import type {
   Task,
   Channel,
   Alert,
+  CronItem,
   TimeRange,
 } from "./types";
 
@@ -144,6 +145,60 @@ export async function getEventTree(
     `/api/cogents/${name}/events/${eventId}/tree`,
   );
   return r.events;
+}
+
+export async function getCrons(name: string): Promise<CronItem[]> {
+  const r = await fetchJSON<{ crons: CronItem[] }>(
+    `/api/cogents/${name}/cron`,
+  );
+  return r.crons;
+}
+
+export async function createCron(
+  name: string,
+  cron: { cron_expression: string; event_pattern: string; enabled?: boolean; metadata?: Record<string, unknown> },
+): Promise<CronItem> {
+  const resp = await fetch(`/api/cogents/${name}/cron`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(cron),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function updateCron(
+  name: string,
+  cronId: string,
+  updates: { cron_expression?: string; event_pattern?: string; enabled?: boolean; metadata?: Record<string, unknown> },
+): Promise<CronItem> {
+  const resp = await fetch(`/api/cogents/${name}/cron/${cronId}`, {
+    method: "PUT",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function deleteCron(name: string, cronId: string): Promise<void> {
+  const resp = await fetch(`/api/cogents/${name}/cron/${cronId}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+}
+
+export async function toggleCrons(
+  name: string,
+  ids: string[],
+  enabled: boolean,
+): Promise<void> {
+  await fetch(`/api/cogents/${name}/cron/toggle`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, enabled }),
+  });
 }
 
 export async function toggleTriggers(
