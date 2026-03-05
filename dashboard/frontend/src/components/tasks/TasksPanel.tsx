@@ -380,6 +380,18 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
     setConfirmDeleteId(null);
   }, []);
 
+  const handleRunTask = useCallback(async (e: React.MouseEvent, taskId: string) => {
+    e.stopPropagation();
+    await api.updateTask(cogentName, taskId, { status: "running" });
+    onRefresh();
+  }, [cogentName, onRefresh]);
+
+  const handleStopTask = useCallback(async (e: React.MouseEvent, taskId: string) => {
+    e.stopPropagation();
+    await api.updateTask(cogentName, taskId, { status: "runnable" });
+    onRefresh();
+  }, [cogentName, onRefresh]);
+
   const handleCreate = useCallback(async () => {
     if (!newTask.name?.trim()) return;
     await api.createTask(cogentName, {
@@ -608,6 +620,23 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
             </span>
           ) : (
             <>
+              {task.status === "running" ? (
+                <button
+                  onClick={(e) => handleStopTask(e, task.id)}
+                  className="border-0 bg-transparent cursor-pointer text-[var(--text-muted)] hover:text-[var(--warning)] text-[11px]"
+                  title="Stop"
+                >
+                  ■
+                </button>
+              ) : task.status !== "completed" && (
+                <button
+                  onClick={(e) => handleRunTask(e, task.id)}
+                  className="border-0 bg-transparent cursor-pointer text-[var(--text-muted)] hover:text-[var(--success)] text-[11px]"
+                  title="Run"
+                >
+                  ▶
+                </button>
+              )}
               <button
                 onClick={(e) => startEdit(e, task)}
                 className="border-0 bg-transparent cursor-pointer text-[var(--text-muted)] hover:text-[var(--accent)] text-[11px]"
