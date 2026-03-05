@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from brain.db.models import RunStatus
 from dashboard.db import get_repo
 from dashboard.models import (
     Execution,
@@ -17,7 +18,6 @@ router = APIRouter()
 
 
 def _try_parse_json(val: Any) -> Any:
-    """Parse a JSONB field that might already be a dict/list or might be a JSON string."""
     if val is None:
         return None
     if isinstance(val, (dict, list)):
@@ -33,59 +33,53 @@ def _try_parse_json(val: Any) -> Any:
 @router.get("/programs", response_model=ProgramsResponse)
 def get_programs(name: str):
     repo = get_repo()
+    db_programs = repo.list_programs()
+    all_runs = repo.query_runs(limit=10000)
 
-    # Run stats per program
-    stats_rows = repo.query(
-        "SELECT program_name, "
-        "count(*) AS runs, "
-        "count(*) FILTER (WHERE status = 'completed') AS ok, "
-        "count(*) FILTER (WHERE status = 'failed') AS fail, "
-        "COALESCE(SUM(cost_usd), 0)::float AS total_cost, "
-        "MAX(started_at)::text AS last_run "
-        "FROM runs "
-        "GROUP BY program_name",
-    )
-    stats_by_name: dict[str, dict] = {r["program_name"]: r for r in stats_rows}
-
-    # Program definitions
-    prog_rows = repo.query(
-        "SELECT name, program_type, includes, tools, metadata FROM programs",
-    )
+    runs_by_prog: dict[str, list] = {}
+    for r in all_runs:
+        runs_by_prog.setdefault(r.program_name, []).append(r)
 
     programs: list[Program] = []
     seen: set[str] = set()
 
-    for row in prog_rows:
-        pname = row["name"]
-        seen.add(pname)
-        metadata = _try_parse_json(row.get("metadata")) or {}
-        stats = stats_by_name.get(pname, {})
+    for p in db_programs:
+        seen.add(p.name)
+        metadata = _try_parse_json(p.metadata) or {}
+        prog_runs = runs_by_prog.get(p.name, [])
+        ok = sum(1 for r in prog_runs if r.status == RunStatus.COMPLETED)
+        fail = sum(1 for r in prog_runs if r.status == RunStatus.FAILED)
+        total_cost = float(sum(r.cost_usd for r in prog_runs))
+        last_run = max((str(r.started_at) for r in prog_runs if r.started_at), default=None)
 
         programs.append(
             Program(
-                name=pname,
-                type=row.get("program_type") or "prompt",
+                name=p.name,
+                type=p.program_type.value if p.program_type else "prompt",
                 description=metadata.get("description", ""),
                 trigger_count=0,
-                runs=stats.get("runs", 0),
-                ok=stats.get("ok", 0),
-                fail=stats.get("fail", 0),
-                total_cost=stats.get("total_cost", 0),
-                last_run=stats.get("last_run"),
+                runs=len(prog_runs),
+                ok=ok,
+                fail=fail,
+                total_cost=total_cost,
+                last_run=last_run,
             )
         )
 
-    # Include programs that have runs but no definition row
-    for pname, stats in stats_by_name.items():
+    for pname, prog_runs in runs_by_prog.items():
         if pname not in seen:
+            ok = sum(1 for r in prog_runs if r.status == RunStatus.COMPLETED)
+            fail = sum(1 for r in prog_runs if r.status == RunStatus.FAILED)
+            total_cost = float(sum(r.cost_usd for r in prog_runs))
+            last_run = max((str(r.started_at) for r in prog_runs if r.started_at), default=None)
             programs.append(
                 Program(
                     name=pname,
-                    runs=stats.get("runs", 0),
-                    ok=stats.get("ok", 0),
-                    fail=stats.get("fail", 0),
-                    total_cost=stats.get("total_cost", 0),
-                    last_run=stats.get("last_run"),
+                    runs=len(prog_runs),
+                    ok=ok,
+                    fail=fail,
+                    total_cost=total_cost,
+                    last_run=last_run,
                 )
             )
 
@@ -95,13 +89,21 @@ def get_programs(name: str):
 @router.get("/programs/{program_name}/executions", response_model=ExecutionsResponse)
 def get_program_executions(name: str, program_name: str):
     repo = get_repo()
-    rows = repo.query(
-        "SELECT id::text, program_name, conversation_id::text, status, "
-        "started_at::text, completed_at::text, duration_ms, "
-        "tokens_input, tokens_output, COALESCE(cost_usd, 0)::float AS cost_usd, error "
-        "FROM runs WHERE program_name = :pname "
-        "ORDER BY started_at DESC",
-        {"pname": program_name},
-    )
-    executions = [Execution(**r) for r in rows]
+    db_runs = repo.query_runs(program_name=program_name)
+    executions = [
+        Execution(
+            id=str(r.id),
+            program_name=r.program_name,
+            conversation_id=str(r.conversation_id) if r.conversation_id else None,
+            status=r.status.value if r.status else None,
+            started_at=str(r.started_at) if r.started_at else None,
+            completed_at=str(r.completed_at) if r.completed_at else None,
+            duration_ms=r.duration_ms,
+            tokens_input=r.tokens_input,
+            tokens_output=r.tokens_output,
+            cost_usd=float(r.cost_usd) if r.cost_usd else 0,
+            error=r.error,
+        )
+        for r in db_runs
+    ]
     return ExecutionsResponse(cogent_name=name, count=len(executions), executions=executions)

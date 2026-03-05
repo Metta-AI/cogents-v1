@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from brain.db.models import RunStatus
 from dashboard.db import get_repo
 from dashboard.models import Session, SessionsResponse
 
@@ -12,7 +13,6 @@ router = APIRouter()
 
 
 def _try_parse_json(val: Any) -> Any:
-    """Parse a JSONB field that might already be a dict/list or might be a JSON string."""
     if val is None:
         return None
     if isinstance(val, (dict, list)):
@@ -28,47 +28,40 @@ def _try_parse_json(val: Any) -> Any:
 @router.get("/sessions", response_model=SessionsResponse)
 def get_sessions(name: str):
     repo = get_repo()
+    db_convs = repo.list_conversations()
+    all_runs = repo.query_runs(limit=10000)
 
-    conv_rows = repo.query(
-        "SELECT id::text, context_key, status, cli_session_id, "
-        "started_at::text, last_active::text, metadata "
-        "FROM conversations "
-        "ORDER BY last_active DESC",
-    )
-
-    # Run stats per conversation
-    stats_rows = repo.query(
-        "SELECT conversation_id::text, "
-        "count(*) AS runs, "
-        "count(*) FILTER (WHERE status = 'completed') AS ok, "
-        "count(*) FILTER (WHERE status = 'failed') AS fail, "
-        "COALESCE(SUM(tokens_input), 0) AS tokens_in, "
-        "COALESCE(SUM(tokens_output), 0) AS tokens_out, "
-        "COALESCE(SUM(cost_usd), 0)::float AS total_cost "
-        "FROM runs "
-        "GROUP BY conversation_id",
-    )
-    stats_by_id: dict[str, dict] = {r["conversation_id"]: r for r in stats_rows}
+    runs_by_conv: dict[str, list] = {}
+    for r in all_runs:
+        if r.conversation_id:
+            cid = str(r.conversation_id)
+            runs_by_conv.setdefault(cid, []).append(r)
 
     sessions: list[Session] = []
-    for row in conv_rows:
-        cid = row["id"]
-        stats = stats_by_id.get(cid, {})
+    for c in db_convs:
+        cid = str(c.id)
+        conv_runs = runs_by_conv.get(cid, [])
+        ok = sum(1 for r in conv_runs if r.status == RunStatus.COMPLETED)
+        fail = sum(1 for r in conv_runs if r.status == RunStatus.FAILED)
+        tokens_in = sum(r.tokens_input for r in conv_runs)
+        tokens_out = sum(r.tokens_output for r in conv_runs)
+        total_cost = float(sum(r.cost_usd for r in conv_runs))
+
         sessions.append(
             Session(
                 id=cid,
-                context_key=row.get("context_key"),
-                status=row.get("status"),
-                cli_session_id=row.get("cli_session_id"),
-                started_at=row.get("started_at"),
-                last_active=row.get("last_active"),
-                metadata=_try_parse_json(row.get("metadata")),
-                runs=stats.get("runs", 0),
-                ok=stats.get("ok", 0),
-                fail=stats.get("fail", 0),
-                tokens_in=stats.get("tokens_in", 0),
-                tokens_out=stats.get("tokens_out", 0),
-                total_cost=stats.get("total_cost", 0),
+                context_key=c.context_key,
+                status=c.status.value if c.status else None,
+                cli_session_id=c.cli_session_id,
+                started_at=str(c.started_at) if c.started_at else None,
+                last_active=str(c.last_active) if c.last_active else None,
+                metadata=_try_parse_json(c.metadata),
+                runs=len(conv_runs),
+                ok=ok,
+                fail=fail,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                total_cost=total_cost,
             )
         )
 

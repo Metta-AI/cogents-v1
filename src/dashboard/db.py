@@ -1,40 +1,27 @@
-"""Singleton Repository for dashboard handlers (uses RDS Data API).
+"""Singleton Repository for dashboard handlers.
 
-Falls back to a NullRepository that returns empty results when Data API
-credentials are not configured (DB_RESOURCE_ARN, DB_SECRET_ARN, DB_NAME).
+Uses RDS Data API when credentials are configured, otherwise falls back to
+LocalRepository for local development with persistent in-memory data.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
+from brain.db.local_repository import LocalRepository
 from brain.db.repository import Repository
 
 logger = logging.getLogger(__name__)
 
-_repo: Repository | NullRepository | None = None
+_repo: Repository | LocalRepository | None = None
 
 
-class NullRepository:
-    """Returns empty results for all queries (used when DB is not configured)."""
-
-    def query(self, sql: str, params: dict[str, Any] | None = None) -> list[dict]:
-        return []
-
-    def query_one(self, sql: str, params: dict[str, Any] | None = None) -> dict | None:
-        return None
-
-    def execute(self, sql: str, params: dict[str, Any] | None = None) -> int:
-        return 0
-
-
-def get_repo() -> Repository | NullRepository:
+def get_repo() -> Repository | LocalRepository:
     """Return cached Repository singleton (reads env vars on first call).
 
-    If Data API credentials are not set, returns a NullRepository that
-    yields empty results so the dashboard renders with no data instead
-    of crashing.
+    If Data API credentials are not set, returns a LocalRepository that
+    stores data in-memory with JSON file persistence so the dashboard
+    works with local data from the mind CLI.
     """
     global _repo
     if _repo is None:
@@ -42,6 +29,6 @@ def get_repo() -> Repository | NullRepository:
             _repo = Repository.create()
             logger.info("Connected to database via Data API")
         except (ValueError, Exception) as exc:
-            logger.warning("Database not configured, using empty data: %s", exc)
-            _repo = NullRepository()
+            logger.warning("Database not configured, using local repository: %s", exc)
+            _repo = LocalRepository()
     return _repo

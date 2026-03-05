@@ -11,40 +11,30 @@ router = APIRouter(tags=["triggers"])
 @router.get("/triggers", response_model=TriggersResponse)
 def list_triggers(name: str) -> TriggersResponse:
     repo = get_repo()
-    rows = repo.query(
-        """
-        SELECT t.id::text, t.event_pattern, t.program_name, t.priority, t.enabled, t.created_at::text,
-          (SELECT count(*) FROM runs r
-            WHERE r.program_name = t.program_name AND r.started_at > now() - interval '1 minute') AS fired_1m,
-          (SELECT count(*) FROM runs r
-            WHERE r.program_name = t.program_name AND r.started_at > now() - interval '5 minutes') AS fired_5m,
-          (SELECT count(*) FROM runs r
-            WHERE r.program_name = t.program_name AND r.started_at > now() - interval '1 hour') AS fired_1h,
-          (SELECT count(*) FROM runs r
-            WHERE r.program_name = t.program_name AND r.started_at > now() - interval '24 hours') AS fired_24h
-        FROM triggers t ORDER BY t.priority
-        """,
-    )
+    db_triggers = repo.list_triggers(enabled_only=False)
+    all_runs = repo.query_runs(limit=10000)
 
     triggers = []
-    for r in rows:
-        prog = r.get("program_name") or ""
-        pattern = r.get("event_pattern") or ""
+    for t in db_triggers:
+        prog = t.program_name or ""
+        pattern = t.event_pattern or ""
         trigger_name = f"{prog}:{pattern}" if pattern else prog
+
+        prog_runs = [r for r in all_runs if r.program_name == prog]
 
         triggers.append(
             Trigger(
-                id=r["id"],
+                id=str(t.id),
                 name=trigger_name,
-                event_pattern=r.get("event_pattern"),
-                program_name=r.get("program_name"),
-                priority=r.get("priority"),
-                enabled=r.get("enabled", True),
-                created_at=r.get("created_at"),
-                fired_1m=r.get("fired_1m", 0),
-                fired_5m=r.get("fired_5m", 0),
-                fired_1h=r.get("fired_1h", 0),
-                fired_24h=r.get("fired_24h", 0),
+                event_pattern=t.event_pattern,
+                program_name=t.program_name,
+                priority=t.priority,
+                enabled=t.enabled,
+                created_at=str(t.created_at) if t.created_at else None,
+                fired_1m=len(prog_runs),
+                fired_5m=len(prog_runs),
+                fired_1h=len(prog_runs),
+                fired_24h=len(prog_runs),
             )
         )
 
@@ -54,9 +44,9 @@ def list_triggers(name: str) -> TriggersResponse:
 @router.post("/triggers/toggle", response_model=ToggleResponse)
 def toggle_triggers(name: str, body: ToggleRequest) -> ToggleResponse:
     repo = get_repo()
-    count = repo.execute(
-        "UPDATE triggers SET enabled = :enabled"
-        " WHERE id = ANY(string_to_array(:ids, ',')::uuid[])",
-        {"enabled": body.enabled, "ids": ",".join(body.ids)},
-    )
+    count = 0
+    for tid_str in body.ids:
+        from uuid import UUID
+        if repo.update_trigger_enabled(UUID(tid_str), body.enabled):
+            count += 1
     return ToggleResponse(updated=count, enabled=body.enabled)

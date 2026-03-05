@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
+from brain.db.models import MemoryScope
 from dashboard.db import get_repo
 from dashboard.models import MemoryItem, MemoryResponse
 
@@ -35,35 +36,19 @@ def list_memory(
     limit: int = Query(200, le=1000),
 ) -> MemoryResponse:
     repo = get_repo()
-
-    if scope:
-        rows = repo.query(
-            "SELECT id::text, scope, name, content, provenance, "
-            "created_at::text, updated_at::text "
-            "FROM memory WHERE scope = :scope "
-            "ORDER BY name, scope LIMIT :lim",
-            {"scope": scope, "lim": limit},
-        )
-    else:
-        rows = repo.query(
-            "SELECT id::text, scope, name, content, provenance, "
-            "created_at::text, updated_at::text "
-            "FROM memory "
-            "ORDER BY name, scope LIMIT :lim",
-            {"lim": limit},
-        )
-
+    mem_scope = MemoryScope(scope) if scope else None
+    records = repo.query_memory(scope=mem_scope, limit=limit)
     items = [
         MemoryItem(
-            id=r["id"],
-            scope=r.get("scope"),
-            name=r.get("name", ""),
-            group=_derive_group(r.get("name", "")),
-            content=r.get("content", ""),
-            provenance=_try_parse_json(r.get("provenance")),
-            created_at=r.get("created_at"),
-            updated_at=r.get("updated_at"),
+            id=str(m.id),
+            scope=m.scope.value if m.scope else None,
+            name=m.name or "",
+            group=_derive_group(m.name or ""),
+            content=m.content,
+            provenance=_try_parse_json(m.provenance) if isinstance(m.provenance, str) else m.provenance,
+            created_at=str(m.created_at) if m.created_at else None,
+            updated_at=str(m.updated_at) if m.updated_at else None,
         )
-        for r in rows
+        for m in records
     ]
     return MemoryResponse(cogent_name=name, count=len(items), memory=items)

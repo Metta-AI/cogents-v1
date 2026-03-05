@@ -80,6 +80,48 @@ export async function getTasks(name: string): Promise<Task[]> {
   return r.tasks;
 }
 
+export async function getTaskDetail(
+  name: string,
+  taskId: string,
+): Promise<{ task: Task; runs: Array<{ id: string; program_name: string; status: string | null; started_at: string | null; completed_at: string | null; duration_ms: number | null; tokens_input: number | null; tokens_output: number | null; cost_usd: number; error: string | null }> }> {
+  return fetchJSON(`/api/cogents/${name}/tasks/${taskId}`);
+}
+
+export async function createTask(
+  name: string,
+  task: Partial<Omit<Task, "id" | "created_at" | "updated_at" | "completed_at" | "last_run_status" | "last_run_error" | "last_run_at">> & { name: string },
+): Promise<Task> {
+  const resp = await fetch(`/api/cogents/${name}/tasks`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(task),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function updateTask(
+  name: string,
+  taskId: string,
+  updates: Partial<Omit<Task, "id" | "created_at" | "updated_at" | "completed_at" | "last_run_status" | "last_run_error" | "last_run_at">>,
+): Promise<Task> {
+  const resp = await fetch(`/api/cogents/${name}/tasks/${taskId}`, {
+    method: "PUT",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function deleteTask(name: string, taskId: string): Promise<void> {
+  const resp = await fetch(`/api/cogents/${name}/tasks/${taskId}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+}
+
 export async function getChannels(name: string): Promise<Channel[]> {
   const r = await fetchJSON<{ channels: Channel[] }>(
     `/api/cogents/${name}/channels`,

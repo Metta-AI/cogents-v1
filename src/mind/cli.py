@@ -15,6 +15,8 @@ import click
 from brain.db.models import (
     Cron,
     Event,
+    MemoryRecord,
+    MemoryScope,
     Program,
     ProgramType,
     Resource,
@@ -25,14 +27,18 @@ from brain.db.models import (
     Trigger,
     TriggerConfig,
 )
+from brain.db.local_repository import LocalRepository
 from brain.db.repository import Repository
 from mind.loader import load_resources, sync_resources
 from mind.program import load_program, load_programs_dir, sync_program, validate_bundle
 
 
-def _repo() -> Repository:
-    """Create a repository from environment variables."""
-    return Repository.create()
+def _repo() -> Repository | LocalRepository:
+    """Create a repository from environment variables, falling back to local."""
+    try:
+        return Repository.create()
+    except (ValueError, Exception):
+        return LocalRepository()
 
 
 def _output(data: dict | list, *, use_json: bool = False) -> None:
@@ -925,3 +931,86 @@ def event_trace(ctx: click.Context, event_id: int) -> None:
         for e in events
     ]
     _output(data, use_json=ctx.obj["json"])
+
+
+# ── Memory ──────────────────────────────────────────────────
+
+
+@mind.group()
+def memory() -> None:
+    """Manage memory entries."""
+
+
+@memory.command("list")
+@click.option("--scope", type=click.Choice(["cogent", "polis"]), default=None, help="Filter by scope")
+@click.option("--prefix", default=None, help="Filter by name prefix")
+@click.option("--limit", type=int, default=200)
+@click.pass_context
+def memory_list(ctx: click.Context, scope: str | None, prefix: str | None, limit: int) -> None:
+    """List memory entries."""
+    repo = _repo()
+    mem_scope = MemoryScope(scope) if scope else None
+    records = repo.query_memory(scope=mem_scope, name_prefix=prefix, limit=limit)
+    data = [
+        {
+            "id": str(m.id),
+            "scope": m.scope.value if m.scope else None,
+            "name": m.name,
+            "content": m.content[:120] + ("..." if len(m.content) > 120 else ""),
+            "created_at": str(m.created_at) if m.created_at else None,
+        }
+        for m in records
+    ]
+    _output(data, use_json=ctx.obj["json"])
+
+
+@memory.command("add")
+@click.argument("name")
+@click.argument("content")
+@click.option("--scope", type=click.Choice(["cogent", "polis"]), default="cogent")
+@click.option("--provenance", "provenance_json", default="{}", help="JSON provenance")
+@click.pass_context
+def memory_add(ctx: click.Context, name: str, content: str, scope: str, provenance_json: str) -> None:
+    """Add a memory entry."""
+    mem = MemoryRecord(
+        scope=MemoryScope(scope),
+        name=name,
+        content=content,
+        provenance=json.loads(provenance_json),
+    )
+    repo = _repo()
+    mid = repo.insert_memory(mem)
+    _output({"id": str(mid), "name": name, "scope": scope, "status": "added"}, use_json=ctx.obj["json"])
+
+
+@memory.command("show")
+@click.argument("memory_id")
+@click.pass_context
+def memory_show(ctx: click.Context, memory_id: str) -> None:
+    """Show a memory entry."""
+    repo = _repo()
+    m = repo.get_memory(UUID(memory_id))
+    if not m:
+        click.echo(f"Memory '{memory_id}' not found.", err=True)
+        sys.exit(1)
+    _output_single({
+        "id": str(m.id),
+        "scope": m.scope.value if m.scope else None,
+        "name": m.name,
+        "content": m.content,
+        "provenance": m.provenance,
+        "created_at": str(m.created_at) if m.created_at else None,
+        "updated_at": str(m.updated_at) if m.updated_at else None,
+    })
+
+
+@memory.command("delete")
+@click.argument("memory_id")
+@click.pass_context
+def memory_delete(ctx: click.Context, memory_id: str) -> None:
+    """Delete a memory entry."""
+    repo = _repo()
+    if not repo.delete_memory(UUID(memory_id)):
+        click.echo(f"Memory '{memory_id}' not found.", err=True)
+        sys.exit(1)
+    _output({"id": memory_id, "status": "deleted"}, use_json=ctx.obj["json"])

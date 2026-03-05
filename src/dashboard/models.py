@@ -163,6 +163,45 @@ class Task(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     completed_at: str | None = None
+    last_run_status: str | None = None
+    last_run_error: str | None = None
+    last_run_at: str | None = None
+
+
+class TaskCreate(BaseModel):
+    name: str
+    description: str = ""
+    content: str = ""
+    program_name: str = "do-content"
+    status: str = "runnable"
+    priority: float = 0.0
+    runner: str | None = None
+    clear_context: bool = False
+    memory_keys: list[str] | None = None
+    tools: list[str] | None = None
+    resources: list[str] | None = None
+    creator: str = "dashboard"
+    source_event: str | None = None
+    limits: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class TaskUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    content: str | None = None
+    program_name: str | None = None
+    status: str | None = None
+    priority: float | None = None
+    runner: str | None = None
+    clear_context: bool | None = None
+    memory_keys: list[str] | None = None
+    tools: list[str] | None = None
+    resources: list[str] | None = None
+    creator: str | None = None
+    source_event: str | None = None
+    limits: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class TasksResponse(BaseModel):

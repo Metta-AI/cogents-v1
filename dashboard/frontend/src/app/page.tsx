@@ -6,7 +6,6 @@ import { Header } from "@/components/Header";
 import { useCogentData } from "@/hooks/useCogentData";
 import { OverviewPanel } from "@/components/overview/OverviewPanel";
 import { ProgramsPanel } from "@/components/programs/ProgramsPanel";
-import { SessionsPanel } from "@/components/sessions/SessionsPanel";
 import { ChannelsPanel } from "@/components/channels/ChannelsPanel";
 import { EventsPanel } from "@/components/events/EventsPanel";
 import { TriggersPanel } from "@/components/triggers/TriggersPanel";
@@ -77,9 +76,6 @@ export default function DashboardPage() {
         {activeTab === "programs" && (
           <ProgramsPanel programs={data.programs} cogentName={cogentName} />
         )}
-        {activeTab === "sessions" && (
-          <SessionsPanel sessions={data.sessions} />
-        )}
         {activeTab === "channels" && (
           <ChannelsPanel channels={data.channels} />
         )}
@@ -96,7 +92,7 @@ export default function DashboardPage() {
           <ResourcesPanel data={data} />
         )}
         {activeTab === "tasks" && (
-          <TasksPanel tasks={data.tasks} cogentName={cogentName} />
+          <TasksPanel tasks={data.tasks} cogentName={cogentName} onRefresh={refresh} memory={data.memory} programs={data.programs} />
         )}
         {activeTab === "alerts" && (
           <AlertsPanel alerts={data.alerts} />

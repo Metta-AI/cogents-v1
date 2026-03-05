@@ -91,17 +91,28 @@ export interface MemoryItem {
 
 export interface Task {
   id: string;
-  title: string | null;
+  name: string | null;
   description: string | null;
+  program_name: string | null;
+  content: string | null;
   status: string | null;
   priority: number | null;
-  source: string | null;
-  external_id: string | null;
+  runner: string | null;
+  clear_context: boolean | null;
+  memory_keys: string[] | null;
+  tools: string[] | null;
+  resources: string[] | null;
+  creator: string | null;
+  parent_task_id: string | null;
+  source_event: string | null;
+  limits: Record<string, unknown> | null;
   metadata: Record<string, unknown> | null;
-  error: string | null;
   created_at: string | null;
   updated_at: string | null;
   completed_at: string | null;
+  last_run_status: string | null;
+  last_run_error: string | null;
+  last_run_at: string | null;
 }
 
 export interface Channel {

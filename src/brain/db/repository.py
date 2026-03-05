@@ -711,6 +711,48 @@ class Repository:
             )
         return response.get("numberOfRecordsUpdated", 0) == 1
 
+    def update_task(self, task: Task) -> bool:
+        if task.status == TaskStatus.COMPLETED and task.completed_at:
+            response = self._execute(
+                """UPDATE tasks SET name = :name, description = :description,
+                          status = :status, priority = :priority,
+                          metadata = :metadata::jsonb, updated_at = now(),
+                          completed_at = :completed_at
+                   WHERE id = :id""",
+                [
+                    self._param("id", task.id),
+                    self._param("name", task.name),
+                    self._param("description", task.description),
+                    self._param("status", task.status.value),
+                    self._param("priority", task.priority),
+                    self._param("metadata", task.metadata),
+                    self._param("completed_at", task.completed_at),
+                ],
+            )
+        else:
+            response = self._execute(
+                """UPDATE tasks SET name = :name, description = :description,
+                          status = :status, priority = :priority,
+                          metadata = :metadata::jsonb, updated_at = now()
+                   WHERE id = :id""",
+                [
+                    self._param("id", task.id),
+                    self._param("name", task.name),
+                    self._param("description", task.description),
+                    self._param("status", task.status.value),
+                    self._param("priority", task.priority),
+                    self._param("metadata", task.metadata),
+                ],
+            )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def delete_task(self, task_id: UUID) -> bool:
+        response = self._execute(
+            "DELETE FROM tasks WHERE id = :id",
+            [self._param("id", task_id)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
     def list_tasks(
         self,
         *,
