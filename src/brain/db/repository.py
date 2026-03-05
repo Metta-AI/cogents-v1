@@ -1,15 +1,16 @@
-"""Async PostgreSQL repository: CRUD for all 12 tables."""
+"""Synchronous PostgreSQL repository using RDS Data API: CRUD for all 12 tables."""
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+import os
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-import asyncpg
+import boto3
 
 from brain.db.models import (
     Alert,
@@ -18,14 +19,16 @@ from brain.db.models import (
     BudgetPeriod,
     Channel,
     ChannelType,
+    ComputeTier,
     Conversation,
     ConversationStatus,
     Event,
-    Execution,
-    ExecutionStatus,
     MemoryRecord,
     MemoryScope,
     MemoryType,
+    Program,
+    Run,
+    RunStatus,
     Task,
     TaskStatus,
     Trace,
@@ -38,44 +41,153 @@ logger = logging.getLogger(__name__)
 
 
 class Repository:
-    """Async database repository wrapping an asyncpg connection pool."""
+    """Synchronous database repository using RDS Data API."""
 
-    def __init__(self, pool: asyncpg.Pool) -> None:
-        self._pool = pool
+    def __init__(
+        self,
+        client: Any,
+        resource_arn: str,
+        secret_arn: str,
+        database: str,
+    ) -> None:
+        self._client = client
+        self._resource_arn = resource_arn
+        self._secret_arn = secret_arn
+        self._database = database
 
     @classmethod
-    async def create(cls, dsn: str, **kwargs) -> Repository:
-        pool = await asyncpg.create_pool(dsn, **kwargs)
-        return cls(pool)
+    def create(
+        cls,
+        resource_arn: str | None = None,
+        secret_arn: str | None = None,
+        database: str | None = None,
+        region: str | None = None,
+    ) -> Repository:
+        """Create repository from arguments or environment variables."""
+        resource_arn = resource_arn or os.environ.get("DB_RESOURCE_ARN", "")
+        secret_arn = secret_arn or os.environ.get("DB_SECRET_ARN", "")
+        database = database or os.environ.get("DB_NAME", "")
+        region = region or os.environ.get("AWS_REGION", "us-east-1")
 
-    async def close(self) -> None:
-        await self._pool.close()
+        if not all([resource_arn, secret_arn, database]):
+            raise ValueError(
+                "Must provide resource_arn, secret_arn, and database "
+                "via arguments or environment variables "
+                "(DB_RESOURCE_ARN, DB_SECRET_ARN, DB_NAME)"
+            )
 
-    async def __aenter__(self) -> Repository:
+        client = boto3.client("rds-data", region_name=region)
+        return cls(client, resource_arn, secret_arn, database)
+
+    def __enter__(self) -> Repository:
         return self
 
-    async def __aexit__(self, *exc: object) -> None:
-        await self.close()
+    def __exit__(self, *exc: object) -> None:
+        # No cleanup needed for Data API
+        pass
+
+    # ═══════════════════════════════════════════════════════════
+    # HELPER METHODS
+    # ═══════════════════════════════════════════════════════════
+
+    def _execute(self, sql: str, params: list[dict] | None = None) -> dict:
+        """Execute SQL statement using RDS Data API."""
+        kwargs: dict[str, Any] = {
+            "resourceArn": self._resource_arn,
+            "secretArn": self._secret_arn,
+            "database": self._database,
+            "sql": sql,
+            "includeResultMetadata": True,
+        }
+        if params:
+            kwargs["parameters"] = params
+        return self._client.execute_statement(**kwargs)
+
+    def _param(self, name: str, value: Any) -> dict:
+        """Build Data API parameter dict from Python value."""
+        param: dict[str, Any] = {"name": name}
+
+        if value is None:
+            param["value"] = {"isNull": True}
+        elif isinstance(value, bool):
+            param["value"] = {"booleanValue": value}
+        elif isinstance(value, int):
+            param["value"] = {"longValue": value}
+        elif isinstance(value, float):
+            param["value"] = {"doubleValue": value}
+        elif isinstance(value, Decimal):
+            param["value"] = {"stringValue": str(value)}
+        elif isinstance(value, UUID):
+            param["value"] = {"stringValue": str(value)}
+        elif isinstance(value, (datetime, date)):
+            param["value"] = {"stringValue": value.isoformat()}
+        elif isinstance(value, (dict, list)):
+            param["value"] = {"stringValue": json.dumps(value)}
+        else:
+            param["value"] = {"stringValue": str(value)}
+
+        return param
+
+    def _extract_value(self, cell: dict) -> Any:
+        """Extract value from Data API cell dict."""
+        if "isNull" in cell and cell["isNull"]:
+            return None
+        if "stringValue" in cell:
+            return cell["stringValue"]
+        if "longValue" in cell:
+            return cell["longValue"]
+        if "doubleValue" in cell:
+            return cell["doubleValue"]
+        if "booleanValue" in cell:
+            return cell["booleanValue"]
+        if "blobValue" in cell:
+            return cell["blobValue"]
+        return None
+
+    def _rows_to_dicts(self, response: dict) -> list[dict]:
+        """Convert Data API response to list[dict] using columnMetadata."""
+        if "records" not in response or not response["records"]:
+            return []
+
+        column_names = [col["name"] for col in response.get("columnMetadata", [])]
+        rows = []
+        for record in response["records"]:
+            row = {}
+            for col_name, cell in zip(column_names, record):
+                row[col_name] = self._extract_value(cell)
+            rows.append(row)
+        return rows
+
+    def _first_row(self, response: dict) -> dict | None:
+        """Return first row as dict or None."""
+        rows = self._rows_to_dicts(response)
+        return rows[0] if rows else None
 
     # ═══════════════════════════════════════════════════════════
     # EVENTS (append-only log)
     # ═══════════════════════════════════════════════════════════
 
-    async def append_event(self, event: Event) -> int:
-        row = await self._pool.fetchrow(
+    def append_event(self, event: Event) -> int:
+        response = self._execute(
             """INSERT INTO events (cogent_id, event_type, source, payload, parent_event_id)
-               VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at""",
-            event.cogent_id,
-            event.event_type,
-            event.source,
-            json.dumps(event.payload),
-            event.parent_event_id,
+               VALUES (:cogent_id, :event_type, :source, :payload::jsonb, :parent_event_id)
+               RETURNING id, created_at""",
+            [
+                self._param("cogent_id", event.cogent_id),
+                self._param("event_type", event.event_type),
+                self._param("source", event.source),
+                self._param("payload", event.payload),
+                self._param("parent_event_id", event.parent_event_id),
+            ],
         )
-        event.id = row["id"]
-        event.created_at = row["created_at"]
-        return row["id"]
+        row = self._first_row(response)
+        if row:
+            event.id = row["id"]
+            event.created_at = datetime.fromisoformat(row["created_at"])
+            return row["id"]
+        raise RuntimeError("Failed to insert event")
 
-    async def get_events(
+    def get_events(
         self,
         cogent_id: str,
         *,
@@ -83,56 +195,61 @@ class Repository:
         limit: int = 100,
     ) -> list[Event]:
         if event_type:
-            rows = await self._pool.fetch(
+            response = self._execute(
                 """SELECT id, cogent_id, event_type, source, payload, parent_event_id, created_at
-                   FROM events WHERE cogent_id = $1 AND event_type = $2
-                   ORDER BY created_at DESC LIMIT $3""",
-                cogent_id,
-                event_type,
-                limit,
+                   FROM events WHERE cogent_id = :cogent_id AND event_type = :event_type
+                   ORDER BY created_at DESC LIMIT :limit""",
+                [
+                    self._param("cogent_id", cogent_id),
+                    self._param("event_type", event_type),
+                    self._param("limit", limit),
+                ],
             )
         else:
-            rows = await self._pool.fetch(
+            response = self._execute(
                 """SELECT id, cogent_id, event_type, source, payload, parent_event_id, created_at
-                   FROM events WHERE cogent_id = $1
-                   ORDER BY created_at DESC LIMIT $2""",
-                cogent_id,
-                limit,
+                   FROM events WHERE cogent_id = :cogent_id
+                   ORDER BY created_at DESC LIMIT :limit""",
+                [
+                    self._param("cogent_id", cogent_id),
+                    self._param("limit", limit),
+                ],
             )
-        return [self._event_from_row(r) for r in rows]
+        return [self._event_from_row(r) for r in self._rows_to_dicts(response)]
 
-    async def get_event_tree(self, event_id: int) -> list[Event]:
+    def get_event_tree(self, event_id: int) -> list[Event]:
         """Get an event and all its descendants (full causal tree)."""
-        rows = await self._pool.fetch(
+        response = self._execute(
             """WITH RECURSIVE tree AS (
                  SELECT id, cogent_id, event_type, source, payload, parent_event_id, created_at
-                 FROM events WHERE id = $1
+                 FROM events WHERE id = :event_id
                  UNION ALL
                  SELECT e.id, e.cogent_id, e.event_type, e.source, e.payload, e.parent_event_id, e.created_at
                  FROM events e JOIN tree t ON e.parent_event_id = t.id
                )
                SELECT * FROM tree ORDER BY created_at""",
-            event_id,
+            [self._param("event_id", event_id)],
         )
-        return [self._event_from_row(r) for r in rows]
+        return [self._event_from_row(r) for r in self._rows_to_dicts(response)]
 
-    async def get_event_root(self, event_id: int) -> list[Event]:
+    def get_event_root(self, event_id: int) -> list[Event]:
         """Walk up to the root event, then return the full tree from that root."""
-        root_row = await self._pool.fetchrow(
+        response = self._execute(
             """WITH RECURSIVE ancestors AS (
-                 SELECT id, parent_event_id FROM events WHERE id = $1
+                 SELECT id, parent_event_id FROM events WHERE id = :event_id
                  UNION ALL
                  SELECT e.id, e.parent_event_id
                  FROM events e JOIN ancestors a ON e.id = a.parent_event_id
                )
                SELECT id FROM ancestors WHERE parent_event_id IS NULL""",
-            event_id,
+            [self._param("event_id", event_id)],
         )
+        root_row = self._first_row(response)
         if not root_row:
             return []
-        return await self.get_event_tree(root_row["id"])
+        return self.get_event_tree(root_row["id"])
 
-    def _event_from_row(self, row: asyncpg.Record) -> Event:
+    def _event_from_row(self, row: dict) -> Event:
         payload = row["payload"]
         if isinstance(payload, str):
             payload = json.loads(payload)
@@ -143,38 +260,47 @@ class Repository:
             source=row.get("source"),
             payload=payload,
             parent_event_id=row.get("parent_event_id"),
-            created_at=row["created_at"],
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
 
     # ═══════════════════════════════════════════════════════════
     # MEMORY
     # ═══════════════════════════════════════════════════════════
 
-    async def insert_memory(self, mem: MemoryRecord) -> UUID:
-        row = await self._pool.fetchrow(
+    def insert_memory(self, mem: MemoryRecord) -> UUID:
+        response = self._execute(
             """INSERT INTO memory (id, cogent_id, scope, type, name, content, provenance)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               VALUES (:id, :cogent_id, :scope, :type, :name, :content, :provenance::jsonb)
                ON CONFLICT (cogent_id, scope, name) WHERE name IS NOT NULL
                DO UPDATE SET content = EXCLUDED.content, provenance = EXCLUDED.provenance,
                             type = EXCLUDED.type, updated_at = now()
                RETURNING id, created_at, updated_at""",
-            mem.id,
-            mem.cogent_id,
-            mem.scope.value,
-            mem.type.value,
-            mem.name,
-            mem.content,
-            json.dumps(mem.provenance),
+            [
+                self._param("id", mem.id),
+                self._param("cogent_id", mem.cogent_id),
+                self._param("scope", mem.scope.value),
+                self._param("type", mem.type.value),
+                self._param("name", mem.name),
+                self._param("content", mem.content),
+                self._param("provenance", mem.provenance),
+            ],
         )
-        mem.created_at = row["created_at"]
-        mem.updated_at = row["updated_at"]
-        return row["id"]
+        row = self._first_row(response)
+        if row:
+            mem.created_at = datetime.fromisoformat(row["created_at"])
+            mem.updated_at = datetime.fromisoformat(row["updated_at"])
+            return UUID(row["id"])
+        raise RuntimeError("Failed to insert memory")
 
-    async def get_memory(self, memory_id: UUID) -> MemoryRecord | None:
-        row = await self._pool.fetchrow("SELECT * FROM memory WHERE id = $1", memory_id)
+    def get_memory(self, memory_id: UUID) -> MemoryRecord | None:
+        response = self._execute(
+            "SELECT * FROM memory WHERE id = :id",
+            [self._param("id", memory_id)],
+        )
+        row = self._first_row(response)
         return self._memory_from_row(row) if row else None
 
-    async def query_memory(
+    def query_memory(
         self,
         cogent_id: str,
         *,
@@ -183,34 +309,30 @@ class Repository:
         name: str | None = None,
         limit: int = 50,
     ) -> list[MemoryRecord]:
-        conditions = ["cogent_id = $1"]
-        params: list[Any] = [cogent_id]
-        idx = 2
+        conditions = ["cogent_id = :cogent_id"]
+        params = [self._param("cogent_id", cogent_id)]
 
         if scope:
-            conditions.append(f"scope = ${idx}")
-            params.append(scope.value)
-            idx += 1
+            conditions.append("scope = :scope")
+            params.append(self._param("scope", scope.value))
         if type:
-            conditions.append(f"type = ${idx}")
-            params.append(type.value)
-            idx += 1
+            conditions.append("type = :type")
+            params.append(self._param("type", type.value))
         if name:
-            conditions.append(f"name = ${idx}")
-            params.append(name)
-            idx += 1
+            conditions.append("name = :name")
+            params.append(self._param("name", name))
 
         conditions.append("TRUE")
         where = " AND ".join(conditions)
+        params.append(self._param("limit", limit))
 
-        params.append(limit)
-        rows = await self._pool.fetch(
-            f"SELECT * FROM memory WHERE {where} ORDER BY updated_at DESC LIMIT ${idx}",
-            *params,
+        response = self._execute(
+            f"SELECT * FROM memory WHERE {where} ORDER BY updated_at DESC LIMIT :limit",
+            params,
         )
-        return [self._memory_from_row(r) for r in rows]
+        return [self._memory_from_row(r) for r in self._rows_to_dicts(response)]
 
-    async def query_memory_by_prefixes(
+    def query_memory_by_prefixes(
         self,
         cogent_id: str,
         prefixes: list[str],
@@ -224,57 +346,61 @@ class Repository:
             return []
 
         conditions = []
-        params: list[Any] = [cogent_id]
+        params = [self._param("cogent_id", cogent_id)]
         for i, prefix in enumerate(prefixes):
-            params.append(prefix + "%")
-            conditions.append(f"name LIKE ${i + 2}")
+            param_name = f"prefix_{i}"
+            params.append(self._param(param_name, prefix + "%"))
+            conditions.append(f"name LIKE :{param_name}")
 
         prefix_filter = " OR ".join(conditions)
-        rows = await self._pool.fetch(
+        response = self._execute(
             f"""SELECT * FROM memory
-                WHERE cogent_id = $1
+                WHERE cogent_id = :cogent_id
                   AND ({prefix_filter})
                 ORDER BY scope ASC, name ASC""",
-            *params,
+            params,
         )
 
         seen: dict[str, MemoryRecord] = {}
-        for row in rows:
+        for row in self._rows_to_dicts(response):
             record = self._memory_from_row(row)
             if record.name and record.name not in seen:
                 seen[record.name] = record
         return sorted(seen.values(), key=lambda r: r.name or "")
 
-    async def delete_memory(self, memory_id: UUID) -> bool:
-        result = await self._pool.execute("DELETE FROM memory WHERE id = $1", memory_id)
-        return result == "DELETE 1"
+    def delete_memory(self, memory_id: UUID) -> bool:
+        response = self._execute(
+            "DELETE FROM memory WHERE id = :id",
+            [self._param("id", memory_id)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
 
-    def _memory_from_row(self, row: asyncpg.Record) -> MemoryRecord:
+    def _memory_from_row(self, row: dict) -> MemoryRecord:
         provenance = row.get("provenance", {})
         if isinstance(provenance, str):
             provenance = json.loads(provenance)
         return MemoryRecord(
-            id=row["id"],
+            id=UUID(row["id"]),
             cogent_id=row["cogent_id"],
             scope=MemoryScope(row["scope"]),
             type=MemoryType(row["type"]),
             name=row.get("name"),
             content=row.get("content", ""),
             provenance=provenance,
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
         )
 
     # ═══════════════════════════════════════════════════════════
-    # SKILLS
+    # PROGRAMS
     # ═══════════════════════════════════════════════════════════
 
-    async def upsert_skill(
+    def upsert_program(
         self,
         cogent_id: str,
         name: str,
         *,
-        skill_type: str = "markdown",
+        program_type: str = "markdown",
         source: str = "golden",
         description: str = "",
         content: str = "",
@@ -283,89 +409,151 @@ class Repository:
         sla: dict | None = None,
         enabled: bool = True,
         version: int = 1,
+        compute_tier: ComputeTier = ComputeTier.LAMBDA,
+        tools: list[str] | None = None,
     ) -> None:
-        await self._pool.execute(
-            """INSERT INTO skills (cogent_id, name, skill_type, source, description, content,
-                                   triggers, resources, sla, enabled, version)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        self._execute(
+            """INSERT INTO programs (cogent_id, name, program_type, source, description, content,
+                                   triggers, resources, sla, enabled, version, compute_tier, tools)
+               VALUES (:cogent_id, :name, :program_type, :source, :description, :content,
+                       :triggers::jsonb, :resources::jsonb, :sla::jsonb, :enabled, :version,
+                       :compute_tier, :tools::jsonb)
                ON CONFLICT (cogent_id, name)
-               DO UPDATE SET skill_type = EXCLUDED.skill_type, source = EXCLUDED.source,
+               DO UPDATE SET program_type = EXCLUDED.program_type, source = EXCLUDED.source,
                             description = EXCLUDED.description, content = EXCLUDED.content,
                             triggers = EXCLUDED.triggers, resources = EXCLUDED.resources,
                             sla = EXCLUDED.sla, enabled = EXCLUDED.enabled,
-                            version = EXCLUDED.version, updated_at = now()""",
-            cogent_id,
-            name,
-            skill_type,
-            source,
-            description,
-            content,
-            json.dumps(triggers or []),
-            json.dumps(resources or {}),
-            json.dumps(sla or {}),
-            enabled,
-            version,
+                            version = EXCLUDED.version, compute_tier = EXCLUDED.compute_tier,
+                            tools = EXCLUDED.tools, updated_at = now()""",
+            [
+                self._param("cogent_id", cogent_id),
+                self._param("name", name),
+                self._param("program_type", program_type),
+                self._param("source", source),
+                self._param("description", description),
+                self._param("content", content),
+                self._param("triggers", triggers or []),
+                self._param("resources", resources or {}),
+                self._param("sla", sla or {}),
+                self._param("enabled", enabled),
+                self._param("version", version),
+                self._param("compute_tier", compute_tier.value),
+                self._param("tools", tools or []),
+            ],
         )
 
-    async def list_skills(self, cogent_id: str, *, source: str | None = None) -> list[dict]:
+    def get_program(self, cogent_id: str, name: str) -> Program | None:
+        """Get a program by cogent_id and name."""
+        response = self._execute(
+            "SELECT * FROM programs WHERE cogent_id = :cogent_id AND name = :name",
+            [
+                self._param("cogent_id", cogent_id),
+                self._param("name", name),
+            ],
+        )
+        row = self._first_row(response)
+        return self._program_from_row(row) if row else None
+
+    def list_programs(self, cogent_id: str, *, source: str | None = None) -> list[dict]:
         if source:
-            rows = await self._pool.fetch(
-                "SELECT * FROM skills WHERE cogent_id = $1 AND source = $2 ORDER BY name",
-                cogent_id,
-                source,
+            response = self._execute(
+                "SELECT * FROM programs WHERE cogent_id = :cogent_id AND source = :source ORDER BY name",
+                [
+                    self._param("cogent_id", cogent_id),
+                    self._param("source", source),
+                ],
             )
         else:
-            rows = await self._pool.fetch(
-                "SELECT * FROM skills WHERE cogent_id = $1 ORDER BY name",
-                cogent_id,
+            response = self._execute(
+                "SELECT * FROM programs WHERE cogent_id = :cogent_id ORDER BY name",
+                [self._param("cogent_id", cogent_id)],
             )
-        return [dict(r) for r in rows]
+        return self._rows_to_dicts(response)
 
-    async def delete_skill(self, cogent_id: str, name: str) -> bool:
-        result = await self._pool.execute(
-            "DELETE FROM skills WHERE cogent_id = $1 AND name = $2",
-            cogent_id,
-            name,
+    def delete_program(self, cogent_id: str, name: str) -> bool:
+        response = self._execute(
+            "DELETE FROM programs WHERE cogent_id = :cogent_id AND name = :name",
+            [
+                self._param("cogent_id", cogent_id),
+                self._param("name", name),
+            ],
         )
-        return result == "DELETE 1"
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def _program_from_row(self, row: dict) -> Program:
+        triggers = row.get("triggers", [])
+        if isinstance(triggers, str):
+            triggers = json.loads(triggers)
+        resources = row.get("resources", {})
+        if isinstance(resources, str):
+            resources = json.loads(resources)
+        sla = row.get("sla", {})
+        if isinstance(sla, str):
+            sla = json.loads(sla)
+        tools = row.get("tools", [])
+        if isinstance(tools, str):
+            tools = json.loads(tools)
+
+        return Program(
+            cogent_id=row["cogent_id"],
+            name=row["name"],
+            program_type=row.get("program_type", "markdown"),
+            source=row.get("source", "golden"),
+            description=row.get("description", ""),
+            content=row.get("content", ""),
+            triggers=triggers,
+            resources=resources,
+            sla=sla,
+            enabled=row.get("enabled", True),
+            version=row.get("version", 1),
+            compute_tier=ComputeTier(row.get("compute_tier", "lambda")),
+            tools=tools,
+            created_at=datetime.fromisoformat(row["created_at"]) if row.get("created_at") else None,
+            updated_at=datetime.fromisoformat(row["updated_at"]) if row.get("updated_at") else None,
+        )
 
     # ═══════════════════════════════════════════════════════════
     # CHANNELS
     # ═══════════════════════════════════════════════════════════
 
-    async def upsert_channel(self, channel: Channel) -> UUID:
-        row = await self._pool.fetchrow(
+    def upsert_channel(self, channel: Channel) -> UUID:
+        response = self._execute(
             """INSERT INTO channels (id, cogent_id, type, name, external_id, secret_arn, config, enabled)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               VALUES (:id, :cogent_id, :type, :name, :external_id, :secret_arn, :config::jsonb, :enabled)
                ON CONFLICT (cogent_id, type, name)
                DO UPDATE SET external_id = EXCLUDED.external_id, secret_arn = EXCLUDED.secret_arn,
                             config = EXCLUDED.config, enabled = EXCLUDED.enabled
                RETURNING id, created_at""",
-            channel.id,
-            channel.cogent_id,
-            channel.type.value,
-            channel.name,
-            channel.external_id,
-            channel.secret_arn,
-            json.dumps(channel.config),
-            channel.enabled,
+            [
+                self._param("id", channel.id),
+                self._param("cogent_id", channel.cogent_id),
+                self._param("type", channel.type.value),
+                self._param("name", channel.name),
+                self._param("external_id", channel.external_id),
+                self._param("secret_arn", channel.secret_arn),
+                self._param("config", channel.config),
+                self._param("enabled", channel.enabled),
+            ],
         )
-        channel.created_at = row["created_at"]
-        return row["id"]
+        row = self._first_row(response)
+        if row:
+            channel.created_at = datetime.fromisoformat(row["created_at"])
+            return UUID(row["id"])
+        raise RuntimeError("Failed to upsert channel")
 
-    async def list_channels(self, cogent_id: str) -> list[Channel]:
-        rows = await self._pool.fetch(
-            "SELECT * FROM channels WHERE cogent_id = $1 ORDER BY type, name",
-            cogent_id,
+    def list_channels(self, cogent_id: str) -> list[Channel]:
+        response = self._execute(
+            "SELECT * FROM channels WHERE cogent_id = :cogent_id ORDER BY type, name",
+            [self._param("cogent_id", cogent_id)],
         )
-        return [self._channel_from_row(r) for r in rows]
+        return [self._channel_from_row(r) for r in self._rows_to_dicts(response)]
 
-    def _channel_from_row(self, row: asyncpg.Record) -> Channel:
+    def _channel_from_row(self, row: dict) -> Channel:
         config = row.get("config", {})
         if isinstance(config, str):
             config = json.loads(config)
         return Channel(
-            id=row["id"],
+            id=UUID(row["id"]),
             cogent_id=row["cogent_id"],
             type=ChannelType(row["type"]),
             name=row["name"],
@@ -373,39 +561,49 @@ class Repository:
             secret_arn=row.get("secret_arn"),
             config=config,
             enabled=row["enabled"],
-            created_at=row["created_at"],
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
 
     # ═══════════════════════════════════════════════════════════
     # TASKS
     # ═══════════════════════════════════════════════════════════
 
-    async def create_task(self, task: Task) -> UUID:
-        row = await self._pool.fetchrow(
+    def create_task(self, task: Task) -> UUID:
+        response = self._execute(
             """INSERT INTO tasks (id, cogent_id, title, description, status, priority, source,
                                   external_id, metadata, error)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               VALUES (:id, :cogent_id, :title, :description, :status, :priority, :source,
+                       :external_id, :metadata::jsonb, :error)
                RETURNING id, created_at, updated_at""",
-            task.id,
-            task.cogent_id,
-            task.title,
-            task.description,
-            task.status.value,
-            task.priority,
-            task.source,
-            task.external_id,
-            json.dumps(task.metadata),
-            task.error,
+            [
+                self._param("id", task.id),
+                self._param("cogent_id", task.cogent_id),
+                self._param("title", task.title),
+                self._param("description", task.description),
+                self._param("status", task.status.value),
+                self._param("priority", task.priority),
+                self._param("source", task.source),
+                self._param("external_id", task.external_id),
+                self._param("metadata", task.metadata),
+                self._param("error", task.error),
+            ],
         )
-        task.created_at = row["created_at"]
-        task.updated_at = row["updated_at"]
-        return row["id"]
+        row = self._first_row(response)
+        if row:
+            task.created_at = datetime.fromisoformat(row["created_at"])
+            task.updated_at = datetime.fromisoformat(row["updated_at"])
+            return UUID(row["id"])
+        raise RuntimeError("Failed to create task")
 
-    async def get_task(self, task_id: UUID) -> Task | None:
-        row = await self._pool.fetchrow("SELECT * FROM tasks WHERE id = $1", task_id)
+    def get_task(self, task_id: UUID) -> Task | None:
+        response = self._execute(
+            "SELECT * FROM tasks WHERE id = :id",
+            [self._param("id", task_id)],
+        )
+        row = self._first_row(response)
         return self._task_from_row(row) if row else None
 
-    async def update_task_status(
+    def update_task_status(
         self,
         task_id: UUID,
         status: TaskStatus,
@@ -413,47 +611,54 @@ class Repository:
         error: str | None = None,
     ) -> bool:
         if status == TaskStatus.COMPLETED:
-            result = await self._pool.execute(
-                """UPDATE tasks SET status = $2, completed_at = now(), updated_at = now()
-                   WHERE id = $1""",
-                task_id,
-                status.value,
+            response = self._execute(
+                """UPDATE tasks SET status = :status, completed_at = now(), updated_at = now()
+                   WHERE id = :id""",
+                [
+                    self._param("id", task_id),
+                    self._param("status", status.value),
+                ],
             )
         elif error:
-            result = await self._pool.execute(
-                """UPDATE tasks SET status = $2, error = $3, updated_at = now()
-                   WHERE id = $1""",
-                task_id,
-                status.value,
-                error,
+            response = self._execute(
+                """UPDATE tasks SET status = :status, error = :error, updated_at = now()
+                   WHERE id = :id""",
+                [
+                    self._param("id", task_id),
+                    self._param("status", status.value),
+                    self._param("error", error),
+                ],
             )
         else:
-            result = await self._pool.execute(
-                "UPDATE tasks SET status = $2, updated_at = now() WHERE id = $1",
-                task_id,
-                status.value,
+            response = self._execute(
+                "UPDATE tasks SET status = :status, updated_at = now() WHERE id = :id",
+                [
+                    self._param("id", task_id),
+                    self._param("status", status.value),
+                ],
             )
-        return result == "UPDATE 1"
+        return response.get("numberOfRecordsUpdated", 0) == 1
 
-    async def claim_task(self, cogent_id: str, role: str) -> Task | None:
+    def claim_task(self, cogent_id: str, role: str) -> Task | None:
         """Atomically claim the next approved task (highest priority first)."""
-        row = await self._pool.fetchrow(
+        response = self._execute(
             """UPDATE tasks SET status = 'in_progress', updated_at = now()
                WHERE id = (
                    SELECT id FROM tasks
-                   WHERE cogent_id = $1 AND status = 'approved'
+                   WHERE cogent_id = :cogent_id AND status = 'approved'
                    ORDER BY priority DESC, created_at ASC
                    LIMIT 1
                    FOR UPDATE SKIP LOCKED
                )
                RETURNING *""",
-            cogent_id,
+            [self._param("cogent_id", cogent_id)],
         )
+        row = self._first_row(response)
         if row is None:
             return None
         return self._task_from_row(row)
 
-    async def list_tasks(
+    def list_tasks(
         self,
         cogent_id: str,
         *,
@@ -461,243 +666,273 @@ class Repository:
         limit: int = 50,
     ) -> list[Task]:
         if status:
-            rows = await self._pool.fetch(
-                """SELECT * FROM tasks WHERE cogent_id = $1 AND status = $2
-                   ORDER BY priority DESC, created_at DESC LIMIT $3""",
-                cogent_id,
-                status.value,
-                limit,
+            response = self._execute(
+                """SELECT * FROM tasks WHERE cogent_id = :cogent_id AND status = :status
+                   ORDER BY priority DESC, created_at DESC LIMIT :limit""",
+                [
+                    self._param("cogent_id", cogent_id),
+                    self._param("status", status.value),
+                    self._param("limit", limit),
+                ],
             )
         else:
-            rows = await self._pool.fetch(
-                """SELECT * FROM tasks WHERE cogent_id = $1
-                   ORDER BY priority DESC, created_at DESC LIMIT $2""",
-                cogent_id,
-                limit,
+            response = self._execute(
+                """SELECT * FROM tasks WHERE cogent_id = :cogent_id
+                   ORDER BY priority DESC, created_at DESC LIMIT :limit""",
+                [
+                    self._param("cogent_id", cogent_id),
+                    self._param("limit", limit),
+                ],
             )
-        return [self._task_from_row(r) for r in rows]
+        return [self._task_from_row(r) for r in self._rows_to_dicts(response)]
 
-    def _task_from_row(self, row: asyncpg.Record) -> Task:
+    def _task_from_row(self, row: dict) -> Task:
         metadata = row.get("metadata", {})
         if isinstance(metadata, str):
             metadata = json.loads(metadata)
         return Task(
-            id=row["id"],
+            id=UUID(row["id"]),
             cogent_id=row["cogent_id"],
             title=row["title"],
             description=row.get("description", ""),
             status=TaskStatus(row["status"]),
             priority=row.get("priority", 0),
             source=row.get("source", "agent"),
-            channel_id=row.get("channel_id"),
+            channel_id=UUID(row["channel_id"]) if row.get("channel_id") else None,
             external_id=row.get("external_id"),
             metadata=metadata,
             error=row.get("error"),
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-            completed_at=row.get("completed_at"),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+            completed_at=datetime.fromisoformat(row["completed_at"]) if row.get("completed_at") else None,
         )
 
     # ═══════════════════════════════════════════════════════════
     # CONVERSATIONS
     # ═══════════════════════════════════════════════════════════
 
-    async def upsert_conversation(self, conv: Conversation) -> UUID:
-        row = await self._pool.fetchrow(
+    def upsert_conversation(self, conv: Conversation) -> UUID:
+        response = self._execute(
             """INSERT INTO conversations (id, cogent_id, context_key, channel_id, status,
                                           cli_session_id, metadata)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               VALUES (:id, :cogent_id, :context_key, :channel_id, :status, :cli_session_id, :metadata::jsonb)
                ON CONFLICT (id)
                DO UPDATE SET status = EXCLUDED.status, cli_session_id = EXCLUDED.cli_session_id,
                             metadata = EXCLUDED.metadata, last_active = now()
                RETURNING id, started_at, last_active""",
-            conv.id,
-            conv.cogent_id,
-            conv.context_key,
-            conv.channel_id,
-            conv.status.value,
-            conv.cli_session_id,
-            json.dumps(conv.metadata),
+            [
+                self._param("id", conv.id),
+                self._param("cogent_id", conv.cogent_id),
+                self._param("context_key", conv.context_key),
+                self._param("channel_id", conv.channel_id),
+                self._param("status", conv.status.value),
+                self._param("cli_session_id", conv.cli_session_id),
+                self._param("metadata", conv.metadata),
+            ],
         )
-        conv.started_at = row["started_at"]
-        conv.last_active = row["last_active"]
-        return row["id"]
+        row = self._first_row(response)
+        if row:
+            conv.started_at = datetime.fromisoformat(row["started_at"])
+            conv.last_active = datetime.fromisoformat(row["last_active"])
+            return UUID(row["id"])
+        raise RuntimeError("Failed to upsert conversation")
 
-    async def get_conversation_by_context(self, cogent_id: str, context_key: str) -> Conversation | None:
-        row = await self._pool.fetchrow(
+    def get_conversation_by_context(self, cogent_id: str, context_key: str) -> Conversation | None:
+        response = self._execute(
             """SELECT * FROM conversations
-               WHERE cogent_id = $1 AND context_key = $2 AND status != 'closed'
+               WHERE cogent_id = :cogent_id AND context_key = :context_key AND status != 'closed'
                ORDER BY last_active DESC LIMIT 1""",
-            cogent_id,
-            context_key,
+            [
+                self._param("cogent_id", cogent_id),
+                self._param("context_key", context_key),
+            ],
         )
+        row = self._first_row(response)
         return self._conversation_from_row(row) if row else None
 
-    async def list_conversations(
+    def list_conversations(
         self,
         cogent_id: str,
         *,
         status: ConversationStatus | None = None,
     ) -> list[Conversation]:
         if status:
-            rows = await self._pool.fetch(
-                """SELECT * FROM conversations WHERE cogent_id = $1 AND status = $2
+            response = self._execute(
+                """SELECT * FROM conversations WHERE cogent_id = :cogent_id AND status = :status
                    ORDER BY last_active DESC""",
-                cogent_id,
-                status.value,
+                [
+                    self._param("cogent_id", cogent_id),
+                    self._param("status", status.value),
+                ],
             )
         else:
-            rows = await self._pool.fetch(
-                "SELECT * FROM conversations WHERE cogent_id = $1 ORDER BY last_active DESC",
-                cogent_id,
+            response = self._execute(
+                "SELECT * FROM conversations WHERE cogent_id = :cogent_id ORDER BY last_active DESC",
+                [self._param("cogent_id", cogent_id)],
             )
-        return [self._conversation_from_row(r) for r in rows]
+        return [self._conversation_from_row(r) for r in self._rows_to_dicts(response)]
 
-    async def close_conversation(self, conversation_id: UUID) -> bool:
-        result = await self._pool.execute(
-            "UPDATE conversations SET status = 'closed' WHERE id = $1",
-            conversation_id,
+    def close_conversation(self, conversation_id: UUID) -> bool:
+        response = self._execute(
+            "UPDATE conversations SET status = 'closed' WHERE id = :id",
+            [self._param("id", conversation_id)],
         )
-        return result == "UPDATE 1"
+        return response.get("numberOfRecordsUpdated", 0) == 1
 
-    def _conversation_from_row(self, row: asyncpg.Record) -> Conversation:
+    def _conversation_from_row(self, row: dict) -> Conversation:
         metadata = row.get("metadata", {})
         if isinstance(metadata, str):
             metadata = json.loads(metadata)
         return Conversation(
-            id=row["id"],
+            id=UUID(row["id"]),
             cogent_id=row["cogent_id"],
             context_key=row.get("context_key", ""),
-            channel_id=row.get("channel_id"),
+            channel_id=UUID(row["channel_id"]) if row.get("channel_id") else None,
             status=ConversationStatus(row["status"]),
             cli_session_id=row.get("cli_session_id"),
-            started_at=row["started_at"],
-            last_active=row["last_active"],
+            started_at=datetime.fromisoformat(row["started_at"]),
+            last_active=datetime.fromisoformat(row["last_active"]),
             metadata=metadata,
         )
 
     # ═══════════════════════════════════════════════════════════
-    # EXECUTIONS
+    # RUNS
     # ═══════════════════════════════════════════════════════════
 
-    async def insert_execution(self, ex: Execution) -> UUID:
-        row = await self._pool.fetchrow(
-            """INSERT INTO executions (id, cogent_id, skill_name, trigger_id, conversation_id,
-                                       status, tokens_input, tokens_output, cost_usd,
-                                       duration_ms, events_emitted, error)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    def insert_run(self, run: Run) -> UUID:
+        response = self._execute(
+            """INSERT INTO runs (id, cogent_id, program_name, trigger_id, conversation_id,
+                                 status, tokens_input, tokens_output, cost_usd,
+                                 duration_ms, events_emitted, error, model_version)
+               VALUES (:id, :cogent_id, :program_name, :trigger_id, :conversation_id,
+                       :status, :tokens_input, :tokens_output, :cost_usd,
+                       :duration_ms, :events_emitted::jsonb, :error, :model_version)
                RETURNING id, started_at""",
-            ex.id,
-            ex.cogent_id,
-            ex.skill_name,
-            ex.trigger_id,
-            ex.conversation_id,
-            ex.status.value,
-            ex.tokens_input,
-            ex.tokens_output,
-            ex.cost_usd,
-            ex.duration_ms,
-            json.dumps(ex.events_emitted),
-            ex.error,
+            [
+                self._param("id", run.id),
+                self._param("cogent_id", run.cogent_id),
+                self._param("program_name", run.program_name),
+                self._param("trigger_id", run.trigger_id),
+                self._param("conversation_id", run.conversation_id),
+                self._param("status", run.status.value),
+                self._param("tokens_input", run.tokens_input),
+                self._param("tokens_output", run.tokens_output),
+                self._param("cost_usd", run.cost_usd),
+                self._param("duration_ms", run.duration_ms),
+                self._param("events_emitted", run.events_emitted),
+                self._param("error", run.error),
+                self._param("model_version", run.model_version),
+            ],
         )
-        ex.started_at = row["started_at"]
-        return row["id"]
+        row = self._first_row(response)
+        if row:
+            run.started_at = datetime.fromisoformat(row["started_at"])
+            return UUID(row["id"])
+        raise RuntimeError("Failed to insert run")
 
-    async def update_execution(self, ex: Execution) -> bool:
-        result = await self._pool.execute(
-            """UPDATE executions SET status = $2, tokens_input = $3, tokens_output = $4,
-                      cost_usd = $5, duration_ms = $6, events_emitted = $7, error = $8,
-                      completed_at = $9
-               WHERE id = $1""",
-            ex.id,
-            ex.status.value,
-            ex.tokens_input,
-            ex.tokens_output,
-            ex.cost_usd,
-            ex.duration_ms,
-            json.dumps(ex.events_emitted),
-            ex.error,
-            ex.completed_at,
+    def update_run(self, run: Run) -> bool:
+        response = self._execute(
+            """UPDATE runs SET status = :status, tokens_input = :tokens_input,
+                      tokens_output = :tokens_output, cost_usd = :cost_usd,
+                      duration_ms = :duration_ms, events_emitted = :events_emitted::jsonb,
+                      error = :error, model_version = :model_version, completed_at = :completed_at
+               WHERE id = :id""",
+            [
+                self._param("id", run.id),
+                self._param("status", run.status.value),
+                self._param("tokens_input", run.tokens_input),
+                self._param("tokens_output", run.tokens_output),
+                self._param("cost_usd", run.cost_usd),
+                self._param("duration_ms", run.duration_ms),
+                self._param("events_emitted", run.events_emitted),
+                self._param("error", run.error),
+                self._param("model_version", run.model_version),
+                self._param("completed_at", run.completed_at),
+            ],
         )
-        return result == "UPDATE 1"
+        return response.get("numberOfRecordsUpdated", 0) == 1
 
-    async def query_executions(
+    def query_runs(
         self,
         cogent_id: str,
         *,
-        skill_name: str | None = None,
-        status: ExecutionStatus | None = None,
+        program_name: str | None = None,
+        status: RunStatus | None = None,
         limit: int = 50,
-    ) -> list[Execution]:
-        conditions = ["cogent_id = $1"]
-        params: list[Any] = [cogent_id]
-        idx = 2
+    ) -> list[Run]:
+        conditions = ["cogent_id = :cogent_id"]
+        params = [self._param("cogent_id", cogent_id)]
 
-        if skill_name:
-            conditions.append(f"skill_name = ${idx}")
-            params.append(skill_name)
-            idx += 1
+        if program_name:
+            conditions.append("program_name = :program_name")
+            params.append(self._param("program_name", program_name))
         if status:
-            conditions.append(f"status = ${idx}")
-            params.append(status.value)
-            idx += 1
+            conditions.append("status = :status")
+            params.append(self._param("status", status.value))
 
         where = " AND ".join(conditions)
-        params.append(limit)
+        params.append(self._param("limit", limit))
 
-        rows = await self._pool.fetch(
-            f"""SELECT * FROM executions WHERE {where}
-                ORDER BY started_at DESC LIMIT ${idx}""",
-            *params,
+        response = self._execute(
+            f"""SELECT * FROM runs WHERE {where}
+                ORDER BY started_at DESC LIMIT :limit""",
+            params,
         )
-        return [self._execution_from_row(r) for r in rows]
+        return [self._run_from_row(r) for r in self._rows_to_dicts(response)]
 
-    def _execution_from_row(self, row: asyncpg.Record) -> Execution:
+    def _run_from_row(self, row: dict) -> Run:
         events = row.get("events_emitted", [])
         if isinstance(events, str):
             events = json.loads(events)
-        return Execution(
-            id=row["id"],
+        return Run(
+            id=UUID(row["id"]),
             cogent_id=row["cogent_id"],
-            skill_name=row["skill_name"],
-            trigger_id=row.get("trigger_id"),
-            conversation_id=row.get("conversation_id"),
-            status=ExecutionStatus(row["status"]),
+            program_name=row["program_name"],
+            trigger_id=UUID(row["trigger_id"]) if row.get("trigger_id") else None,
+            conversation_id=UUID(row["conversation_id"]) if row.get("conversation_id") else None,
+            status=RunStatus(row["status"]),
             tokens_input=row.get("tokens_input", 0),
             tokens_output=row.get("tokens_output", 0),
-            cost_usd=row.get("cost_usd", Decimal("0")),
+            cost_usd=Decimal(row.get("cost_usd", "0")),
             duration_ms=row.get("duration_ms"),
             events_emitted=events,
             error=row.get("error"),
-            started_at=row.get("started_at"),
-            completed_at=row.get("completed_at"),
+            model_version=row.get("model_version"),
+            started_at=datetime.fromisoformat(row["started_at"]) if row.get("started_at") else None,
+            completed_at=datetime.fromisoformat(row["completed_at"]) if row.get("completed_at") else None,
         )
 
     # ═══════════════════════════════════════════════════════════
     # TRACES
     # ═══════════════════════════════════════════════════════════
 
-    async def insert_trace(self, trace: Trace) -> UUID:
-        row = await self._pool.fetchrow(
-            """INSERT INTO traces (id, execution_id, tool_calls, memory_ops, model_version)
-               VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at""",
-            trace.id,
-            trace.execution_id,
-            json.dumps(trace.tool_calls),
-            json.dumps(trace.memory_ops),
-            trace.model_version,
+    def insert_trace(self, trace: Trace) -> UUID:
+        response = self._execute(
+            """INSERT INTO traces (id, run_id, tool_calls, memory_ops, model_version)
+               VALUES (:id, :run_id, :tool_calls::jsonb, :memory_ops::jsonb, :model_version)
+               RETURNING id, created_at""",
+            [
+                self._param("id", trace.id),
+                self._param("run_id", trace.run_id),
+                self._param("tool_calls", trace.tool_calls),
+                self._param("memory_ops", trace.memory_ops),
+                self._param("model_version", trace.model_version),
+            ],
         )
-        trace.created_at = row["created_at"]
-        return row["id"]
+        row = self._first_row(response)
+        if row:
+            trace.created_at = datetime.fromisoformat(row["created_at"])
+            return UUID(row["id"])
+        raise RuntimeError("Failed to insert trace")
 
-    async def get_traces(self, execution_id: UUID) -> list[Trace]:
-        rows = await self._pool.fetch(
-            "SELECT * FROM traces WHERE execution_id = $1 ORDER BY created_at",
-            execution_id,
+    def get_traces(self, run_id: UUID) -> list[Trace]:
+        response = self._execute(
+            "SELECT * FROM traces WHERE run_id = :run_id ORDER BY created_at",
+            [self._param("run_id", run_id)],
         )
-        return [self._trace_from_row(r) for r in rows]
+        return [self._trace_from_row(r) for r in self._rows_to_dicts(response)]
 
-    def _trace_from_row(self, row: asyncpg.Record) -> Trace:
+    def _trace_from_row(self, row: dict) -> Trace:
         tool_calls = row.get("tool_calls", [])
         if isinstance(tool_calls, str):
             tool_calls = json.loads(tool_calls)
@@ -705,149 +940,170 @@ class Repository:
         if isinstance(memory_ops, str):
             memory_ops = json.loads(memory_ops)
         return Trace(
-            id=row["id"],
-            execution_id=row["execution_id"],
+            id=UUID(row["id"]),
+            run_id=UUID(row["run_id"]),
             tool_calls=tool_calls,
             memory_ops=memory_ops,
             model_version=row.get("model_version"),
-            created_at=row["created_at"],
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
 
     # ═══════════════════════════════════════════════════════════
     # TRIGGERS
     # ═══════════════════════════════════════════════════════════
 
-    async def insert_trigger(self, trigger: Trigger) -> UUID:
-        row = await self._pool.fetchrow(
+    def insert_trigger(self, trigger: Trigger) -> UUID:
+        response = self._execute(
             """INSERT INTO triggers (id, cogent_id, trigger_type, event_pattern, cron_expression,
-                                     skill_name, priority, config, enabled)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, created_at""",
-            trigger.id,
-            trigger.cogent_id,
-            trigger.trigger_type.value,
-            trigger.event_pattern,
-            trigger.cron_expression,
-            trigger.skill_name,
-            trigger.priority,
-            json.dumps(trigger.config.model_dump()),
-            trigger.enabled,
+                                     program_name, priority, config, enabled)
+               VALUES (:id, :cogent_id, :trigger_type, :event_pattern, :cron_expression,
+                       :program_name, :priority, :config::jsonb, :enabled)
+               RETURNING id, created_at""",
+            [
+                self._param("id", trigger.id),
+                self._param("cogent_id", trigger.cogent_id),
+                self._param("trigger_type", trigger.trigger_type.value),
+                self._param("event_pattern", trigger.event_pattern),
+                self._param("cron_expression", trigger.cron_expression),
+                self._param("program_name", trigger.program_name),
+                self._param("priority", trigger.priority),
+                self._param("config", trigger.config.model_dump()),
+                self._param("enabled", trigger.enabled),
+            ],
         )
-        trigger.created_at = row["created_at"]
-        return row["id"]
+        row = self._first_row(response)
+        if row:
+            trigger.created_at = datetime.fromisoformat(row["created_at"])
+            return UUID(row["id"])
+        raise RuntimeError("Failed to insert trigger")
 
-    async def get_trigger(self, trigger_id: UUID) -> Trigger | None:
-        row = await self._pool.fetchrow("SELECT * FROM triggers WHERE id = $1", trigger_id)
+    def get_trigger(self, trigger_id: UUID) -> Trigger | None:
+        response = self._execute(
+            "SELECT * FROM triggers WHERE id = :id",
+            [self._param("id", trigger_id)],
+        )
+        row = self._first_row(response)
         return self._trigger_from_row(row) if row else None
 
-    async def list_triggers(self, cogent_id: str, *, enabled_only: bool = True) -> list[Trigger]:
+    def list_triggers(self, cogent_id: str, *, enabled_only: bool = True) -> list[Trigger]:
         if enabled_only:
-            rows = await self._pool.fetch(
-                "SELECT * FROM triggers WHERE cogent_id = $1 AND enabled = true ORDER BY priority",
-                cogent_id,
+            response = self._execute(
+                "SELECT * FROM triggers WHERE cogent_id = :cogent_id AND enabled = true ORDER BY priority",
+                [self._param("cogent_id", cogent_id)],
             )
         else:
-            rows = await self._pool.fetch(
-                "SELECT * FROM triggers WHERE cogent_id = $1 ORDER BY priority",
-                cogent_id,
+            response = self._execute(
+                "SELECT * FROM triggers WHERE cogent_id = :cogent_id ORDER BY priority",
+                [self._param("cogent_id", cogent_id)],
             )
-        return [self._trigger_from_row(r) for r in rows]
+        return [self._trigger_from_row(r) for r in self._rows_to_dicts(response)]
 
-    async def delete_trigger(self, trigger_id: UUID) -> bool:
-        result = await self._pool.execute("DELETE FROM triggers WHERE id = $1", trigger_id)
-        return result == "DELETE 1"
-
-    async def update_trigger_config(self, trigger_id: UUID, config: TriggerConfig) -> bool:
-        result = await self._pool.execute(
-            "UPDATE triggers SET config = $2 WHERE id = $1",
-            trigger_id,
-            json.dumps(config.model_dump()),
+    def delete_trigger(self, trigger_id: UUID) -> bool:
+        response = self._execute(
+            "DELETE FROM triggers WHERE id = :id",
+            [self._param("id", trigger_id)],
         )
-        return result == "UPDATE 1"
+        return response.get("numberOfRecordsUpdated", 0) == 1
 
-    async def update_trigger_enabled(self, trigger_id: UUID, enabled: bool) -> bool:
-        result = await self._pool.execute(
-            "UPDATE triggers SET enabled = $2 WHERE id = $1",
-            trigger_id,
-            enabled,
+    def update_trigger_config(self, trigger_id: UUID, config: TriggerConfig) -> bool:
+        response = self._execute(
+            "UPDATE triggers SET config = :config::jsonb WHERE id = :id",
+            [
+                self._param("id", trigger_id),
+                self._param("config", config.model_dump()),
+            ],
         )
-        return result == "UPDATE 1"
+        return response.get("numberOfRecordsUpdated", 0) == 1
 
-    async def notify_trigger_change(self) -> None:
-        await self._pool.execute("SELECT pg_notify('trigger_change', '')")
+    def update_trigger_enabled(self, trigger_id: UUID, enabled: bool) -> bool:
+        response = self._execute(
+            "UPDATE triggers SET enabled = :enabled WHERE id = :id",
+            [
+                self._param("id", trigger_id),
+                self._param("enabled", enabled),
+            ],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
 
-    def _trigger_from_row(self, row: asyncpg.Record) -> Trigger:
+    def _trigger_from_row(self, row: dict) -> Trigger:
         config = row.get("config", {})
         if isinstance(config, str):
             config = json.loads(config)
         return Trigger(
-            id=row["id"],
+            id=UUID(row["id"]),
             cogent_id=row["cogent_id"],
             trigger_type=TriggerType(row["trigger_type"]),
             event_pattern=row.get("event_pattern", ""),
             cron_expression=row.get("cron_expression", ""),
-            skill_name=row["skill_name"],
+            program_name=row["program_name"],
             priority=row.get("priority", 10),
             config=TriggerConfig(**config) if config else TriggerConfig(),
             enabled=row.get("enabled", True),
-            created_at=row["created_at"],
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
 
     # ═══════════════════════════════════════════════════════════
     # ALERTS
     # ═══════════════════════════════════════════════════════════
 
-    async def create_alert(self, alert: Alert) -> UUID:
-        row = await self._pool.fetchrow(
+    def create_alert(self, alert: Alert) -> UUID:
+        response = self._execute(
             """INSERT INTO alerts (id, cogent_id, severity, alert_type, source, message, metadata)
-               VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, created_at""",
-            alert.id,
-            alert.cogent_id,
-            alert.severity.value,
-            alert.alert_type,
-            alert.source,
-            alert.message,
-            json.dumps(alert.metadata),
+               VALUES (:id, :cogent_id, :severity, :alert_type, :source, :message, :metadata::jsonb)
+               RETURNING id, created_at""",
+            [
+                self._param("id", alert.id),
+                self._param("cogent_id", alert.cogent_id),
+                self._param("severity", alert.severity.value),
+                self._param("alert_type", alert.alert_type),
+                self._param("source", alert.source),
+                self._param("message", alert.message),
+                self._param("metadata", alert.metadata),
+            ],
         )
-        alert.created_at = row["created_at"]
-        return row["id"]
+        row = self._first_row(response)
+        if row:
+            alert.created_at = datetime.fromisoformat(row["created_at"])
+            return UUID(row["id"])
+        raise RuntimeError("Failed to create alert")
 
-    async def get_unresolved_alerts(self, cogent_id: str) -> list[Alert]:
-        rows = await self._pool.fetch(
-            """SELECT * FROM alerts WHERE cogent_id = $1 AND resolved_at IS NULL
+    def get_unresolved_alerts(self, cogent_id: str) -> list[Alert]:
+        response = self._execute(
+            """SELECT * FROM alerts WHERE cogent_id = :cogent_id AND resolved_at IS NULL
                ORDER BY created_at DESC""",
-            cogent_id,
+            [self._param("cogent_id", cogent_id)],
         )
-        return [self._alert_from_row(r) for r in rows]
+        return [self._alert_from_row(r) for r in self._rows_to_dicts(response)]
 
-    async def resolve_alert(self, alert_id: UUID) -> bool:
-        result = await self._pool.execute(
-            "UPDATE alerts SET resolved_at = now() WHERE id = $1",
-            alert_id,
+    def resolve_alert(self, alert_id: UUID) -> bool:
+        response = self._execute(
+            "UPDATE alerts SET resolved_at = now() WHERE id = :id",
+            [self._param("id", alert_id)],
         )
-        return result == "UPDATE 1"
+        return response.get("numberOfRecordsUpdated", 0) == 1
 
-    def _alert_from_row(self, row: asyncpg.Record) -> Alert:
+    def _alert_from_row(self, row: dict) -> Alert:
         metadata = row.get("metadata", {})
         if isinstance(metadata, str):
             metadata = json.loads(metadata)
         return Alert(
-            id=row["id"],
+            id=UUID(row["id"]),
             cogent_id=row["cogent_id"],
             severity=AlertSeverity(row["severity"]),
             alert_type=row["alert_type"],
             source=row["source"],
             message=row["message"],
             metadata=metadata,
-            acknowledged_at=row.get("acknowledged_at"),
-            resolved_at=row.get("resolved_at"),
-            created_at=row["created_at"],
+            acknowledged_at=datetime.fromisoformat(row["acknowledged_at"]) if row.get("acknowledged_at") else None,
+            resolved_at=datetime.fromisoformat(row["resolved_at"]) if row.get("resolved_at") else None,
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
 
     # ═══════════════════════════════════════════════════════════
     # BUDGET
     # ═══════════════════════════════════════════════════════════
 
-    async def get_or_create_budget(
+    def get_or_create_budget(
         self,
         cogent_id: str,
         period: BudgetPeriod,
@@ -856,29 +1112,37 @@ class Repository:
         token_limit: int = 0,
         cost_limit_usd: Decimal = Decimal("0"),
     ) -> Budget:
-        row = await self._pool.fetchrow(
+        response = self._execute(
             """INSERT INTO budget (cogent_id, period, period_start, token_limit, cost_limit_usd)
-               VALUES ($1, $2, $3, $4, $5)
+               VALUES (:cogent_id, :period, :period_start, :token_limit, :cost_limit_usd)
                ON CONFLICT (cogent_id, period, period_start) DO NOTHING
                RETURNING *""",
-            cogent_id,
-            period.value,
-            period_start,
-            token_limit,
-            cost_limit_usd,
+            [
+                self._param("cogent_id", cogent_id),
+                self._param("period", period.value),
+                self._param("period_start", period_start),
+                self._param("token_limit", token_limit),
+                self._param("cost_limit_usd", cost_limit_usd),
+            ],
         )
+        row = self._first_row(response)
         if row:
             return self._budget_from_row(row)
 
-        row = await self._pool.fetchrow(
-            "SELECT * FROM budget WHERE cogent_id = $1 AND period = $2 AND period_start = $3",
-            cogent_id,
-            period.value,
-            period_start,
+        response = self._execute(
+            "SELECT * FROM budget WHERE cogent_id = :cogent_id AND period = :period AND period_start = :period_start",
+            [
+                self._param("cogent_id", cogent_id),
+                self._param("period", period.value),
+                self._param("period_start", period_start),
+            ],
         )
+        row = self._first_row(response)
+        if not row:
+            raise RuntimeError("Failed to get or create budget")
         return self._budget_from_row(row)
 
-    async def record_spend(
+    def record_spend(
         self,
         cogent_id: str,
         period: BudgetPeriod,
@@ -887,50 +1151,46 @@ class Repository:
         tokens: int = 0,
         cost_usd: Decimal = Decimal("0"),
     ) -> Budget:
-        row = await self._pool.fetchrow(
-            """UPDATE budget SET tokens_spent = tokens_spent + $4,
-                      cost_spent_usd = cost_spent_usd + $5, updated_at = now()
-               WHERE cogent_id = $1 AND period = $2 AND period_start = $3
+        response = self._execute(
+            """UPDATE budget SET tokens_spent = tokens_spent + :tokens,
+                      cost_spent_usd = cost_spent_usd + :cost_usd, updated_at = now()
+               WHERE cogent_id = :cogent_id AND period = :period AND period_start = :period_start
                RETURNING *""",
-            cogent_id,
-            period.value,
-            period_start,
-            tokens,
-            cost_usd,
+            [
+                self._param("cogent_id", cogent_id),
+                self._param("period", period.value),
+                self._param("period_start", period_start),
+                self._param("tokens", tokens),
+                self._param("cost_usd", cost_usd),
+            ],
         )
+        row = self._first_row(response)
+        if not row:
+            raise RuntimeError("Failed to record spend")
         return self._budget_from_row(row)
 
-    async def check_budget(self, cogent_id: str, period: BudgetPeriod, period_start: date) -> Budget | None:
-        row = await self._pool.fetchrow(
-            "SELECT * FROM budget WHERE cogent_id = $1 AND period = $2 AND period_start = $3",
-            cogent_id,
-            period.value,
-            period_start,
+    def check_budget(self, cogent_id: str, period: BudgetPeriod, period_start: date) -> Budget | None:
+        response = self._execute(
+            "SELECT * FROM budget WHERE cogent_id = :cogent_id AND period = :period AND period_start = :period_start",
+            [
+                self._param("cogent_id", cogent_id),
+                self._param("period", period.value),
+                self._param("period_start", period_start),
+            ],
         )
+        row = self._first_row(response)
         return self._budget_from_row(row) if row else None
 
-    def _budget_from_row(self, row: asyncpg.Record) -> Budget:
+    def _budget_from_row(self, row: dict) -> Budget:
         return Budget(
-            id=row["id"],
+            id=UUID(row["id"]),
             cogent_id=row["cogent_id"],
             period=BudgetPeriod(row["period"]),
-            period_start=row["period_start"],
+            period_start=date.fromisoformat(row["period_start"]) if isinstance(row["period_start"], str) else row["period_start"],
             tokens_spent=row.get("tokens_spent", 0),
-            cost_spent_usd=row.get("cost_spent_usd", Decimal("0")),
+            cost_spent_usd=Decimal(row.get("cost_spent_usd", "0")),
             token_limit=row.get("token_limit", 0),
-            cost_limit_usd=row.get("cost_limit_usd", Decimal("0")),
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
+            cost_limit_usd=Decimal(row.get("cost_limit_usd", "0")),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
         )
-
-    # ═══════════════════════════════════════════════════════════
-    # LISTEN/NOTIFY
-    # ═══════════════════════════════════════════════════════════
-
-    async def listen(self, channel: str, callback) -> None:
-        conn = await self._pool.acquire()
-        await conn.add_listener(channel, callback)
-
-    async def unlisten(self, channel: str, callback) -> None:
-        conn = await self._pool.acquire()
-        await conn.remove_listener(channel, callback)
