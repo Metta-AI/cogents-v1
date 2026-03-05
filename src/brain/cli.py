@@ -48,25 +48,48 @@ def status_cmd(ctx: click.Context):
 @click.option("--watch", "-w", is_flag=True, help="Wait for stack to complete")
 @click.pass_context
 def create_cmd(ctx: click.Context, profile: str, watch: bool):
-    """Deploy a cogent's CloudFormation stack."""
+    """Deploy a cogent's brain infrastructure via CDK."""
+    import subprocess
     name = get_cogent_name(ctx)
-    click.echo(f"Creating cogent-{name}: not yet implemented (needs body.aws, body.cfn)")
+    safe_name = name.replace(".", "-")
+    click.echo(f"Deploying brain infrastructure for cogent-{name}...")
+    cmd = [
+        "cdk", "deploy",
+        f"cogent-{safe_name}-brain",
+        "-c", f"cogent_name={name}",
+        "--app", "python -m brain.cdk.app",
+        "--require-approval", "never",
+    ]
+    if not watch:
+        cmd.append("--no-rollback")
+    result = subprocess.run(cmd, capture_output=False)
+    if result.returncode != 0:
+        raise click.ClickException("CDK deploy failed")
+    click.echo(f"Brain infrastructure for cogent-{name} deployed.")
 
 
 @brain.command("destroy")
 @click.option("--profile", default="softmax-org", help="AWS profile")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt")
-@click.option("--watch", "-w", is_flag=True, help="Wait for deletion to complete")
 @click.pass_context
-def destroy_cmd(ctx: click.Context, profile: str, yes: bool, watch: bool):
-    """Destroy a cogent's CloudFormation stack."""
+def destroy_cmd(ctx: click.Context, profile: str, yes: bool):
+    """Destroy a cogent's brain infrastructure via CDK."""
+    import subprocess
     name = get_cogent_name(ctx)
+    safe_name = name.replace(".", "-")
     if not yes:
-        click.confirm(
-            f"This will destroy the stack for cogent-{name}. Continue?",
-            abort=True,
-        )
-    click.echo(f"Destroying cogent-{name}: not yet implemented (needs body.aws)")
+        click.confirm(f"This will destroy the stack for cogent-{name}. Continue?", abort=True)
+    cmd = [
+        "cdk", "destroy",
+        f"cogent-{safe_name}-brain",
+        "-c", f"cogent_name={name}",
+        "--app", "python -m brain.cdk.app",
+        "--force",
+    ]
+    result = subprocess.run(cmd, capture_output=False)
+    if result.returncode != 0:
+        raise click.ClickException("CDK destroy failed")
+    click.echo(f"Brain infrastructure for cogent-{name} destroyed.")
 
 
 # Wire in update subcommands
