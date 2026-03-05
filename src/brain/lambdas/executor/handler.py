@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import json
-import logging
 import subprocess
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
-from uuid import uuid4
 
 import boto3
 
@@ -118,7 +116,7 @@ def execute_program(program: Program, event_data: dict, run: Run, config) -> Run
 
     # Tool-use loop
     max_turns = 20
-    for turn in range(max_turns):
+    for _turn in range(max_turns):
         kwargs: dict = {
             "modelId": model_id,
             "messages": messages,
@@ -145,12 +143,14 @@ def execute_program(program: Program, event_data: dict, run: Run, config) -> Run
                 if "toolUse" in block:
                     tool_use = block["toolUse"]
                     result = _execute_tool(tool_use, config)
-                    tool_results.append({
-                        "toolResult": {
-                            "toolUseId": tool_use["toolUseId"],
-                            "content": [{"text": result}],
+                    tool_results.append(
+                        {
+                            "toolResult": {
+                                "toolUseId": tool_use["toolUseId"],
+                                "content": [{"text": result}],
+                            }
                         }
-                    })
+                    )
             messages.append({"role": "user", "content": tool_results})
         else:
             break
@@ -158,9 +158,7 @@ def execute_program(program: Program, event_data: dict, run: Run, config) -> Run
     run.tokens_input = total_input_tokens
     run.tokens_output = total_output_tokens
     # Rough cost estimate (Claude Sonnet pricing)
-    run.cost_usd = Decimal(str(
-        total_input_tokens * 0.000003 + total_output_tokens * 0.000015
-    ))
+    run.cost_usd = Decimal(str(total_input_tokens * 0.000003 + total_output_tokens * 0.000015))
 
     return run
 
@@ -169,23 +167,25 @@ def _build_tool_config(tools: list[str]) -> dict:
     """Build Bedrock tool config from program tool names (mind CLI commands)."""
     tool_specs = []
     for tool_name in tools:
-        tool_specs.append({
-            "toolSpec": {
-                "name": tool_name.replace(":", "_").replace("-", "_"),
-                "description": f"Execute mind CLI command: {tool_name}",
-                "inputSchema": {
-                    "json": {
-                        "type": "object",
-                        "properties": {
-                            "args": {
-                                "type": "string",
-                                "description": f"Arguments for the {tool_name} command",
-                            }
-                        },
-                    }
-                },
+        tool_specs.append(
+            {
+                "toolSpec": {
+                    "name": tool_name.replace(":", "_").replace("-", "_"),
+                    "description": f"Execute mind CLI command: {tool_name}",
+                    "inputSchema": {
+                        "json": {
+                            "type": "object",
+                            "properties": {
+                                "args": {
+                                    "type": "string",
+                                    "description": f"Arguments for the {tool_name} command",
+                                }
+                            },
+                        }
+                    },
+                }
             }
-        })
+        )
     return {"tools": tool_specs}
 
 

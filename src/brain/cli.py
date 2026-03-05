@@ -23,9 +23,7 @@ def get_cogent_name(ctx: click.Context) -> str:
     obj = ctx.find_root().obj
     name = obj.get("cogent_id") if obj else None
     if not name:
-        raise click.UsageError(
-            "No cogent specified. Use: cogent <name> <command> or set COGENT_ID env var."
-        )
+        raise click.UsageError("No cogent specified. Use: cogent <name> <command> or set COGENT_ID env var.")
     return name
 
 
@@ -50,15 +48,20 @@ def status_cmd(ctx: click.Context):
 def create_cmd(ctx: click.Context, profile: str, watch: bool):
     """Deploy a cogent's brain infrastructure via CDK."""
     import subprocess
+
     name = get_cogent_name(ctx)
     safe_name = name.replace(".", "-")
     click.echo(f"Deploying brain infrastructure for cogent-{name}...")
     cmd = [
-        "cdk", "deploy",
+        "cdk",
+        "deploy",
         f"cogent-{safe_name}-brain",
-        "-c", f"cogent_name={name}",
-        "--app", "python -m brain.cdk.app",
-        "--require-approval", "never",
+        "-c",
+        f"cogent_name={name}",
+        "--app",
+        "python -m brain.cdk.app",
+        "--require-approval",
+        "never",
     ]
     if not watch:
         cmd.append("--no-rollback")
@@ -75,15 +78,19 @@ def create_cmd(ctx: click.Context, profile: str, watch: bool):
 def destroy_cmd(ctx: click.Context, profile: str, yes: bool):
     """Destroy a cogent's brain infrastructure via CDK."""
     import subprocess
+
     name = get_cogent_name(ctx)
     safe_name = name.replace(".", "-")
     if not yes:
         click.confirm(f"This will destroy the stack for cogent-{name}. Continue?", abort=True)
     cmd = [
-        "cdk", "destroy",
+        "cdk",
+        "destroy",
         f"cogent-{safe_name}-brain",
-        "-c", f"cogent_name={name}",
-        "--app", "python -m brain.cdk.app",
+        "-c",
+        f"cogent_name={name}",
+        "--app",
+        "python -m brain.cdk.app",
         "--force",
     ]
     result = subprocess.run(cmd, capture_output=False)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class LambdaConfig:
     cogent_name: str
@@ -21,7 +22,9 @@ class LambdaConfig:
     ecs_subnets: str = ""
     ecs_security_group: str = ""
 
+
 _config: LambdaConfig | None = None
+
 
 def get_config() -> LambdaConfig:
     """Return cached LambdaConfig singleton, loaded from env vars."""

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from aws_cdk import aws_events as events, aws_events_targets as targets, aws_lambda as lambda_
+from aws_cdk import aws_events as events
+from aws_cdk import aws_events_targets as targets
+from aws_cdk import aws_lambda as lambda_
 from constructs import Construct
 
 from brain.cdk.config import BrainConfig
@@ -36,7 +38,7 @@ class EventBridgeConstruct(Construct):
             event_bus=self.event_bus,
             rule_name=f"cogent-{safe_name}-catch-all",
             event_pattern=events.EventPattern(
-                source=events.Match.prefix(f"cogent."),
+                source=events.Match.prefix("cogent."),
             ),
             targets=[targets.LambdaFunction(orchestrator_fn)],
         )

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from aws_cdk import Duration, aws_cloudwatch as cw, aws_lambda as lambda_
+from aws_cdk import Duration
+from aws_cdk import aws_cloudwatch as cw
+from aws_cdk import aws_lambda as lambda_
 from constructs import Construct
 
 from brain.cdk.config import BrainConfig

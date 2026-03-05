@@ -14,13 +14,15 @@ def to_eventbridge(event: Event, bus_name: str) -> dict:
     return {
         "Source": f"cogent.{event.cogent_id}",
         "DetailType": event.event_type,
-        "Detail": json.dumps({
-            "cogent_id": event.cogent_id,
-            "event_type": event.event_type,
-            "source": event.source,
-            "payload": event.payload,
-            "parent_event_id": event.parent_event_id,
-        }),
+        "Detail": json.dumps(
+            {
+                "cogent_id": event.cogent_id,
+                "event_type": event.event_type,
+                "source": event.source,
+                "payload": event.payload,
+                "parent_event_id": event.parent_event_id,
+            }
+        ),
         "EventBusName": bus_name,
     }
 

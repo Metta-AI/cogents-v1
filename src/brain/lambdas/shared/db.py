@@ -7,6 +7,7 @@ from brain.lambdas.shared.config import get_config
 
 _repo: Repository | None = None
 
+
 def get_repo() -> Repository:
     """Return cached Repository singleton using Data API."""
     global _repo

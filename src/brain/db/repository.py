@@ -153,7 +153,7 @@ class Repository:
         rows = []
         for record in response["records"]:
             row = {}
-            for col_name, cell in zip(column_names, record):
+            for col_name, cell in zip(column_names, record, strict=False):
                 row[col_name] = self._extract_value(cell)
             rows.append(row)
         return rows
@@ -1186,7 +1186,9 @@ class Repository:
             id=UUID(row["id"]),
             cogent_id=row["cogent_id"],
             period=BudgetPeriod(row["period"]),
-            period_start=date.fromisoformat(row["period_start"]) if isinstance(row["period_start"], str) else row["period_start"],
+            period_start=(
+                date.fromisoformat(row["period_start"]) if isinstance(row["period_start"], str) else row["period_start"]
+            ),
             tokens_spent=row.get("tokens_spent", 0),
             cost_spent_usd=Decimal(row.get("cost_spent_usd", "0")),
             token_limit=row.get("token_limit", 0),

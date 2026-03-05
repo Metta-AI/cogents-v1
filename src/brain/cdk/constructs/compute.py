@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from aws_cdk import Duration, aws_ec2 as ec2, aws_ecs as ecs, aws_efs as efs, aws_iam as iam, aws_lambda as lambda_
+from aws_cdk import Duration
+from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecs as ecs
+from aws_cdk import aws_efs as efs
+from aws_cdk import aws_iam as iam
+from aws_cdk import aws_lambda as lambda_
 from constructs import Construct
 
 from brain.cdk.config import BrainConfig
@@ -47,9 +52,7 @@ class ComputeConstruct(Construct):
             "LambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "service-role/AWSLambdaVPCAccessExecutionRole"
-                ),
+                iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaVPCAccessExecutionRole"),
             ],
         )
 
@@ -114,9 +117,7 @@ class ComputeConstruct(Construct):
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS),
             security_groups=[lambda_sg],
-            filesystem=lambda_.FileSystem.from_efs_access_point(
-                access_point, "/mnt/cogent"
-            ),
+            filesystem=lambda_.FileSystem.from_efs_access_point(access_point, "/mnt/cogent"),
         )
 
         # Allow orchestrator to invoke executor
@@ -196,8 +197,6 @@ class ComputeConstruct(Construct):
         self.ecs_cluster_arn = self.cluster.cluster_arn
         self.ecs_task_definition_arn = self.task_definition.task_definition_arn
         self.ecs_subnets = ",".join(
-            s.subnet_id for s in vpc.select_subnets(
-                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-            ).subnets
+            s.subnet_id for s in vpc.select_subnets(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS).subnets
         )
         self.ecs_security_group_id = ecs_sg.security_group_id

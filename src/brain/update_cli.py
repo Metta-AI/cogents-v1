@@ -161,19 +161,22 @@ def update_rds(ctx: click.Context, profile: str, force: bool):
 def update_stack(ctx: click.Context, profile: str):
     """Full CDK stack update."""
     import subprocess
+
     name = get_cogent_name(ctx)
     safe_name = name.replace(".", "-")
     click.echo(f"Updating CDK stack for cogent-{name}...")
     cmd = [
-        "cdk", "deploy",
+        "cdk",
+        "deploy",
         f"cogent-{safe_name}-brain",
-        "-c", f"cogent_name={name}",
-        "--app", "python -m brain.cdk.app",
-        "--require-approval", "never",
+        "-c",
+        f"cogent_name={name}",
+        "--app",
+        "python -m brain.cdk.app",
+        "--require-approval",
+        "never",
     ]
     result = subprocess.run(cmd, capture_output=False)
     if result.returncode != 0:
         raise click.ClickException("CDK deploy failed")
     click.echo(f"Stack update for cogent-{name} completed.")
-
-

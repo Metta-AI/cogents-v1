@@ -97,7 +97,10 @@ def main() -> None:
         repo.update_run(run)
 
         # Emit event
-        event_type = f"program:completed:{program_name}" if run.status == RunStatus.COMPLETED else f"program:failed:{program_name}"
+        if run.status == RunStatus.COMPLETED:
+            event_type = f"program:completed:{program_name}"
+        else:
+            event_type = f"program:failed:{program_name}"
         put_event(
             Event(
                 cogent_id=config.cogent_id,

@@ -35,21 +35,24 @@ class NetworkConstruct(Construct):
         )
 
         self.lambda_sg = ec2.SecurityGroup(
-            self, "LambdaSg",
+            self,
+            "LambdaSg",
             vpc=self.vpc,
             description="Security group for Lambda functions",
             allow_all_outbound=True,
         )
 
         self.ecs_sg = ec2.SecurityGroup(
-            self, "EcsSg",
+            self,
+            "EcsSg",
             vpc=self.vpc,
             description="Security group for ECS tasks",
             allow_all_outbound=True,
         )
 
         self.db_sg = ec2.SecurityGroup(
-            self, "DbSg",
+            self,
+            "DbSg",
             vpc=self.vpc,
             description="Security group for Aurora database",
         )

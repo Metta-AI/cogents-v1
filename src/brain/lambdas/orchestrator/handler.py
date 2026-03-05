@@ -7,12 +7,11 @@ Flow:
 from __future__ import annotations
 
 import json
-import logging
 import time
 
 import boto3
 
-from brain.db.models import ComputeTier, Event, Program, Trigger
+from brain.db.models import ComputeTier, Trigger
 from brain.lambdas.shared.config import get_config
 from brain.lambdas.shared.db import get_repo
 from brain.lambdas.shared.events import from_eventbridge
@@ -98,20 +97,22 @@ def handler(event: dict, context) -> dict:
                 continue
 
             # Build executor payload
-            payload = json.dumps({
-                "trigger": {
-                    "id": str(trigger.id),
-                    "program_name": trigger.program_name,
-                    "config": trigger.config.model_dump() if trigger.config else {},
-                },
-                "event": {
-                    "id": event_id,
-                    "event_type": brain_event.event_type,
-                    "source": brain_event.source,
-                    "payload": brain_event.payload,
-                    "cogent_id": brain_event.cogent_id,
-                },
-            })
+            payload = json.dumps(
+                {
+                    "trigger": {
+                        "id": str(trigger.id),
+                        "program_name": trigger.program_name,
+                        "config": trigger.config.model_dump() if trigger.config else {},
+                    },
+                    "event": {
+                        "id": event_id,
+                        "event_type": brain_event.event_type,
+                        "source": brain_event.source,
+                        "payload": brain_event.payload,
+                        "cogent_id": brain_event.cogent_id,
+                    },
+                }
+            )
 
             # Load program to check compute tier
             program = repo.get_program(config.cogent_id, trigger.program_name)
@@ -165,9 +166,7 @@ def _dispatch_ecs(config, ecs_client, payload: str, program_name: str):
             "containerOverrides": [
                 {
                     "name": "Executor",
-                    "environment": [
-                        {"name": "EXECUTOR_PAYLOAD", "value": payload}
-                    ],
+                    "environment": [{"name": "EXECUTOR_PAYLOAD", "value": payload}],
                 }
             ]
         },

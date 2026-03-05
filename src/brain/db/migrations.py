@@ -11,9 +11,7 @@ SCHEMA_FILE = Path(__file__).parent / "schema.sql"
 
 async def get_current_version(conn: asyncpg.Connection) -> int | None:
     try:
-        row = await conn.fetchrow(
-            "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
-        )
+        row = await conn.fetchrow("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
         return row["version"] if row else None
     except asyncpg.UndefinedTableError:
         return None
@@ -32,9 +30,7 @@ async def apply_schema(dsn: str) -> int:
         if current is None:
             schema_sql = SCHEMA_FILE.read_text()
             await conn.execute(schema_sql)
-            row = await conn.fetchrow(
-                "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
-            )
+            row = await conn.fetchrow("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
             return row["version"]
 
         for version in sorted(MIGRATIONS.keys()):
@@ -68,9 +64,7 @@ async def reset_schema(dsn: str) -> int:
         schema_sql = SCHEMA_FILE.read_text()
         await conn.execute(schema_sql)
 
-        row = await conn.fetchrow(
-            "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
-        )
+        row = await conn.fetchrow("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
         return row["version"]
     finally:
         await conn.close()
