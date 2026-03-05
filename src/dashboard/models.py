@@ -146,8 +146,15 @@ class Task(BaseModel):
     id: str
     name: str | None = None
     description: str | None = None
+    program_name: str | None = None
+    content: str | None = None
     status: str | None = None
-    priority: int | None = None
+    priority: float | None = None
+    runner: str | None = None
+    clear_context: bool | None = None
+    memory_keys: list[str] | None = None
+    tools: list[str] | None = None
+    resources: list[str] | None = None
     creator: str | None = None
     parent_task_id: str | None = None
     source_event: str | None = None

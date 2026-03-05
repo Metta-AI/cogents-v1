@@ -16,7 +16,8 @@ def list_tasks(
     repo = get_repo()
     if status:
         rows = repo.query(
-            "SELECT id::text, name, description, status, priority, creator, "
+            "SELECT id::text, name, description, program_name, content, status, priority, "
+            "runner, clear_context, memory_keys, tools, resources, creator, "
             "parent_task_id::text, source_event, limits, metadata, "
             "created_at::text, updated_at::text, completed_at::text "
             "FROM tasks WHERE status = :status "
@@ -25,7 +26,8 @@ def list_tasks(
         )
     else:
         rows = repo.query(
-            "SELECT id::text, name, description, status, priority, creator, "
+            "SELECT id::text, name, description, program_name, content, status, priority, "
+            "runner, clear_context, memory_keys, tools, resources, creator, "
             "parent_task_id::text, source_event, limits, metadata, "
             "created_at::text, updated_at::text, completed_at::text "
             "FROM tasks ORDER BY created_at DESC",
