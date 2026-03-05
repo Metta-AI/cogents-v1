@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     priority        DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     runner          TEXT CHECK (runner IN ('lambda', 'ecs')) DEFAULT NULL,
     clear_context   BOOLEAN NOT NULL DEFAULT false,
+    recurrent       BOOLEAN NOT NULL DEFAULT false,
     resources       JSONB NOT NULL DEFAULT '[]',
     parent_task_id  UUID REFERENCES tasks(id),
     creator         TEXT NOT NULL DEFAULT '',

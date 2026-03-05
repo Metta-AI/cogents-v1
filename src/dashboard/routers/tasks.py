@@ -23,6 +23,7 @@ def _task_to_response(t: DbTask) -> Task:
         priority=t.priority,
         runner=t.runner,
         clear_context=t.clear_context,
+        recurrent=t.recurrent,
         memory_keys=t.memory_keys,
         tools=t.tools,
         resources=t.resources,
@@ -98,6 +99,7 @@ def create_task(name: str, body: TaskCreate) -> Task:
         priority=body.priority,
         runner=body.runner,
         clear_context=body.clear_context,
+        recurrent=body.recurrent,
         memory_keys=body.memory_keys or [],
         tools=body.tools or [],
         resources=body.resources or [],
@@ -130,12 +132,16 @@ def update_task(name: str, task_id: str, body: TaskUpdate) -> Task:
         if t.status == TaskStatus.COMPLETED:
             from datetime import datetime
             t.completed_at = datetime.utcnow()
+            if t.recurrent:
+                t.status = TaskStatus.RUNNABLE
     if body.priority is not None:
         t.priority = body.priority
     if body.runner is not None:
         t.runner = body.runner
     if body.clear_context is not None:
         t.clear_context = body.clear_context
+    if body.recurrent is not None:
+        t.recurrent = body.recurrent
     if body.memory_keys is not None:
         t.memory_keys = body.memory_keys
     if body.tools is not None:

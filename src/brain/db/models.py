@@ -117,6 +117,7 @@ class Task(BaseModel):
     priority: float = 0.0
     runner: str | None = None
     clear_context: bool = False
+    recurrent: bool = False
     resources: list[str] = Field(default_factory=list)
     parent_task_id: UUID | None = None
     creator: str = ""

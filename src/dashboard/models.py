@@ -179,6 +179,7 @@ class Task(BaseModel):
     priority: float | None = None
     runner: str | None = None
     clear_context: bool | None = None
+    recurrent: bool | None = None
     memory_keys: list[str] | None = None
     tools: list[str] | None = None
     resources: list[str] | None = None
@@ -205,6 +206,7 @@ class TaskCreate(BaseModel):
     priority: float = 0.0
     runner: str | None = None
     clear_context: bool = False
+    recurrent: bool = False
     memory_keys: list[str] | None = None
     tools: list[str] | None = None
     resources: list[str] | None = None
@@ -223,6 +225,7 @@ class TaskUpdate(BaseModel):
     priority: float | None = None
     runner: str | None = None
     clear_context: bool | None = None
+    recurrent: bool | None = None
     memory_keys: list[str] | None = None
     tools: list[str] | None = None
     resources: list[str] | None = None

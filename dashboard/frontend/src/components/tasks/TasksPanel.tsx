@@ -604,7 +604,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs }: T
           }}
         >
           <Badge variant={STATUS_VARIANT[task.status ?? ""] ?? "neutral"}>
-            {task.status ?? "?"}
+            {task.status ?? "?"}{task.recurrent ? " ↻" : ""}
           </Badge>
           <span className="font-mono text-[12px] text-[var(--text-primary)]" title={task.name ?? ""}>
             {shortName}

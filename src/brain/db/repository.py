@@ -804,6 +804,7 @@ class Repository:
             priority=row.get("priority", 0.0),
             runner=row.get("runner"),
             clear_context=row.get("clear_context", False),
+            recurrent=row.get("recurrent", False),
             resources=resources,
             parent_task_id=UUID(row["parent_task_id"]) if row.get("parent_task_id") else None,
             creator=row.get("creator", ""),

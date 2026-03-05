@@ -99,6 +99,7 @@ export interface Task {
   priority: number | null;
   runner: string | null;
   clear_context: boolean | null;
+  recurrent: boolean | null;
   memory_keys: string[] | null;
   tools: string[] | null;
   resources: string[] | null;
