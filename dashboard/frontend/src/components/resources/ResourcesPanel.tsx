@@ -8,7 +8,7 @@ interface ResourcesPanelProps {
 }
 
 export function ResourcesPanel({ data }: ResourcesPanelProps) {
-  const activeSessions = data.status?.active_sessions ?? 0;
+  const activeSessions = data.status ? data.status.active_sessions : null;
   const sessions = data.sessions ?? [];
 
   return (
@@ -18,7 +18,7 @@ export function ResourcesPanel({ data }: ResourcesPanelProps) {
         <StatCard
           value={activeSessions}
           label="Active Sessions"
-          variant={activeSessions > 0 ? "accent" : "default"}
+          variant={activeSessions != null && activeSessions > 0 ? "accent" : "default"}
         />
       </div>
 
