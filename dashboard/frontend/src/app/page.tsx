@@ -6,6 +6,9 @@ import { Header } from "@/components/Header";
 import { useCogentData } from "@/hooks/useCogentData";
 import { OverviewPanel } from "@/components/overview/OverviewPanel";
 import { ProgramsPanel } from "@/components/programs/ProgramsPanel";
+import { SessionsPanel } from "@/components/sessions/SessionsPanel";
+import { ChannelsPanel } from "@/components/channels/ChannelsPanel";
+import { EventsPanel } from "@/components/events/EventsPanel";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
@@ -46,7 +49,16 @@ export default function DashboardPage() {
         {activeTab === "programs" && (
           <ProgramsPanel programs={data.programs} cogentName={cogentName} />
         )}
-        {activeTab !== "overview" && activeTab !== "programs" && (
+        {activeTab === "sessions" && (
+          <SessionsPanel sessions={data.sessions} />
+        )}
+        {activeTab === "channels" && (
+          <ChannelsPanel channels={data.channels} />
+        )}
+        {activeTab === "events" && (
+          <EventsPanel events={data.events} cogentName={cogentName} />
+        )}
+        {!["overview", "programs", "sessions", "channels", "events"].includes(activeTab) && (
           <div
             style={{
               color: "var(--text-muted)",

@@ -94,6 +94,16 @@ export async function getAlerts(name: string): Promise<Alert[]> {
   return r.alerts;
 }
 
+export async function getEventTree(
+  name: string,
+  eventId: number | string,
+): Promise<DashboardEvent[]> {
+  const r = await fetchJSON<{ events: DashboardEvent[] }>(
+    `/api/cogents/${name}/events/${eventId}/tree`,
+  );
+  return r.events;
+}
+
 export async function toggleTriggers(
   name: string,
   ids: string[],
