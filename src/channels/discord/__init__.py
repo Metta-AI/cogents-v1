@@ -1,3 +1,1 @@
-from channels.discord.listener import DiscordChannel
-
-__all__ = ["DiscordChannel"]
+"""Discord bridge: standalone relay between Discord Gateway and EventBridge/SQS."""
