@@ -394,6 +394,60 @@ def task_enable(ctx: click.Context, task_id: str) -> None:
         sys.exit(1)
 
 
+@task.command("load")
+@click.argument("tasks_dir", type=click.Path(exists=True, file_okay=False))
+@click.option("--update-priority", is_flag=True, default=False, help="Update priority from file")
+@click.option("--force", is_flag=True, default=False, help="Skip validation")
+@click.pass_context
+def task_load(ctx: click.Context, tasks_dir: str, update_priority: bool, force: bool) -> None:
+    """Load tasks from a directory of .md, .yaml, .yml, and .py files."""
+    from mind.task_loader import load_tasks_from_dir
+
+    tasks_path = Path(tasks_dir)
+    loaded_tasks = load_tasks_from_dir(tasks_path)
+
+    if not loaded_tasks:
+        click.echo("No tasks found.", err=True)
+        sys.exit(1)
+
+    repo = _repo()
+
+    # Validation (unless --force)
+    if not force:
+        errors: list[str] = []
+        for t in loaded_tasks:
+            prog = repo.get_program(t.program_name)
+            if not prog:
+                errors.append(f"Task '{t.name}': program '{t.program_name}' not found")
+            for key in t.memory_keys:
+                mem = repo.query_memory(name=key, limit=1)
+                if not mem:
+                    errors.append(f"Task '{t.name}': memory key '{key}' not found")
+        if errors:
+            for err in errors:
+                click.echo(f"ERROR: {err}", err=True)
+            sys.exit(1)
+
+    created = 0
+    updated = 0
+
+    for t in loaded_tasks:
+        existing = repo.get_task_by_name(t.name)
+        if existing:
+            # Preserve status, creator, parent_task_id from existing
+            t.status = existing.status
+            t.creator = existing.creator
+            t.parent_task_id = existing.parent_task_id
+            repo.upsert_task(t, update_priority=update_priority)
+            updated += 1
+        else:
+            repo.upsert_task(t, update_priority=True)
+            created += 1
+
+    result = {"created": created, "updated": updated, "total": created + updated}
+    _output(result, use_json=ctx.obj["json"])
+
+
 # ═══════════════════════════════════════════════════════════
 # RESOURCES
 # ═══════════════════════════════════════════════════════════
