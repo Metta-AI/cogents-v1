@@ -37,6 +37,17 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
   const [newMessage, setNewMessage] = useState("");
   const [newMetadata, setNewMetadata] = useState("");
 
+  const fetchResolved = useCallback(async () => {
+    try {
+      const resolved = await getResolvedAlerts(cogentName, resolvedLimit);
+      setResolvedAlerts(resolved);
+    } catch { /* ignore */ }
+  }, [cogentName, resolvedLimit]);
+
+  useEffect(() => {
+    if (showResolved) fetchResolved();
+  }, [showResolved, fetchResolved]);
+
   const handleResolve = useCallback(
     async (alertId: string) => {
       setResolving((s) => new Set(s).add(alertId));
@@ -63,17 +74,6 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
     },
     [cogentName, onRefresh],
   );
-
-  const fetchResolved = useCallback(async () => {
-    try {
-      const resolved = await getResolvedAlerts(cogentName, resolvedLimit);
-      setResolvedAlerts(resolved);
-    } catch { /* ignore */ }
-  }, [cogentName, resolvedLimit]);
-
-  useEffect(() => {
-    if (showResolved) fetchResolved();
-  }, [showResolved, fetchResolved]);
 
   const handleResolveAll = useCallback(async () => {
     setResolvingAll(true);
