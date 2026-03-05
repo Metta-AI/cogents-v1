@@ -27,6 +27,7 @@ export function useCogentData(cogentName: string) {
     alerts: [],
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>("1h");
 
   const { connected, lastMessage } = useWebSocket(cogentName);
@@ -44,6 +45,14 @@ export function useCogentData(cogentName: string) {
       api.getChannels(cogentName),
       api.getAlerts(cogentName),
     ]);
+    const failCount = results.filter((r) => r.status === "rejected").length;
+    if (failCount === results.length) {
+      setError("Backend unavailable — all API requests failed");
+    } else if (failCount > 0) {
+      setError(`${failCount} of ${results.length} API requests failed`);
+    } else {
+      setError(null);
+    }
     setData({
       status: results[0].status === "fulfilled" ? results[0].value : null,
       programs: results[1].status === "fulfilled" ? results[1].value : [],
@@ -158,5 +167,5 @@ export function useCogentData(cogentName: string) {
     }
   }, [connected]);
 
-  return { data, loading, refresh, timeRange, setTimeRange, connected };
+  return { data, loading, error, refresh, timeRange, setTimeRange, connected };
 }

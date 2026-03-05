@@ -18,6 +18,8 @@ interface HeaderProps {
   onTimeRangeChange: (range: TimeRange) => void;
   onRefresh: () => void;
   loading: boolean;
+  error: string | null;
+  wsConnected: boolean;
 }
 
 export function Header({
@@ -27,6 +29,8 @@ export function Header({
   onTimeRangeChange,
   onRefresh,
   loading,
+  error,
+  wsConnected,
 }: HeaderProps) {
   return (
     <header
@@ -38,7 +42,7 @@ export function Header({
         borderBottom: "1px solid var(--border)",
       }}
     >
-      {/* Left: cogent name + status */}
+      {/* Left: cogent name + status + WS indicator */}
       <div className="flex items-center gap-3">
         <span
           style={{
@@ -51,13 +55,25 @@ export function Header({
         </span>
         <span
           style={{
-            color: "var(--text-muted)",
+            color: error ? "var(--error)" : "var(--text-muted)",
             fontSize: "11px",
             fontFamily: "var(--font-mono)",
           }}
         >
           {statusText}
         </span>
+        {/* WebSocket connection indicator */}
+        <span
+          title={wsConnected ? "Real-time connected" : "Real-time disconnected"}
+          style={{
+            display: "inline-block",
+            width: "6px",
+            height: "6px",
+            borderRadius: "50%",
+            background: wsConnected ? "var(--success)" : "var(--text-muted)",
+            flexShrink: 0,
+          }}
+        />
       </div>
 
       {/* Right: time range picker + refresh */}
@@ -129,15 +145,12 @@ export function Header({
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            style={{
-              animation: loading ? "spin 1s linear infinite" : "none",
-            }}
+            className={loading ? "header-spin" : ""}
           >
             <polyline points="23 4 23 10 17 10" />
             <polyline points="1 20 1 14 7 14" />
             <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
           </svg>
-          <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
         </button>
       </div>
     </header>

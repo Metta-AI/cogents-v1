@@ -19,11 +19,15 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   // For now, hardcode cogent name. Will come from URL/config later.
   const cogentName = "cogent";
-  const { data, loading, refresh, timeRange, setTimeRange } = useCogentData(cogentName);
+  const { data, loading, error, refresh, timeRange, setTimeRange, connected } = useCogentData(cogentName);
 
-  const statusText = data.status
-    ? `${data.status.active_sessions} active · ${data.status.trigger_count} triggers · ${data.status.unresolved_alerts} alerts`
-    : "loading...";
+  const statusText = loading && !data.status
+    ? "connecting..."
+    : error
+      ? error
+      : data.status
+        ? `${data.status.active_sessions} active · ${data.status.trigger_count} triggers · ${data.status.unresolved_alerts} alerts`
+        : "no data";
 
   return (
     <div className="h-screen overflow-hidden">
@@ -40,6 +44,8 @@ export default function DashboardPage() {
         onTimeRangeChange={setTimeRange}
         onRefresh={refresh}
         loading={loading}
+        error={error}
+        wsConnected={connected}
       />
       <main
         className="fixed overflow-y-auto p-5"

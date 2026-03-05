@@ -15,10 +15,10 @@ export function OverviewPanel({ data }: Props) {
     <div>
       {/* Stat grid */}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3 mb-5">
-        <StatCard value={s?.active_sessions ?? 0} label="Active Sessions" variant="accent" />
-        <StatCard value={s?.trigger_count ?? 0} label="Triggers" />
-        <StatCard value={s?.unresolved_alerts ?? 0} label="Alerts" variant={(s?.unresolved_alerts ?? 0) > 0 ? "error" : "default"} />
-        <StatCard value={s?.recent_events ?? 0} label="Recent Events" />
+        <StatCard value={s ? s.active_sessions : null} label="Active Sessions" variant="accent" />
+        <StatCard value={s ? s.trigger_count : null} label="Triggers" />
+        <StatCard value={s ? s.unresolved_alerts : null} label="Alerts" variant={(s?.unresolved_alerts ?? 0) > 0 ? "error" : "default"} />
+        <StatCard value={s ? s.recent_events : null} label="Recent Events" />
       </div>
 
       {/* Two-column layout for recent events and top programs */}

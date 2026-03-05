@@ -111,8 +111,21 @@ export function MemoryPanel({ memory }: MemoryPanelProps) {
 
   if (memory.length === 0) {
     return (
-      <div className="text-[var(--text-muted)] text-[13px] py-8 text-center">
-        No memory items
+      <div>
+        <table className="w-full text-left text-[12px]">
+          <thead>
+            <tr className="border-b border-[var(--border)]">
+              <th className="px-4 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Scope</th>
+              <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Group</th>
+              <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Name</th>
+              <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Content</th>
+              <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium text-right">Updated</th>
+            </tr>
+          </thead>
+        </table>
+        <div className="text-[var(--text-muted)] text-[13px] py-8 text-center">
+          No memory items
+        </div>
       </div>
     );
   }

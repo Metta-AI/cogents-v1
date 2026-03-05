@@ -165,6 +165,10 @@ export function Sidebar({ activeTab, onTabChange, alertCount, triggerCount }: Si
                 lineHeight: 1,
                 fontWeight: 500,
                 marginTop: "2px",
+                maxWidth: "calc(var(--sidebar-w) - 8px)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
             >
               {tab.label}

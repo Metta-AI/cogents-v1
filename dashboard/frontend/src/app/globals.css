@@ -20,7 +20,7 @@
   --text-secondary: #8494a7;
   --text-muted: #4a5568;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --sidebar-w: 56px;
+  --sidebar-w: 60px;
   --header-h: 48px;
 }
 
@@ -35,3 +35,12 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-active); }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.header-spin {
+  animation: spin 1s linear infinite;
+}
