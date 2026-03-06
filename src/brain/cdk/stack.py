@@ -1,64 +1,73 @@
-"""Brain CDK stack — composes all constructs into a single deployable stack."""
+"""Brain CDK stack — all per-cogent infrastructure in the polis account.
+
+Includes: database, lambdas, ECS tasks, storage, events, monitoring, dashboard.
+"""
 
 from __future__ import annotations
 
-from aws_cdk import CfnOutput, Stack
+from pathlib import Path
+
+import aws_cdk as cdk
+from aws_cdk import CfnOutput, Duration, Stack
+from aws_cdk import aws_certificatemanager as acm
+from aws_cdk import aws_ec2 as ec2
+from aws_cdk import aws_ecs as ecs
+from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
+from aws_cdk import aws_iam as iam
 from constructs import Construct
 
 from brain.cdk.config import BrainConfig
 from brain.cdk.constructs.compute import ComputeConstruct
 from brain.cdk.constructs.database import DatabaseConstruct
 from brain.cdk.constructs.monitoring import MonitoringConstruct
-from brain.cdk.constructs.network import NetworkConstruct
 from brain.cdk.constructs.storage import StorageConstruct
+
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent)
 
 
 class BrainStack(Stack):
-    """Single CDK stack for all brain infrastructure."""
+    """Single CDK stack for all per-cogent infrastructure (deployed in polis account)."""
 
-    def __init__(self, scope: Construct, id: str, *, config: BrainConfig, **kwargs) -> None:
+    def __init__(
+        self,
+        scope: Construct,
+        id: str,
+        *,
+        config: BrainConfig,
+        certificate_arn: str = "",
+        **kwargs,
+    ) -> None:
         super().__init__(scope, id, **kwargs)
 
         safe_name = config.cogent_name.replace(".", "-")
 
-        # 1. Network (minimal VPC for Aurora + ECS, no NAT gateway)
-        self.network = NetworkConstruct(self, "Network", config=config)
+        # 1. Database (Aurora Serverless v2 in default VPC)
+        self.database = DatabaseConstruct(self, "Database", config=config)
 
-        # 2. Database
-        self.database = DatabaseConstruct(
-            self,
-            "Database",
-            config=config,
-            vpc=self.network.vpc,
-            security_group=self.network.db_sg,
-        )
-
-        # 3. Storage (S3 bucket for sessions)
+        # 2. Storage (S3 bucket for sessions)
         self.storage = StorageConstruct(self, "Storage", config=config)
 
-        # 4. EventBridge bus
+        # 3. EventBridge bus
         self.event_bus = events.EventBus(
             self,
             "EventBus",
             event_bus_name=f"cogent-{safe_name}",
         )
 
-        # 5. Compute (Lambdas outside VPC, ECS in public subnets)
+        # 4. Compute (Lambdas outside VPC, ECS task def for shared cluster)
         self.compute = ComputeConstruct(
             self,
             "Compute",
             config=config,
-            vpc=self.network.vpc,
-            ecs_sg=self.network.ecs_sg,
             db_cluster_arn=self.database.cluster_arn,
             db_secret_arn=self.database.secret.secret_arn if self.database.secret else "",
             sessions_bucket=self.storage.bucket,
             event_bus_name=self.event_bus.event_bus_name,
         )
 
-        # 6. EventBridge rule
+        # 5. EventBridge rule
         events.Rule(
             self,
             "CatchAllRule",
@@ -70,7 +79,7 @@ class BrainStack(Stack):
             targets=[targets.LambdaFunction(self.compute.orchestrator)],
         )
 
-        # 7. Monitoring
+        # 6. Monitoring
         self.monitoring = MonitoringConstruct(
             self,
             "Monitoring",
@@ -79,10 +88,135 @@ class BrainStack(Stack):
             executor_fn=self.compute.executor,
         )
 
+        # 7. Dashboard (ALB + Fargate on shared cogent-polis cluster)
+        if certificate_arn:
+            self._create_dashboard(config, safe_name, certificate_arn)
+
         # Outputs
+        CfnOutput(self, "CogentName", value=config.cogent_name)
         CfnOutput(self, "ClusterArn", value=self.database.cluster_arn)
         if self.database.secret:
             CfnOutput(self, "SecretArn", value=self.database.secret.secret_arn)
         CfnOutput(self, "EventBusName", value=self.event_bus.event_bus_name)
-        CfnOutput(self, "EcsClusterArn", value=self.compute.ecs_cluster_arn)
         CfnOutput(self, "SessionsBucket", value=self.storage.bucket.bucket_name)
+
+    def _create_dashboard(
+        self, config: BrainConfig, safe_name: str, certificate_arn: str
+    ) -> None:
+        """Create the dashboard ALB + Fargate service."""
+        vpc = ec2.Vpc.from_lookup(self, "DashVpc", is_default=True)
+        cluster = ecs.Cluster.from_cluster_attributes(
+            self, "PolisCluster",
+            cluster_name="cogent-polis",
+            vpc=vpc,
+            security_groups=[],
+        )
+
+        public_subnets = ec2.SubnetSelection(
+            subnet_type=ec2.SubnetType.PUBLIC,
+            one_per_az=True,
+        )
+
+        # ALB
+        lb = elbv2.ApplicationLoadBalancer(
+            self, "DashLB",
+            vpc=vpc,
+            internet_facing=True,
+            vpc_subnets=public_subnets,
+        )
+
+        target_group = elbv2.ApplicationTargetGroup(
+            self, "DashTG",
+            vpc=vpc,
+            port=5174,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            target_type=elbv2.TargetType.IP,
+            health_check=elbv2.HealthCheck(
+                path="/healthz",
+                healthy_http_codes="200",
+                interval=Duration.seconds(30),
+            ),
+        )
+
+        lb.add_listener(
+            "HttpsListener",
+            port=443,
+            certificates=[elbv2.ListenerCertificate.from_arn(certificate_arn)],
+            default_target_groups=[target_group],
+        )
+
+        lb.add_redirect(
+            source_port=80,
+            target_port=443,
+            target_protocol=elbv2.ApplicationProtocol.HTTPS,
+        )
+
+        # Task definition — same account, direct access to DB via Data API
+        task_def = ecs.FargateTaskDefinition(self, "DashTaskDef", cpu=256, memory_limit_mib=512)
+
+        db_env = {
+            "COGENT_NAME": config.cogent_name,
+            "DASHBOARD_COGENT_NAME": config.cogent_name,
+            "DB_RESOURCE_ARN": self.database.cluster_arn,
+            "DB_CLUSTER_ARN": self.database.cluster_arn,
+            "DB_SECRET_ARN": self.database.secret.secret_arn if self.database.secret else "",
+            "DB_NAME": "cogent",
+            "EVENT_BUS_NAME": self.event_bus.event_bus_name,
+            "SESSIONS_BUCKET": self.storage.bucket.bucket_name,
+        }
+
+        task_def.add_container(
+            "web",
+            image=ecs.ContainerImage.from_asset(
+                _PROJECT_ROOT,
+                file="dashboard/Dockerfile",
+                platform=cdk.aws_ecr_assets.Platform.LINUX_AMD64,
+            ),
+            port_mappings=[ecs.PortMapping(container_port=5174)],
+            environment=db_env,
+            logging=ecs.LogDrivers.aws_logs(stream_prefix="dashboard"),
+        )
+
+        # Grant dashboard task role Data API access
+        task_def.task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement"],
+                resources=[self.database.cluster_arn],
+            )
+        )
+        if self.database.secret:
+            task_def.task_role.add_to_policy(
+                iam.PolicyStatement(
+                    actions=["secretsmanager:GetSecretValue"],
+                    resources=[self.database.secret.secret_arn],
+                )
+            )
+        task_def.task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["events:PutEvents"],
+                resources=["*"],
+            )
+        )
+        self.storage.bucket.grant_read_write(task_def.task_role)
+
+        # Fargate service
+        sg = ec2.SecurityGroup(self, "DashSg", vpc=vpc)
+        sg.add_ingress_rule(
+            ec2.Peer.security_group_id(lb.connections.security_groups[0].security_group_id),
+            ec2.Port.tcp(5174),
+        )
+
+        service = ecs.FargateService(
+            self, "DashService",
+            cluster=cluster,
+            task_definition=task_def,
+            desired_count=1,
+            assign_public_ip=True,
+            security_groups=[sg],
+            vpc_subnets=public_subnets,
+        )
+
+        target_group.add_target(service)
+
+        CfnOutput(self, "DashboardUrl", value=f"https://{safe_name}.{config.domain}")
+        CfnOutput(self, "AlbDns", value=lb.load_balancer_dns_name)

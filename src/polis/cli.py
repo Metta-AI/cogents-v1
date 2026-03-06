@@ -100,53 +100,357 @@ def destroy(ctx: click.Context):
     console.print("[green]Polis stacks destroyed.[/green]")
 
 
+_SHORT = {
+    "UPDATE_COMPLETE": "ok",
+    "CREATE_COMPLETE": "ok",
+    "UPDATE_ROLLBACK_COMPLETE": "rollback",
+    "CREATE_IN_PROGRESS": "creating",
+    "UPDATE_IN_PROGRESS": "updating",
+    "DELETE_IN_PROGRESS": "deleting",
+    "CREATE_FAILED": "FAILED",
+    "UPDATE_FAILED": "FAILED",
+    "REGISTERED": "ok",
+    "INSUFFICIENT_DATA": "no data",
+    "available": "ok",
+}
+
+
+def _status_style(value: str) -> tuple[str, str]:
+    """Return (style, short_display) for a status string."""
+    v = str(value)
+    if v in ("-", "", "None"):
+        return "dim", "-"
+    short = _SHORT.get(v, v)
+    if any(k in v for k in ("COMPLETE", "ACTIVE", "available", "ok", "OK", "REGISTERED")):
+        return "green", short
+    if any(k in v for k in ("FAILED", "ERROR", "DRAINING", "ALARM", "stale")):
+        return "red", short
+    if any(k in v for k in ("PROGRESS", "PENDING", "creating", "modifying")):
+        return "yellow", short
+    if v == "INSUFFICIENT_DATA":
+        return "dim", short
+    return "cyan", short
+
+
 @polis.command()
 def status():
-    """Show polis resource status."""
-    account_id = find_polis_account()
-    if not account_id:
-        console.print("[red]No polis account found.[/red]")
+    """Show polis resource status and per-cogent component health."""
+    import boto3
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    try:
+        polis_session, _ = get_polis_session()
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
         return
 
-    session, _ = get_polis_session()
+    brain_session = boto3.Session(region_name="us-east-1")
 
-    table = Table(title="Polis Resources")
+    # -- Parallel queries ------------------------------------------------
+    results = {}
+
+    def _query_ecr():
+        ecr = polis_session.client("ecr")
+        repos = ecr.describe_repositories(repositoryNames=["cogent"])["repositories"]
+        if not repos:
+            return None, []
+        uri = repos[0]["repositoryUri"]
+        try:
+            img_resp = ecr.describe_images(
+                repositoryName="cogent",
+                filter={"tagStatus": "TAGGED"},
+            )
+            images = sorted(
+                img_resp.get("imageDetails", []),
+                key=lambda x: x.get("imagePushedAt", ""),
+                reverse=True,
+            )
+        except Exception:
+            images = []
+        return uri, images
+
+    def _query_polis_ecs():
+        """ECS cluster + dashboard services in polis account."""
+        ecs = polis_session.client("ecs")
+        cluster = None
+        dashboards = {}
+        try:
+            clusters = ecs.describe_clusters(clusters=["cogent-polis"])["clusters"]
+            cluster = clusters[0] if clusters else None
+        except Exception:
+            pass
+        try:
+            arns = ecs.list_services(cluster="cogent-polis").get("serviceArns", [])
+            if arns:
+                desc = ecs.describe_services(cluster="cogent-polis", services=arns)
+                for svc in desc.get("services", []):
+                    name = svc["serviceName"]
+                    if "-dashboard-" in name:
+                        cogent = name.split("-dashboard-")[0]
+                        if cogent.startswith("cogent-"):
+                            cogent = cogent[len("cogent-"):]
+                        r = svc.get("runningCount", 0)
+                        d = svc.get("desiredCount", 0)
+                        dashboards[cogent] = f"ACTIVE {r}/{d}" if svc.get("status") == "ACTIVE" else svc.get("status", "?")
+        except Exception:
+            pass
+        return cluster, dashboards
+
+    def _query_polis_lambdas():
+        """Watcher and rotation lambda status."""
+        lam = polis_session.client("lambda")
+        out = {}
+        try:
+            resp = lam.list_functions()
+            for f in resp["Functions"]:
+                fn = f["FunctionName"]
+                if fn in ("cogent-watcher", "cogent-secret-rotation"):
+                    out[fn] = "ok"
+        except Exception:
+            pass
+        return out
+
+    def _query_cogents_and_secrets():
+        """DynamoDB cogent status + secrets channels."""
+        ddb = polis_session.resource("dynamodb")
+        tbl = ddb.Table("cogent-status")
+        items = tbl.scan().get("Items", [])
+
+        sm = polis_session.client("secretsmanager")
+        secrets_by_cogent: dict[str, list[str]] = {}
+        try:
+            paginator = sm.get_paginator("list_secrets")
+            for page in paginator.paginate(Filters=[{"Key": "name", "Values": ["cogent/"]}]):
+                for s in page["SecretList"]:
+                    parts = s["Name"].split("/")
+                    if len(parts) >= 3:
+                        secrets_by_cogent.setdefault(parts[1], []).append(parts[2])
+        except Exception:
+            pass
+        return items, secrets_by_cogent
+
+    # Brain resource queries — each returns partial dict updates
+    import threading
+    brain_cogents: dict[str, dict] = {}
+    brain_lock = threading.Lock()
+
+    def _brain_ensure(safe_name: str) -> dict:
+        with brain_lock:
+            if safe_name not in brain_cogents:
+                brain_cogents[safe_name] = {}
+            return brain_cogents[safe_name]
+
+    def _q_brain_stacks():
+        cf = brain_session.client("cloudformation")
+        resp = cf.list_stacks(StackStatusFilter=[
+            "CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE",
+            "CREATE_IN_PROGRESS", "UPDATE_IN_PROGRESS", "CREATE_FAILED", "UPDATE_FAILED",
+        ])
+        for s in resp.get("StackSummaries", []):
+            name = s["StackName"]
+            if name.startswith("cogent-") and name.endswith("-brain"):
+                safe = name[len("cogent-"):-len("-brain")]
+                _brain_ensure(safe)["stack"] = s["StackStatus"]
+
+    def _q_brain_lambdas():
+        lam = brain_session.client("lambda")
+        resp = lam.list_functions()
+        for f in resp["Functions"]:
+            fn = f["FunctionName"]
+            if not fn.startswith("cogent-"):
+                continue
+            for suffix in ("-orchestrator", "-executor"):
+                if fn.endswith(suffix):
+                    safe = fn[len("cogent-"):-len(suffix)]
+                    _brain_ensure(safe)[suffix.lstrip("-")] = f.get("State") or "ok"
+
+    def _q_brain_rds():
+        rds = brain_session.client("rds")
+        resp = rds.describe_db_clusters()
+        for c in resp["DBClusters"]:
+            cid = c["DBClusterIdentifier"]
+            if cid.startswith("cogent-") and "-brain-" in cid:
+                safe = cid.split("-brain-")[0][len("cogent-"):]
+                _brain_ensure(safe)["database"] = c["Status"]
+
+    def _q_brain_ecs():
+        ecs = brain_session.client("ecs")
+        resp = ecs.list_clusters()
+        cogent_arns = [a for a in resp["clusterArns"] if "cogent-" in a]
+        if cogent_arns:
+            desc = ecs.describe_clusters(clusters=cogent_arns)
+            for c in desc["clusters"]:
+                cname = c["clusterName"]
+                if cname.startswith("cogent-"):
+                    safe = cname[len("cogent-"):]
+                    running = c.get("runningTasksCount", 0)
+                    pending = c.get("pendingTasksCount", 0)
+                    _brain_ensure(safe)["ecs"] = f"{c['status']} tasks:{running}" + (f"+{pending}p" if pending else "")
+
+    def _q_brain_s3():
+        s3 = brain_session.client("s3")
+        resp = s3.list_buckets()
+        for b in resp["Buckets"]:
+            bname = b["Name"]
+            if bname.startswith("cogent-") and bname.endswith("-sessions"):
+                safe = bname[len("cogent-"):-len("-sessions")]
+                _brain_ensure(safe)["s3"] = "ok"
+
+    def _q_brain_events():
+        eb = brain_session.client("events")
+        resp = eb.list_event_buses()
+        for bus in resp["EventBuses"]:
+            bname = bus["Name"]
+            if bname.startswith("cogent-"):
+                safe = bname[len("cogent-"):]
+                _brain_ensure(safe)["eventbridge"] = "ok"
+
+    def _q_brain_alarms():
+        cw = brain_session.client("cloudwatch")
+        resp = cw.describe_alarms(AlarmNamePrefix="cogent-")
+        for a in resp["MetricAlarms"]:
+            aname = a["AlarmName"]
+            state = a["StateValue"]
+            for suffix in ("-orchestrator-errors", "-executor-errors", "-executor-duration"):
+                if aname.endswith(suffix):
+                    safe = aname[len("cogent-"):-len(suffix)]
+                    with brain_lock:
+                        alarms = _brain_ensure(safe).setdefault("alarms", {})
+                        alarms[suffix.lstrip("-")] = state
+
+    # All queries in a single flat pool — no nesting
+    all_fns = {
+        "ecr": _query_ecr,
+        "polis_ecs": _query_polis_ecs,
+        "polis_lambdas": _query_polis_lambdas,
+        "cogents_secrets": _query_cogents_and_secrets,
+        "brain_stacks": _q_brain_stacks,
+        "brain_lambdas": _q_brain_lambdas,
+        "brain_rds": _q_brain_rds,
+        "brain_ecs": _q_brain_ecs,
+        "brain_s3": _q_brain_s3,
+        "brain_events": _q_brain_events,
+        "brain_alarms": _q_brain_alarms,
+    }
+
+    with ThreadPoolExecutor(max_workers=len(all_fns)) as pool:
+        futures = {pool.submit(fn): key for key, fn in all_fns.items()}
+        for fut in as_completed(futures):
+            key = futures[fut]
+            try:
+                val = fut.result()
+                if not key.startswith("brain_"):
+                    results[key] = val
+            except Exception:
+                if not key.startswith("brain_"):
+                    results[key] = None
+
+    # -- Polis Resources table -------------------------------------------
+    table = Table(title="Polis")
     table.add_column("Resource", style="bold")
     table.add_column("Status")
     table.add_column("Details")
 
-    # ECR
-    try:
-        ecr = session.client("ecr")
-        repos = ecr.describe_repositories(repositoryNames=["cogent"])["repositories"]
-        if repos:
-            uri = repos[0]["repositoryUri"]
-            table.add_row("ECR", "[green]active[/green]", uri)
-    except Exception:
+    ecr_uri, ecr_images = results.get("ecr") or (None, [])
+    if ecr_uri:
+        table.add_row("ECR", "[green]ok[/green]", ecr_uri)
+    else:
         table.add_row("ECR", "[red]not found[/red]", "")
 
-    # ECS Cluster
-    try:
-        ecs = session.client("ecs")
-        clusters = ecs.describe_clusters(clusters=["cogent-polis"])["clusters"]
-        if clusters:
-            c = clusters[0]
-            count = c.get("registeredContainerInstancesCount", 0)
-            running = c.get("runningTasksCount", 0)
-            table.add_row("ECS Cluster", "[green]active[/green]", f"{running} running tasks")
-    except Exception:
+    polis_cluster, dashboards = results.get("polis_ecs") or (None, {})
+    if polis_cluster:
+        running = polis_cluster.get("runningTasksCount", 0)
+        table.add_row("ECS Cluster", "[green]ok[/green]", f"cogent-polis  {running} running tasks")
+    else:
         table.add_row("ECS Cluster", "[red]not found[/red]", "")
 
-    # DynamoDB
-    try:
-        ddb = session.client("dynamodb")
-        t = ddb.describe_table(TableName="cogent-status")["Table"]
-        item_count = t.get("ItemCount", 0)
-        table.add_row("DynamoDB", "[green]active[/green]", f"{item_count} items")
-    except Exception:
-        table.add_row("DynamoDB", "[red]not found[/red]", "")
+    polis_lambdas = results.get("polis_lambdas") or {}
+    for lname, state in polis_lambdas.items():
+        s, d = _status_style(state or "not found")
+        table.add_row(f"Lambda", f"[{s}]{d}[/{s}]", lname)
 
     console.print(table)
+
+    # -- Cogents table ---------------------------------------------------
+    cogent_items, secrets_by_cogent = results.get("cogents_secrets") or ([], {})
+    brain_resources = brain_cogents
+
+    if not cogent_items:
+        console.print("\nNo cogents registered.")
+        return
+
+    console.print()
+    items = sorted(cogent_items, key=lambda x: x.get("cogent_name", ""))
+
+    ct = Table(title="Cogents")
+    ct.add_column("Name", style="bold")
+    ct.add_column("Identity")
+    ct.add_column("Stack")
+    ct.add_column("DB")
+    ct.add_column("Orchestrator")
+    ct.add_column("Executor")
+    ct.add_column("ECS")
+    ct.add_column("S3")
+    ct.add_column("Events")
+    ct.add_column("Dashboard")
+    ct.add_column("Secrets")
+    ct.add_column("Alarms")
+
+    for item in items:
+        name = item.get("cogent_name", "?")
+        safe_name = name.replace(".", "-")
+        br = brain_resources.get(safe_name, {})
+
+        def _cell(val):
+            s, d = _status_style(str(val) if val else "-")
+            return f"[{s}]{d}[/{s}]"
+
+        # Secrets count
+        secs = secrets_by_cogent.get(name, [])
+        sec_str = str(len(secs)) if secs else "-"
+
+        # Alarms: count in alarm state
+        alarms = br.get("alarms", {})
+        alarm_count = sum(1 for v in alarms.values() if v == "ALARM")
+        total_alarms = len(alarms)
+        if not alarms:
+            alarm_str = "[dim]-[/dim]"
+        elif alarm_count:
+            alarm_str = f"[red]{alarm_count}/{total_alarms} ALARM[/red]"
+        else:
+            alarm_str = f"[green]{total_alarms} ok[/green]"
+
+        ct.add_row(
+            name,
+            _cell(item.get("stack_status")),
+            _cell(br.get("stack")),
+            _cell(br.get("database")),
+            _cell(br.get("orchestrator")),
+            _cell(br.get("executor")),
+            _cell(br.get("ecs")),
+            _cell(br.get("s3")),
+            _cell(br.get("eventbridge")),
+            _cell(dashboards.get(safe_name)),
+            f"[cyan]{sec_str}[/cyan]" if secs else "[dim]-[/dim]",
+            alarm_str,
+        )
+
+    console.print(ct)
+
+    # -- ECR Images table ------------------------------------------------
+    if ecr_images:
+        console.print()
+        it = Table(title="ECR Images (recent)")
+        it.add_column("Tag(s)", style="bold")
+        it.add_column("Pushed")
+        it.add_column("Size (MB)")
+        for img in ecr_images[:10]:
+            tags = ", ".join(img.get("imageTags", ["-"]))
+            pushed = img.get("imagePushedAt", "")
+            pushed_str = pushed.strftime("%Y-%m-%d %H:%M") if hasattr(pushed, "strftime") else str(pushed)
+            size_mb = f"{img.get('imageSizeInBytes', 0) / 1024 / 1024:.0f}"
+            it.add_row(tags, pushed_str, size_mb)
+        console.print(it)
 
 
 # ---------------------------------------------------------------------------
@@ -546,162 +850,6 @@ def cogents_status(name: str):
         return
 
     console.print_json(json.dumps(item, default=str))
-
-
-# ---------------------------------------------------------------------------
-# Dashboard
-# ---------------------------------------------------------------------------
-
-
-@polis.group()
-def dashboard():
-    """Dashboard deployment commands."""
-    pass
-
-
-@dashboard.command("deploy")
-@click.argument("name")
-@click.option("--profile", default=None, help="AWS profile")
-@click.pass_context
-def dashboard_deploy(ctx: click.Context, name: str, profile: str | None):
-    """Deploy (or update) a cogent's dashboard in the polis account."""
-    import boto3
-
-    config: PolisConfig = ctx.obj["config"]
-    session, _ = get_polis_session()
-    store = SecretStore(session=session)
-
-    safe_name = name.replace(".", "-")
-
-    # 1. Get identity (cert ARN)
-    try:
-        identity = store.get(f"cogent/{name}/identity")
-    except Exception:
-        console.print(f"[red]No identity found for {name}. Run: polis cogents create {name}[/red]")
-        return
-    cert_arn = identity.get("certificate_arn", "")
-    if not cert_arn:
-        console.print("[red]No certificate ARN in identity secret[/red]")
-        return
-
-    # 2. Get brain stack outputs (DB ARNs etc) from the brain account
-    brain_session = boto3.Session()  # uses current credentials (brain account)
-    brain_account_id = brain_session.client("sts").get_caller_identity()["Account"]
-    cf = brain_session.client("cloudformation", region_name="us-east-1")
-    try:
-        resp = cf.describe_stacks(StackName=f"cogent-{safe_name}-brain")
-        outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
-    except Exception as e:
-        console.print(f"[red]Could not read brain stack outputs: {e}[/red]")
-        return
-
-    db_cluster_arn = outputs.get("ClusterArn", "")
-    db_secret_arn = outputs.get("SecretArn", "")
-    event_bus_name = outputs.get("EventBusName", "")
-    sessions_bucket = outputs.get("SessionsBucket", "")
-
-    if not db_cluster_arn:
-        console.print("[red]Brain stack missing ClusterArn output[/red]")
-        return
-
-    console.print(f"Deploying dashboard for [bold]{name}[/bold]...")
-    console.print(f"  Brain account: {brain_account_id}")
-    console.print(f"  DB cluster: {db_cluster_arn}")
-
-    # 3. CDK deploy the dashboard stack
-    org_id = get_org_id()
-    _cdk_cmd(
-        [
-            "deploy",
-            f"cogent-{safe_name}-dashboard",
-            "--require-approval", "never",
-            "-c", f"org_id={org_id}",
-            "-c", f"cogent_name={name}",
-            "-c", f"certificate_arn={cert_arn}",
-            "-c", f"brain_account_id={brain_account_id}",
-            "-c", f"db_cluster_arn={db_cluster_arn}",
-            "-c", f"db_secret_arn={db_secret_arn}",
-            "-c", f"event_bus_name={event_bus_name}",
-            "-c", f"sessions_bucket_name={sessions_bucket}",
-        ],
-        profile=profile,
-    )
-
-    # 4. Update Route53 to point at the ALB
-    console.print("  Updating DNS...")
-    _update_dashboard_dns(session, safe_name, config.domain)
-
-    console.print(f"\n[green]Dashboard deployed: https://{safe_name}.{config.domain}[/green]")
-
-
-@dashboard.command("destroy")
-@click.argument("name")
-@click.confirmation_option(prompt="Are you sure?")
-@click.option("--profile", default=None, help="AWS profile")
-def dashboard_destroy(name: str, profile: str | None):
-    """Destroy a cogent's dashboard stack."""
-    safe_name = name.replace(".", "-")
-    org_id = get_org_id()
-    _cdk_cmd(
-        [
-            "destroy",
-            f"cogent-{safe_name}-dashboard",
-            "--force",
-            "-c", f"org_id={org_id}",
-            "-c", f"cogent_name={name}",
-        ],
-        profile=profile,
-    )
-    console.print(f"Dashboard for {name} destroyed.")
-
-
-def _update_dashboard_dns(session, safe_name: str, domain: str):
-    """Update Route53 A-record to alias the dashboard ALB."""
-    import boto3
-
-    # Get ALB DNS from the dashboard stack outputs in polis account
-    cfn = session.client("cloudformation", region_name="us-east-1")
-    resp = cfn.describe_stacks(StackName=f"cogent-{safe_name}-dashboard")
-    outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
-    alb_dns = outputs.get("AlbDns", "")
-    if not alb_dns:
-        console.print("[yellow]  No AlbDns output found, skipping DNS update[/yellow]")
-        return
-
-    # Get the ALB hosted zone ID (needed for alias records)
-    elbv2 = session.client("elbv2", region_name="us-east-1")
-    lbs = elbv2.describe_load_balancers()["LoadBalancers"]
-    alb_zone_id = ""
-    for lb in lbs:
-        if lb["DNSName"] == alb_dns:
-            alb_zone_id = lb["CanonicalHostedZoneId"]
-            break
-    if not alb_zone_id:
-        console.print(f"[yellow]  Could not find ALB zone ID for {alb_dns}[/yellow]")
-        return
-
-    r53 = session.client("route53")
-    r53.change_resource_record_sets(
-        HostedZoneId=HOSTED_ZONE_ID,
-        ChangeBatch={
-            "Comment": f"Dashboard ALB for {safe_name}",
-            "Changes": [
-                {
-                    "Action": "UPSERT",
-                    "ResourceRecordSet": {
-                        "Name": f"{safe_name}.{domain}",
-                        "Type": "A",
-                        "AliasTarget": {
-                            "HostedZoneId": alb_zone_id,
-                            "DNSName": f"dualstack.{alb_dns}",
-                            "EvaluateTargetHealth": True,
-                        },
-                    },
-                }
-            ],
-        },
-    )
-    console.print(f"  [green]DNS updated: {safe_name}.{domain} -> {alb_dns}[/green]")
 
 
 # ---------------------------------------------------------------------------

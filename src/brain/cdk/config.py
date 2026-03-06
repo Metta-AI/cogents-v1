@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from aws_cdk import Duration
+
+
+POLIS_ACCOUNT = "901289084804"
+POLIS_REGION = "us-east-1"
 
 
 @dataclass
@@ -12,7 +16,9 @@ class BrainConfig:
     """Configuration for the Brain CDK stack."""
 
     cogent_name: str
-    region: str = "us-east-1"
+    domain: str = "softmax-cogents.com"
+    region: str = POLIS_REGION
+    account: str = POLIS_ACCOUNT
     db_min_acu: float = 0.5
     db_max_acu: float = 4.0
     executor_memory_mb: int = 2048

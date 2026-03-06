@@ -1,25 +1,26 @@
-"""CDK app entry point for brain infrastructure."""
+"""CDK app entry point for brain infrastructure (deployed in polis account)."""
 
 from __future__ import annotations
 
 import aws_cdk as cdk
 
-from brain.cdk.config import BrainConfig
+from brain.cdk.config import BrainConfig, POLIS_ACCOUNT, POLIS_REGION
 from brain.cdk.stack import BrainStack
 
 
 def main() -> None:
     app = cdk.App()
     cogent_name = app.node.try_get_context("cogent_name") or "default"
-    region = app.node.try_get_context("region") or "us-east-1"
+    certificate_arn = app.node.try_get_context("certificate_arn") or ""
 
-    config = BrainConfig(cogent_name=cogent_name, region=region)
+    config = BrainConfig(cogent_name=cogent_name)
 
     BrainStack(
         app,
         f"cogent-{cogent_name.replace('.', '-')}-brain",
         config=config,
-        env=cdk.Environment(region=region),
+        certificate_arn=certificate_arn,
+        env=cdk.Environment(account=POLIS_ACCOUNT, region=POLIS_REGION),
     )
 
     app.synth()

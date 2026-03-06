@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from aws_cdk import Duration
-from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
@@ -14,7 +13,7 @@ from brain.cdk.config import BrainConfig
 
 
 class ComputeConstruct(Construct):
-    """Lambda functions and ECS Fargate cluster/tasks."""
+    """Lambda functions and ECS task definition (uses shared polis cluster)."""
 
     def __init__(
         self,
@@ -22,8 +21,6 @@ class ComputeConstruct(Construct):
         id: str,
         *,
         config: BrainConfig,
-        vpc: ec2.IVpc,
-        ecs_sg: ec2.ISecurityGroup,
         db_cluster_arn: str,
         db_secret_arn: str,
         sessions_bucket: s3.IBucket,
@@ -133,15 +130,7 @@ class ComputeConstruct(Construct):
             environment=env,
         )
 
-        # ECS Cluster
-        self.cluster = ecs.Cluster(
-            self,
-            "Cluster",
-            cluster_name=f"cogent-{safe_name}",
-            vpc=vpc,
-        )
-
-        # ECS Task Role
+        # ECS Task Role (for long-running tasks on shared cogent-polis cluster)
         task_role = iam.Role(
             self,
             "TaskRole",
@@ -151,7 +140,7 @@ class ComputeConstruct(Construct):
             task_role.add_to_policy(stmt)
         sessions_bucket.grant_read_write(task_role)
 
-        # ECS Task Definition
+        # ECS Task Definition (runs on shared cogent-polis cluster)
         self.task_definition = ecs.FargateTaskDefinition(
             self,
             "ExecutorTask",
@@ -167,11 +156,3 @@ class ComputeConstruct(Construct):
             logging=ecs.LogDrivers.aws_logs(stream_prefix="executor"),
             environment=env,
         )
-
-        # Store for orchestrator to reference
-        self.ecs_cluster_arn = self.cluster.cluster_arn
-        self.ecs_task_definition_arn = self.task_definition.task_definition_arn
-        self.ecs_subnets = ",".join(
-            s.subnet_id for s in vpc.select_subnets(subnet_type=ec2.SubnetType.PUBLIC).subnets
-        )
-        self.ecs_security_group_id = ecs_sg.security_group_id

@@ -24,7 +24,7 @@ class StorageConstruct(Construct):
         self.bucket = s3.Bucket(
             self,
             "SessionsBucket",
-            bucket_name=f"cogent-{config.cogent_name.replace('.', '-')}-sessions",
+            bucket_name=f"cogent-{config.cogent_name.replace('.', '-')}-brain-sessions",
             removal_policy=RemovalPolicy.RETAIN,
             auto_delete_objects=False,
             lifecycle_rules=[

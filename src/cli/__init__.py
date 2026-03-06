@@ -12,3 +12,16 @@ def get_cogent_name(ctx: click.Context) -> str:
     if not name:
         raise click.UsageError("No cogent specified. Use: cogent <name> <command> or set COGENT_ID env var.")
     return name
+
+
+class DefaultCommandGroup(click.Group):
+    """Group that defaults to a given subcommand when none is provided."""
+
+    def __init__(self, *args, default_cmd: str = "status", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.default_cmd = default_cmd
+
+    def parse_args(self, ctx, args):
+        if not args or (args[0].startswith("-") and args[0] != "--help"):
+            args = [self.default_cmd] + list(args)
+        return super().parse_args(ctx, args)

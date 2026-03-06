@@ -1,4 +1,4 @@
-"""Aurora Serverless v2 database construct."""
+"""Aurora Serverless v2 database construct (no custom VPC)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,11 @@ from brain.cdk.config import BrainConfig
 
 
 class DatabaseConstruct(Construct):
-    """Aurora Serverless v2 PostgreSQL with Data API enabled."""
+    """Aurora Serverless v2 PostgreSQL with Data API enabled.
+
+    Uses the default VPC — no custom networking required.
+    All access is via the Data API (no VPC connectivity needed from Lambdas).
+    """
 
     def __init__(
         self,
@@ -19,10 +23,11 @@ class DatabaseConstruct(Construct):
         id: str,
         *,
         config: BrainConfig,
-        vpc: ec2.IVpc,
-        security_group: ec2.ISecurityGroup,
     ) -> None:
         super().__init__(scope, id)
+
+        # Use the default VPC for Aurora placement
+        vpc = ec2.Vpc.from_lookup(self, "DefaultVpc", is_default=True)
 
         self.cluster = rds.DatabaseCluster(
             self,
@@ -35,8 +40,7 @@ class DatabaseConstruct(Construct):
             serverless_v2_min_capacity=config.db_min_acu,
             serverless_v2_max_capacity=config.db_max_acu,
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
-            security_groups=[security_group],
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
             removal_policy=RemovalPolicy.RETAIN,
             writer=rds.ClusterInstance.serverless_v2("Writer"),
         )

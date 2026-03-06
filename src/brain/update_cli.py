@@ -12,7 +12,7 @@ import zipfile
 import boto3
 import click
 
-from brain.cli import DefaultCommandGroup, get_cogent_name
+from cli import DefaultCommandGroup, get_cogent_name
 
 DEFAULT_REGION = "us-east-1"
 
