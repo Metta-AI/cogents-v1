@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import type { Program } from "@/lib/types";
-import { DataTable, type Column } from "@/components/shared/DataTable";
 import { Badge } from "@/components/shared/Badge";
-import { fmtCost, fmtNum, fmtRelative } from "@/lib/format";
+import { fmtCost, fmtRelative } from "@/lib/format";
 import { ExecutionDetail } from "./ExecutionDetail";
 
 interface ProgramsPanelProps {
@@ -31,85 +30,77 @@ export function ProgramsPanel({
 }: ProgramsPanelProps) {
   const [expandedProgram, setExpandedProgram] = useState<string | null>(null);
 
-  const columns: Column<Program & Record<string, unknown>>[] = [
-    {
-      key: "name",
-      label: "Name",
-      render: (row) => (
-        <span className="text-[var(--text-primary)] font-medium">
-          {row.name}
-        </span>
-      ),
-    },
-    {
-      key: "type",
-      label: "Type",
-      render: (row) => <Badge variant={typeVariant(row.type)}>{row.type}</Badge>,
-    },
-    {
-      key: "runs",
-      label: "Runs",
-      render: (row) => <span className="font-mono">{fmtNum(row.runs)}</span>,
-    },
-    {
-      key: "ok",
-      label: "Success",
-      render: (row) => {
-        const pct = row.runs > 0 ? ((row.ok / row.runs) * 100).toFixed(0) : "0";
-        return (
-          <span className="text-green-400 font-mono">
-            {row.ok}/{row.runs} ({pct}%)
-          </span>
-        );
-      },
-    },
-    {
-      key: "fail",
-      label: "Fail",
-      render: (row) => (
-        <span
-          className={`font-mono ${row.fail > 0 ? "text-red-400" : "text-[var(--text-muted)]"}`}
-        >
-          {row.fail}
-        </span>
-      ),
-    },
-    {
-      key: "total_cost",
-      label: "Cost",
-      render: (row) => (
-        <span className="font-mono">{fmtCost(row.total_cost)}</span>
-      ),
-    },
-    {
-      key: "last_run",
-      label: "Last Run",
-      render: (row) => (
-        <span className="text-[var(--text-muted)]">
-          {fmtRelative(row.last_run)}
-        </span>
-      ),
-    },
-  ];
-
-  const handleRowClick = (row: Program & Record<string, unknown>) => {
-    setExpandedProgram((prev) => (prev === row.name ? null : row.name));
-  };
+  const toggleExpand = useCallback((name: string) => {
+    setExpandedProgram((prev) => (prev === name ? null : name));
+  }, []);
 
   return (
     <div>
-      <DataTable
-        columns={columns}
-        rows={programs as (Program & Record<string, unknown>)[]}
-        onRowClick={handleRowClick}
-        emptyMessage="No programs registered"
-      />
-      {expandedProgram && (
-        <ExecutionDetail
-          programName={expandedProgram}
-          cogentName={cogentName}
-        />
+      <div className="text-[var(--text-muted)] text-xs mb-3">
+        {programs.length} program{programs.length !== 1 ? "s" : ""}
+      </div>
+
+      {programs.length === 0 && (
+        <div className="text-[var(--text-muted)] text-xs py-8 text-center">No programs registered</div>
       )}
+
+      <div className="rounded-md overflow-hidden" style={{ border: programs.length ? "1px solid var(--border)" : "none" }}>
+        {programs.map((prog) => {
+          const isExpanded = expandedProgram === prog.name;
+          const pct = prog.runs > 0 ? ((prog.ok / prog.runs) * 100).toFixed(0) : "0";
+
+          return (
+            <div key={prog.name}>
+              <div
+                className="flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors"
+                style={{
+                  background: isExpanded ? "var(--bg-hover)" : "var(--bg-surface)",
+                  borderBottom: "1px solid var(--border)",
+                }}
+                onClick={() => toggleExpand(prog.name)}
+                onMouseEnter={(e) => {
+                  if (!isExpanded) e.currentTarget.style.background = "var(--bg-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!isExpanded) e.currentTarget.style.background = "var(--bg-surface)";
+                }}
+              >
+                <span className="font-mono text-[12px] text-[var(--text-primary)] font-medium">
+                  {prog.name}
+                </span>
+                <Badge variant={typeVariant(prog.type)}>{prog.type}</Badge>
+                {prog.description && (
+                  <span className="text-[11px] text-[var(--text-muted)] truncate max-w-[300px]">
+                    {prog.description}
+                  </span>
+                )}
+                <div className="flex-1" />
+                <span className="font-mono text-[10px] text-[var(--text-muted)]">
+                  {prog.runs > 0 ? (
+                    <>
+                      <span className="text-[#22c55e]">{prog.ok}</span>
+                      {prog.fail > 0 && <span className="text-[var(--error)]">/{prog.fail}</span>}
+                      <span className="text-[var(--text-muted)]"> ({pct}%)</span>
+                    </>
+                  ) : (
+                    <span>0 runs</span>
+                  )}
+                </span>
+                {prog.total_cost > 0 && (
+                  <span className="font-mono text-[10px] text-[var(--text-muted)]">{fmtCost(prog.total_cost)}</span>
+                )}
+                <span className="text-[10px] text-[var(--text-muted)]" style={{ minWidth: "60px", textAlign: "right" }}>
+                  {fmtRelative(prog.last_run)}
+                </span>
+              </div>
+
+              {isExpanded && (
+                <ExecutionDetail programName={prog.name} cogentName={cogentName} />
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

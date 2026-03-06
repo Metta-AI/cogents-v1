@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import type { Execution } from "@/lib/types";
-import { DataTable, type Column } from "@/components/shared/DataTable";
 import { Badge } from "@/components/shared/Badge";
 import { fmtCost, fmtMs, fmtNum, fmtRelative } from "@/lib/format";
 
@@ -11,82 +10,25 @@ interface ExecutionDetailProps {
   cogentName: string;
 }
 
-function statusVariant(status: string | null) {
+type BadgeVariant = "success" | "warning" | "error" | "info" | "neutral" | "accent";
+
+function statusVariant(status: string | null): BadgeVariant {
   switch (status) {
     case "success":
     case "completed":
-      return "success" as const;
+      return "success";
     case "running":
     case "in_progress":
-      return "info" as const;
+      return "info";
     case "failed":
     case "error":
-      return "error" as const;
+      return "error";
+    case "timeout":
+      return "warning";
     default:
-      return "neutral" as const;
+      return "neutral";
   }
 }
-
-const columns: Column<Execution & Record<string, unknown>>[] = [
-  {
-    key: "status",
-    label: "Status",
-    render: (row) => (
-      <Badge variant={statusVariant(row.status)}>
-        {row.status ?? "unknown"}
-      </Badge>
-    ),
-  },
-  {
-    key: "started_at",
-    label: "Started",
-    render: (row) => (
-      <span className="text-[var(--text-secondary)]">
-        {fmtRelative(row.started_at)}
-      </span>
-    ),
-  },
-  {
-    key: "duration_ms",
-    label: "Duration",
-    render: (row) => (
-      <span className="font-mono">{fmtMs(row.duration_ms)}</span>
-    ),
-  },
-  {
-    key: "tokens_input",
-    label: "Tokens In",
-    render: (row) => (
-      <span className="font-mono">{fmtNum(row.tokens_input)}</span>
-    ),
-  },
-  {
-    key: "tokens_output",
-    label: "Tokens Out",
-    render: (row) => (
-      <span className="font-mono">{fmtNum(row.tokens_output)}</span>
-    ),
-  },
-  {
-    key: "cost_usd",
-    label: "Cost",
-    render: (row) => (
-      <span className="font-mono">{fmtCost(row.cost_usd)}</span>
-    ),
-  },
-  {
-    key: "error",
-    label: "Error",
-    render: (row) =>
-      row.error ? (
-        <span className="text-red-400 truncate max-w-[200px] inline-block">
-          {row.error}
-        </span>
-      ) : (
-        <span className="text-[var(--text-muted)]">--</span>
-      ),
-  },
-];
 
 export function ExecutionDetail({
   programName,
@@ -128,7 +70,7 @@ export function ExecutionDetail({
 
   if (loading) {
     return (
-      <div className="px-4 py-3 text-[12px] text-[var(--text-muted)]">
+      <div className="px-4 py-3 text-[12px] text-[var(--text-muted)]" style={{ background: "var(--bg-deep)", borderBottom: "1px solid var(--border)" }}>
         Loading executions...
       </div>
     );
@@ -136,25 +78,51 @@ export function ExecutionDetail({
 
   if (error) {
     return (
-      <div className="px-4 py-3 text-[12px] text-red-400">
+      <div className="px-4 py-3 text-[12px] text-red-400" style={{ background: "var(--bg-deep)", borderBottom: "1px solid var(--border)" }}>
         Error: {error}
       </div>
     );
   }
 
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-4 mt-1 mb-2">
-      <div className="text-[11px] text-[var(--text-muted)] uppercase tracking-wide mb-2">
-        Execution History &mdash;{" "}
-        <span className="text-[var(--text-primary)]">{programName}</span>
+    <div className="px-4 py-3 space-y-0.5" style={{ background: "var(--bg-deep)", borderBottom: "1px solid var(--border)" }}>
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium mb-1">
+        Runs ({executions.length})
       </div>
-      <DataTable
-        columns={columns}
-        rows={
-          executions as (Execution & Record<string, unknown>)[]
-        }
-        emptyMessage="No executions found"
-      />
+      {executions.length === 0 && (
+        <div className="text-[11px] text-[var(--text-muted)] py-2">No executions found</div>
+      )}
+      {executions.map((exec) => {
+        const statusChar = exec.status?.[0]?.toUpperCase() ?? "?";
+        const totalTokens = (exec.tokens_input ?? 0) + (exec.tokens_output ?? 0);
+        return (
+          <div
+            key={exec.id}
+            className="flex items-center gap-2 px-2 py-0.5 rounded text-[10px]"
+            style={{ background: "var(--bg-surface)" }}
+          >
+            <Badge variant={statusVariant(exec.status)}>
+              <span title={exec.status ?? "unknown"}>{statusChar}</span>
+            </Badge>
+            <span className="text-[var(--text-muted)]">{fmtMs(exec.duration_ms)}</span>
+            {totalTokens > 0 && (
+              <span className="text-[var(--text-muted)]" title={`in: ${fmtNum(exec.tokens_input)} out: ${fmtNum(exec.tokens_output)}`}>
+                {totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k` : totalTokens} tok
+              </span>
+            )}
+            {exec.cost_usd > 0 && (
+              <span className="text-[var(--text-muted)]">{fmtCost(exec.cost_usd)}</span>
+            )}
+            <div className="flex-1" />
+            <span className="text-[var(--text-muted)]">{fmtRelative(exec.started_at)}</span>
+            {exec.error && (
+              <span className="text-red-400 truncate max-w-[200px]" title={exec.error}>
+                {exec.error}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
