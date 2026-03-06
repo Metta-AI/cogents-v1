@@ -6,6 +6,7 @@ import hashlib
 import io
 import os
 import sys
+import time
 import zipfile
 
 import boto3
@@ -91,8 +92,10 @@ def _package_lambda_code() -> bytes:
 @click.pass_context
 def update_all(ctx: click.Context, profile: str):
     """Update Lambda + DB migrations (default)."""
+    t0 = time.monotonic()
     ctx.invoke(update_lambda, profile=profile)
     ctx.invoke(update_rds, profile=profile, force=False)
+    click.echo(f"\nTotal: {time.monotonic() - t0:.1f}s")
 
 
 @update.command("lambda")
@@ -100,15 +103,16 @@ def update_all(ctx: click.Context, profile: str):
 @click.pass_context
 def update_lambda(ctx: click.Context, profile: str):
     """Update Lambda function code."""
+    t0 = time.monotonic()
     name = get_cogent_name(ctx)
     session = _get_session(profile)
     safe_name = name.replace(".", "-")
 
     click.echo(f"Updating cogent-{name} Lambda functions...")
 
-    click.echo("  Packaging Lambda code...")
     zip_bytes = _package_lambda_code()
-    click.echo(f"  Package size: {len(zip_bytes) / 1024:.0f} KB")
+    pkg_time = time.monotonic() - t0
+    click.echo(f"  Package: {len(zip_bytes) / 1024:.0f} KB ({pkg_time:.1f}s)")
 
     lambda_client = session.client("lambda", region_name=DEFAULT_REGION)
 
@@ -118,18 +122,19 @@ def update_lambda(ctx: click.Context, profile: str):
     ]
 
     for fn_name in lambda_functions:
+        t1 = time.monotonic()
         try:
             lambda_client.update_function_code(
                 FunctionName=fn_name,
                 ZipFile=zip_bytes,
             )
-            click.echo(f"  {fn_name}: {click.style('updated', fg='green')}")
+            click.echo(f"  {fn_name}: {click.style('updated', fg='green')} ({time.monotonic() - t1:.1f}s)")
         except lambda_client.exceptions.ResourceNotFoundException:
             click.echo(f"  {fn_name}: {click.style('not found (skip)', fg='yellow')}")
         except Exception as e:
             click.echo(f"  {fn_name}: {click.style(str(e), fg='red')}")
 
-    click.echo(f"  Lambda update for cogent-{name} completed.")
+    click.echo(f"  Lambda: {time.monotonic() - t0:.1f}s")
 
 
 @update.command("ecs")
@@ -189,11 +194,12 @@ def update_rds(ctx: click.Context, profile: str | None, force: bool):
     """Run database schema migrations via Data API."""
     from brain.db.migrations import apply_schema
 
+    t0 = time.monotonic()
     name = get_cogent_name(ctx)
     _ensure_db_env(name)
     click.echo(f"Running migrations for cogent-{name} via Data API...")
     version = apply_schema()
-    click.echo(f"  Schema at version {version}.")
+    click.echo(f"  Schema at version {version}. ({time.monotonic() - t0:.1f}s)")
 
 
 @update.command("stack")
