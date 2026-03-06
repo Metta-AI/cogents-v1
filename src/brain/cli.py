@@ -20,8 +20,102 @@ def brain():
 @click.pass_context
 def status_cmd(ctx: click.Context):
     """Show infrastructure status for a cogent."""
+    from rich.console import Console
+    from rich.table import Table
+
     name = get_cogent_name(ctx)
-    click.echo(f"Status for cogent-{name}: use 'polis status' for full status")
+    safe_name = name.replace(".", "-")
+    stack_name = f"cogent-{safe_name}-brain"
+    console = Console()
+
+    table = Table(title=f"Brain Status: {name}")
+    table.add_column("Component", style="bold")
+    table.add_column("Status")
+    table.add_column("Details")
+
+    from polis.aws import get_polis_session, set_profile
+    set_profile(CDK_PROFILE)
+    try:
+        session, _ = get_polis_session()
+    except Exception as e:
+        table.add_row("Polis", "[red]cannot connect[/red]", str(e)[:60])
+        console.print(table)
+        return
+
+    cf = session.client("cloudformation")
+
+    # CloudFormation stack
+    try:
+        resp = cf.describe_stacks(StackName=stack_name)
+        stack = resp["Stacks"][0]
+        stack_status = stack["StackStatus"]
+        style = "green" if "COMPLETE" in stack_status else "yellow"
+        table.add_row("Stack", f"[{style}]{stack_status}[/{style}]", stack_name)
+    except Exception:
+        table.add_row("Stack", "[red]not found[/red]", stack_name)
+        console.print(table)
+        return
+
+    # Lambda functions
+    lam = session.client("lambda")
+    for suffix in ("orchestrator", "executor"):
+        fn_name = f"cogent-{safe_name}-{suffix}"
+        try:
+            fn = lam.get_function(FunctionName=fn_name)
+            state = fn["Configuration"].get("State", "?")
+            last_mod = fn["Configuration"].get("LastModified", "?")
+            style = "green" if state == "Active" else "yellow"
+            table.add_row(f"Lambda ({suffix})", f"[{style}]{state}[/{style}]", f"modified {last_mod}")
+        except lam.exceptions.ResourceNotFoundException:
+            table.add_row(f"Lambda ({suffix})", "[dim]not found[/dim]", fn_name)
+        except Exception as e:
+            table.add_row(f"Lambda ({suffix})", "[red]error[/red]", str(e)[:60])
+
+    # Aurora Serverless (from stack outputs)
+    outputs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
+    cluster_arn = outputs.get("ClusterArn", "")
+    if cluster_arn:
+        try:
+            cluster_id = cluster_arn.split(":")[-1]
+            rds = session.client("rds")
+            clusters = rds.describe_db_clusters(DBClusterIdentifier=cluster_id)["DBClusters"]
+            if clusters:
+                c = clusters[0]
+                db_status = c.get("Status", "?")
+                style = "green" if db_status == "available" else "yellow"
+                capacity = c.get("ServerlessV2ScalingConfiguration", {})
+                cap_str = f"min={capacity.get('MinCapacity', '?')} max={capacity.get('MaxCapacity', '?')}" if capacity else ""
+                table.add_row("Aurora", f"[{style}]{db_status}[/{style}]", cap_str)
+        except Exception as e:
+            table.add_row("Aurora", "[red]error[/red]", str(e)[:60])
+    else:
+        table.add_row("Aurora", "[dim]no output[/dim]", "ClusterArn not in stack outputs")
+
+    # ECS (optional — not all cogents have ECS)
+    ecs = session.client("ecs")
+    cluster_name = f"cogent-{safe_name}"
+    try:
+        ecs_clusters = ecs.describe_clusters(clusters=[cluster_name])["clusters"]
+        if ecs_clusters and ecs_clusters[0].get("status") == "ACTIVE":
+            c = ecs_clusters[0]
+            running = c.get("runningTasksCount", 0)
+            pending = c.get("pendingTasksCount", 0)
+            table.add_row("ECS Cluster", "[green]active[/green]", f"{running} running, {pending} pending")
+
+            services = ecs.list_services(cluster=cluster_name).get("serviceArns", [])
+            if services:
+                svc_desc = ecs.describe_services(cluster=cluster_name, services=services)["services"]
+                for svc in svc_desc:
+                    svc_name = svc["serviceName"]
+                    svc_status = svc.get("status", "?")
+                    desired = svc.get("desiredCount", 0)
+                    running_svc = svc.get("runningCount", 0)
+                    style = "green" if running_svc >= desired else "yellow"
+                    table.add_row(f"  Service", f"[{style}]{svc_status}[/{style}]", f"{svc_name} ({running_svc}/{desired})")
+    except Exception:
+        pass  # ECS is optional
+
+    console.print(table)
 
 
 @brain.command("create")

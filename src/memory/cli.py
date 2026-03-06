@@ -26,6 +26,53 @@ def memory():
     pass
 
 
+@memory.command("status")
+@click.pass_context
+def status_cmd(ctx: click.Context):
+    """Show memory status: record counts by scope."""
+    from rich.console import Console
+    from rich.table import Table
+
+    from brain.db.local_repository import LocalRepository
+    from brain.db.repository import Repository
+
+    name = get_cogent_name(ctx)
+    console = Console()
+
+    # Try Data API first, fall back to local repository
+    try:
+        store = _get_store()
+        table = Table(title=f"Memory Status: {name}")
+        table.add_column("Scope", style="bold")
+        table.add_column("Count")
+
+        total = 0
+        for scope in MemoryScope:
+            records = store.list_memories(scope=scope, limit=10000)
+            count = len(records)
+            total += count
+            table.add_row(scope.value, str(count))
+
+        table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]")
+        console.print(table)
+    except (ValueError, Exception):
+        # Fall back to local repository for memory records
+        repo = LocalRepository()
+        table = Table(title=f"Memory Status: {name} (local)")
+        table.add_column("Scope", style="bold")
+        table.add_column("Count")
+
+        total = 0
+        for scope in MemoryScope:
+            records = repo.query_memory(scope=scope, limit=10000)
+            count = len(records)
+            total += count
+            table.add_row(scope.value, str(count))
+
+        table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]")
+        console.print(table)
+
+
 @memory.command("create")
 @click.pass_context
 def create_cmd(ctx: click.Context):

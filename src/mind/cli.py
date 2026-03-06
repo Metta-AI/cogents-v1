@@ -122,6 +122,70 @@ _DEFAULT_MEMORIES_DIR = "eggs/ovo/memories"
 _DEFAULT_RESOURCES_FILE = "eggs/ovo/resources.py"
 
 
+@mind.command("status")
+@click.pass_context
+def mind_status(ctx: click.Context) -> None:
+    """Show mind status: programs, tasks, triggers, cron, and resources."""
+    import os
+
+    from rich.console import Console
+    from rich.table import Table
+
+    from brain.db.models import ResourceType
+
+    name = get_cogent_name(ctx)
+
+    # Auto-discover DB ARNs
+    if not (os.environ.get("DB_RESOURCE_ARN") or os.environ.get("DB_CLUSTER_ARN")):
+        _ensure_db_env(name)
+
+    repo = _repo()
+    console = Console()
+
+    table = Table(title=f"Mind Status: {name}")
+    table.add_column("Component", style="bold")
+    table.add_column("Count")
+    table.add_column("Details")
+
+    # Programs
+    programs = repo.list_programs()
+    enabled = [p for p in programs if p.metadata.get("enabled", True)]
+    disabled = [p for p in programs if not p.metadata.get("enabled", True)]
+    table.add_row("Programs", str(len(programs)), f"{len(enabled)} enabled, {len(disabled)} disabled")
+
+    # Tasks
+    from brain.db.models import TaskStatus as TS
+
+    for ts in (TS.RUNNABLE, TS.RUNNING, TS.COMPLETED, TS.DISABLED):
+        tasks = repo.list_tasks(status=ts, limit=10000)
+        label = f"Tasks ({ts.value})"
+        table.add_row(label, str(len(tasks)), "")
+
+    # Triggers
+    triggers = repo.list_triggers(enabled_only=False)
+    enabled_t = [t for t in triggers if t.enabled]
+    table.add_row("Triggers", str(len(triggers)), f"{len(enabled_t)} enabled")
+
+    # Cron
+    crons = repo.list_cron(enabled_only=False)
+    enabled_c = [c for c in crons if c.enabled]
+    table.add_row("Cron", str(len(crons)), f"{len(enabled_c)} enabled")
+
+    # Resources
+    resources = repo.list_resources()
+    for r in resources:
+        if r.resource_type == ResourceType.POOL:
+            usage = repo.get_pool_usage(r.name)
+            avail = max(0, r.capacity - usage)
+            table.add_row(f"Resource: {r.name}", f"{usage}/{r.capacity}", f"{avail} available (pool)")
+        else:
+            usage = repo.get_consumable_usage(r.name)
+            avail = max(0.0, r.capacity - usage)
+            table.add_row(f"Resource: {r.name}", f"{usage:.1f}/{r.capacity:.1f}", f"{avail:.1f} remaining (consumable)")
+
+    console.print(table)
+
+
 @mind.command("update")
 @click.argument("egg_dir", default=_DEFAULT_EGG_DIR, type=click.Path(exists=True))
 @click.option("--force", is_flag=True, help="Replace existing memory entries")

@@ -24,6 +24,9 @@ from brain.db.models import (
     MemoryScope,
     Program,
     ProgramType,
+    Resource,
+    ResourceType,
+    ResourceUsage,
     Run,
     RunStatus,
     Task,
@@ -71,6 +74,8 @@ class LocalRepository:
         self._alerts: dict[UUID, Alert] = {}
         self._memory: dict[UUID, MemoryRecord] = {}
         self._traces: dict[UUID, Trace] = {}
+        self._resources: dict[str, Resource] = {}
+        self._resource_usage: list[ResourceUsage] = []
 
         self._load()
 
@@ -109,6 +114,8 @@ class LocalRepository:
         self._alerts.clear()
         self._memory.clear()
         self._traces.clear()
+        self._resources.clear()
+        self._resource_usage.clear()
 
         for p in data.get("programs", []):
             prog = Program(**p)
@@ -144,6 +151,11 @@ class LocalRepository:
         for t in data.get("traces", []):
             tr = Trace(**t)
             self._traces[tr.id] = tr
+        for r in data.get("resources", []):
+            res = Resource(**r)
+            self._resources[res.name] = res
+        for u in data.get("resource_usage", []):
+            self._resource_usage.append(ResourceUsage(**u))
 
         logger.info("Loaded local data: %d programs, %d tasks, %d events",
                      len(self._programs), len(self._tasks), len(self._events))
@@ -162,6 +174,8 @@ class LocalRepository:
             "alerts": [a.model_dump(mode="json") for a in self._alerts.values()],
             "memory": [m.model_dump(mode="json") for m in self._memory.values()],
             "traces": [t.model_dump(mode="json") for t in self._traces.values()],
+            "resources": [r.model_dump(mode="json") for r in self._resources.values()],
+            "resource_usage": [u.model_dump(mode="json") for u in self._resource_usage],
         }
         self._file.write_text(json.dumps(data, indent=2, default=_json_serial))
         self._file_mtime = self._file.stat().st_mtime
@@ -546,3 +560,62 @@ class LocalRepository:
 
     def get_traces(self, run_id: UUID) -> list[Trace]:
         return [t for t in self._traces.values() if t.run_id == run_id]
+
+    # ── Resources ─────────────────────────────────────────────
+
+    def upsert_resource(self, resource: Resource) -> str:
+        self._resources[resource.name] = resource
+        self._save()
+        return resource.name
+
+    def list_resources(self) -> list[Resource]:
+        self._maybe_reload()
+        return list(self._resources.values())
+
+    def delete_resource(self, name: str) -> bool:
+        if name in self._resources:
+            del self._resources[name]
+            self._save()
+            return True
+        return False
+
+    def get_pool_usage(self, resource_name: str) -> int:
+        """Count running tasks that consume this pool resource."""
+        return sum(
+            1 for t in self._tasks.values()
+            if t.status == TaskStatus.RUNNING and (
+                t.runner == resource_name
+                or resource_name == "concurrent-tasks"
+                or resource_name in (t.resources or [])
+            )
+        )
+
+    def get_consumable_usage(self, resource_name: str) -> float:
+        return sum(
+            u.amount for u in self._resource_usage
+            if u.resource_name == resource_name
+        )
+
+    # ── Tasks (extended) ─────────────────────────────────────
+
+    def get_task_by_name(self, name: str) -> Task | None:
+        self._maybe_reload()
+        for t in self._tasks.values():
+            if t.name == name:
+                return t
+        return None
+
+    def upsert_task(self, task: Task, *, update_priority: bool = False) -> UUID:
+        now = datetime.utcnow()
+        existing = self.get_task_by_name(task.name)
+        if existing:
+            task.id = existing.id
+            task.created_at = existing.created_at
+            if not update_priority:
+                task.priority = existing.priority
+        else:
+            task.created_at = now
+        task.updated_at = now
+        self._tasks[task.id] = task
+        self._save()
+        return task.id
