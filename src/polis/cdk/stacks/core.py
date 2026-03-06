@@ -213,6 +213,46 @@ class PolisStack(cdk.Stack):
                     "ecs:DescribeServices",
                     "ecs:ListServices",
                     "ecr:DescribeRepositories",
+                    "ecr:DescribeImages",
+                    "ecr:ListImages",
+                ],
+                resources=["*"],
+            )
+        )
+        # CloudFormation, Lambda, RDS, ELB — read-only for status checks
+        self.admin_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "cloudformation:DescribeStacks",
+                    "cloudformation:ListStacks",
+                    "cloudformation:ListStackResources",
+                ],
+                resources=["*"],
+            )
+        )
+        self.admin_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "lambda:GetFunction",
+                    "lambda:ListFunctions",
+                ],
+                resources=["*"],
+            )
+        )
+        self.admin_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "rds:DescribeDBClusters",
+                ],
+                resources=["*"],
+            )
+        )
+        self.admin_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "elasticloadbalancing:DescribeLoadBalancers",
+                    "elasticloadbalancing:DescribeTargetGroups",
+                    "elasticloadbalancing:DescribeTargetHealth",
                 ],
                 resources=["*"],
             )

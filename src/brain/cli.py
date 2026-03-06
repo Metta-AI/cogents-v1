@@ -56,31 +56,42 @@ def status_cmd(ctx: click.Context):
         console.print(table)
         return
 
+    outputs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
+
     # Lambda functions
     lam = session.client("lambda")
     for suffix in ("orchestrator", "executor"):
         fn_name = f"cogent-{safe_name}-{suffix}"
         try:
             fn = lam.get_function(FunctionName=fn_name)
-            state = fn["Configuration"].get("State", "?")
-            last_mod = fn["Configuration"].get("LastModified", "?")
+            cfg = fn["Configuration"]
+            state = cfg.get("State", "?")
+            last_mod = cfg.get("LastModified", "?")
+            mem = cfg.get("MemorySize", "?")
+            timeout = cfg.get("Timeout", "?")
+            runtime = cfg.get("Runtime", "?")
             style = "green" if state == "Active" else "yellow"
-            table.add_row(f"Lambda ({suffix})", f"[{style}]{state}[/{style}]", f"modified {last_mod}")
-        except lam.exceptions.ResourceNotFoundException:
-            table.add_row(f"Lambda ({suffix})", "[dim]not found[/dim]", fn_name)
+            table.add_row(
+                f"Lambda ({suffix})",
+                f"[{style}]{state}[/{style}]",
+                f"{runtime} {mem}MB {timeout}s | modified {last_mod}",
+            )
         except Exception as e:
-            table.add_row(f"Lambda ({suffix})", "[red]error[/red]", str(e)[:60])
+            err = str(e)
+            if "ResourceNotFoundException" in type(e).__name__ or "not found" in err.lower():
+                table.add_row(f"Lambda ({suffix})", "[dim]not found[/dim]", fn_name)
+            else:
+                table.add_row(f"Lambda ({suffix})", "[red]error[/red]", err[:60])
 
-    # Aurora Serverless (from stack outputs)
-    outputs = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
+    # Aurora Serverless
     cluster_arn = outputs.get("ClusterArn", "")
     if cluster_arn:
         try:
             cluster_id = cluster_arn.split(":")[-1]
             rds = session.client("rds")
-            clusters = rds.describe_db_clusters(DBClusterIdentifier=cluster_id)["DBClusters"]
-            if clusters:
-                c = clusters[0]
+            db_clusters = rds.describe_db_clusters(DBClusterIdentifier=cluster_id)["DBClusters"]
+            if db_clusters:
+                c = db_clusters[0]
                 db_status = c.get("Status", "?")
                 style = "green" if db_status == "available" else "yellow"
                 capacity = c.get("ServerlessV2ScalingConfiguration", {})
@@ -91,29 +102,72 @@ def status_cmd(ctx: click.Context):
     else:
         table.add_row("Aurora", "[dim]no output[/dim]", "ClusterArn not in stack outputs")
 
-    # ECS (optional — not all cogents have ECS)
-    ecs = session.client("ecs")
-    cluster_name = f"cogent-{safe_name}"
+    # ECR — latest image for this cogent
     try:
-        ecs_clusters = ecs.describe_clusters(clusters=[cluster_name])["clusters"]
-        if ecs_clusters and ecs_clusters[0].get("status") == "ACTIVE":
-            c = ecs_clusters[0]
-            running = c.get("runningTasksCount", 0)
-            pending = c.get("pendingTasksCount", 0)
-            table.add_row("ECS Cluster", "[green]active[/green]", f"{running} running, {pending} pending")
+        ecr = session.client("ecr")
+        images = ecr.describe_images(
+            repositoryName="cogent",
+            filter={"tagStatus": "TAGGED"},
+        ).get("imageDetails", [])
+        # Find images tagged with this cogent's name
+        cogent_images = [
+            img for img in images
+            if any(safe_name in (t or "") for t in img.get("imageTags", []))
+        ]
+        if cogent_images:
+            latest = max(cogent_images, key=lambda i: i.get("imagePushedAt", ""))
+            tags = ", ".join(latest.get("imageTags", [])[:3])
+            pushed = str(latest.get("imagePushedAt", "?"))
+            size_mb = latest.get("imageSizeInBytes", 0) / 1024 / 1024
+            table.add_row("ECR Image", "[green]found[/green]", f"{tags} ({size_mb:.0f}MB) pushed {pushed}")
+        elif images:
+            # Show latest image regardless of tag
+            latest = max(images, key=lambda i: i.get("imagePushedAt", ""))
+            tags = ", ".join(latest.get("imageTags", [])[:3])
+            pushed = str(latest.get("imagePushedAt", "?"))
+            table.add_row("ECR Image", "[yellow]no cogent tag[/yellow]", f"latest: {tags} pushed {pushed}")
+        else:
+            table.add_row("ECR Image", "[dim]no images[/dim]", "")
+    except Exception as e:
+        table.add_row("ECR Image", "[red]error[/red]", str(e)[:60])
 
-            services = ecs.list_services(cluster=cluster_name).get("serviceArns", [])
-            if services:
-                svc_desc = ecs.describe_services(cluster=cluster_name, services=services)["services"]
-                for svc in svc_desc:
-                    svc_name = svc["serviceName"]
-                    svc_status = svc.get("status", "?")
-                    desired = svc.get("desiredCount", 0)
-                    running_svc = svc.get("runningCount", 0)
-                    style = "green" if running_svc >= desired else "yellow"
-                    table.add_row(f"  Service", f"[{style}]{svc_status}[/{style}]", f"{svc_name} ({running_svc}/{desired})")
+    # Dashboard (ALB + ECS service on shared cogent-polis cluster)
+    alb_dns = outputs.get("AlbDns", "")
+    dashboard_url = outputs.get("DashboardUrl", "")
+    if alb_dns:
+        try:
+            elbv2 = session.client("elbv2")
+            lbs = elbv2.describe_load_balancers()["LoadBalancers"]
+            alb = next((lb for lb in lbs if lb["DNSName"] == alb_dns), None)
+            if alb:
+                alb_state = alb.get("State", {}).get("Code", "?")
+                style = "green" if alb_state == "active" else "yellow"
+                table.add_row("Dashboard ALB", f"[{style}]{alb_state}[/{style}]", dashboard_url or alb_dns)
+            else:
+                table.add_row("Dashboard ALB", "[yellow]not found[/yellow]", alb_dns)
+        except Exception as e:
+            table.add_row("Dashboard ALB", "[red]error[/red]", str(e)[:60])
+    else:
+        table.add_row("Dashboard ALB", "[dim]no output[/dim]", "no certificate configured")
+
+    # ECS — shared cogent-polis cluster, look for dashboard service
+    ecs_client = session.client("ecs")
+    try:
+        services = ecs_client.list_services(cluster="cogent-polis").get("serviceArns", [])
+        cogent_services = [s for s in services if safe_name in s]
+        if cogent_services:
+            svc_desc = ecs_client.describe_services(cluster="cogent-polis", services=cogent_services)["services"]
+            for svc in svc_desc:
+                svc_name = svc["serviceName"]
+                svc_status = svc.get("status", "?")
+                desired = svc.get("desiredCount", 0)
+                running_svc = svc.get("runningCount", 0)
+                style = "green" if running_svc >= desired and running_svc > 0 else "yellow" if running_svc > 0 else "red"
+                table.add_row("Dashboard ECS", f"[{style}]{svc_status}[/{style}]", f"{svc_name} ({running_svc}/{desired})")
+        else:
+            table.add_row("Dashboard ECS", "[dim]no service[/dim]", "")
     except Exception:
-        pass  # ECS is optional
+        pass  # ECS query may fail if cluster doesn't exist
 
     console.print(table)
 
