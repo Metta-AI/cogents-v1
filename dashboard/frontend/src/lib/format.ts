@@ -116,3 +116,40 @@ export function fmtRelative(
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
+
+/** Format an ISO timestamp as "today, 2:20pm (10m ago)" or "Mar 5, 2:20pm (1d ago)". */
+export function fmtTimestamp(
+  iso: string | null | undefined,
+): string {
+  if (!iso) return "--";
+  const date = new Date(iso);
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday =
+    date.getFullYear() === yesterday.getFullYear() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getDate() === yesterday.getDate();
+
+  const time = date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).toLowerCase();
+
+  let prefix: string;
+  if (isToday) {
+    prefix = `today, ${time}`;
+  } else if (isYesterday) {
+    prefix = `yesterday, ${time}`;
+  } else {
+    const monthDay = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    prefix = `${monthDay}, ${time}`;
+  }
+
+  return `${prefix} (${fmtRelative(iso)})`;
+}

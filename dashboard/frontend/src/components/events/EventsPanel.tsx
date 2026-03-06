@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { Badge } from "@/components/shared/Badge";
 import { JsonViewer } from "@/components/shared/JsonViewer";
-import { fmtRelative, timeRangeToMs } from "@/lib/format";
+import { fmtTimestamp, timeRangeToMs } from "@/lib/format";
 import type { DashboardEvent, Trigger, TimeRange } from "@/lib/types";
 import { EventTree } from "./EventTree";
 
@@ -86,7 +86,7 @@ export function EventsPanel({ events, cogentName, triggers, timeRange, onTabChan
         {filteredEvents.length > 0 && (
           <div
             className="grid items-center px-3 py-1.5 text-[10px] uppercase tracking-wide font-medium text-[var(--text-muted)]"
-            style={{ gridTemplateColumns: "minmax(100px, 1fr) minmax(80px, 1fr) minmax(200px, 3fr) minmax(80px, 1fr) 60px", background: "var(--bg-deep)", borderBottom: "1px solid var(--border)" }}
+            style={{ gridTemplateColumns: "minmax(100px, 1fr) minmax(80px, 1fr) minmax(200px, 3fr) minmax(80px, 1fr) minmax(180px, auto)", background: "var(--bg-deep)", borderBottom: "1px solid var(--border)" }}
           >
             <span>Event</span>
             <span>Source</span>
@@ -104,7 +104,7 @@ export function EventsPanel({ events, cogentName, triggers, timeRange, onTabChan
               <div
                 className="grid items-center px-3 py-2 cursor-pointer transition-colors"
                 style={{
-                  gridTemplateColumns: "minmax(100px, 1fr) minmax(80px, 1fr) minmax(200px, 3fr) minmax(80px, 1fr) 60px",
+                  gridTemplateColumns: "minmax(100px, 1fr) minmax(80px, 1fr) minmax(200px, 3fr) minmax(80px, 1fr) minmax(180px, auto)",
                   background: isExpanded ? "var(--bg-hover)" : "var(--bg-surface)",
                   borderBottom: "1px solid var(--border)",
                 }}
@@ -135,7 +135,7 @@ export function EventsPanel({ events, cogentName, triggers, timeRange, onTabChan
                     </span>
                   ))}
                 </span>
-                <span className="text-[10px] text-[var(--text-muted)] text-right">{fmtRelative(evt.created_at)}</span>
+                <span className="text-[10px] text-[var(--text-muted)] text-right">{fmtTimestamp(evt.created_at)}</span>
               </div>
 
               {isExpanded && (
@@ -148,7 +148,7 @@ export function EventsPanel({ events, cogentName, triggers, timeRange, onTabChan
                     <span className="text-[var(--text-muted)]">type: <span className="font-mono text-[var(--text-secondary)]">{evt.event_type ?? "--"}</span></span>
                     {evt.source && <span className="text-[var(--text-muted)]">source: <span className="text-[var(--text-secondary)]">{evt.source}</span></span>}
                     {evt.parent_event_id != null && <span className="text-[var(--text-muted)]">parent: <span className="font-mono text-[var(--text-secondary)]">{evt.parent_event_id}</span></span>}
-                    <span className="text-[var(--text-muted)]">created: <span className="text-[var(--text-secondary)]">{fmtRelative(evt.created_at)}</span></span>
+                    <span className="text-[var(--text-muted)]">created: <span className="text-[var(--text-secondary)]">{fmtTimestamp(evt.created_at)}</span></span>
                   </div>
 
                   {matchedPrograms.length > 0 && (
