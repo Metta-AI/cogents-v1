@@ -12,6 +12,7 @@ from uuid import UUID
 
 import click
 
+from cli import get_cogent_name
 from brain.db.models import (
     Cron,
     Event,
@@ -31,6 +32,37 @@ from brain.db.local_repository import LocalRepository
 from brain.db.repository import Repository
 from mind.loader import load_resources, sync_resources
 from mind.program import load_program, load_programs_dir, sync_program, validate_bundle
+
+
+def _ensure_db_env(cogent_name: str) -> None:
+    """Set DB env vars from CloudFormation stack outputs/resources."""
+    import os
+
+    import boto3
+
+    safe_name = cogent_name.replace(".", "-")
+    stack_name = f"cogent-{safe_name}-brain"
+    cf = boto3.client("cloudformation", region_name="us-east-1")
+
+    try:
+        resp = cf.describe_stacks(StackName=stack_name)
+    except Exception:
+        return
+    outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
+
+    if "ClusterArn" in outputs:
+        os.environ.setdefault("DB_RESOURCE_ARN", outputs["ClusterArn"])
+        os.environ.setdefault("DB_CLUSTER_ARN", outputs["ClusterArn"])
+    if "SecretArn" in outputs:
+        os.environ.setdefault("DB_SECRET_ARN", outputs["SecretArn"])
+    else:
+        resources = cf.list_stack_resources(StackName=stack_name)
+        for r in resources.get("StackResourceSummaries", []):
+            if "Secret" in r["LogicalResourceId"] and "Attachment" not in r["LogicalResourceId"]:
+                if r["PhysicalResourceId"].startswith("arn:aws:secretsmanager:"):
+                    os.environ.setdefault("DB_SECRET_ARN", r["PhysicalResourceId"])
+                    break
+    os.environ.setdefault("DB_NAME", "cogent")
 
 
 def _repo() -> Repository | LocalRepository:
@@ -83,8 +115,89 @@ def mind(ctx: click.Context, use_json: bool) -> None:
 # ═══════════════════════════════════════════════════════════
 
 
+_DEFAULT_EGG_DIR = "eggs/ovo"
 _DEFAULT_PROGRAMS_DIR = "eggs/ovo/programs"
+_DEFAULT_TASKS_DIR = "eggs/ovo/tasks"
+_DEFAULT_MEMORIES_DIR = "eggs/ovo/memories"
 _DEFAULT_RESOURCES_FILE = "eggs/ovo/resources.py"
+
+
+@mind.command("update")
+@click.argument("egg_dir", default=_DEFAULT_EGG_DIR, type=click.Path(exists=True))
+@click.option("--force", is_flag=True, help="Replace existing memory entries")
+@click.pass_context
+def mind_update(ctx: click.Context, egg_dir: str, force: bool) -> None:
+    """Sync programs, tasks, and memories from an egg directory to the database.
+
+    Default path: eggs/ovo/
+    """
+    import os
+
+    from mind.memory_loader import load_memories_from_dir
+    from mind.task_loader import load_tasks_from_dir
+
+    # Auto-discover DB ARNs from CloudFormation if not already set
+    if not (os.environ.get("DB_RESOURCE_ARN") or os.environ.get("DB_CLUSTER_ARN")):
+        _ensure_db_env(get_cogent_name(ctx))
+
+    egg = Path(egg_dir)
+    repo = _repo()
+
+    # 1. Resources
+    res_file = egg / "resources.py"
+    if res_file.is_file():
+        synced_res = sync_resources(res_file, repo)
+        click.echo(f"Resources: {len(synced_res)} synced")
+
+    # 2. Programs
+    programs_dir = egg / "programs"
+    if programs_dir.is_dir():
+        bundles = load_programs_dir(programs_dir)
+        count = 0
+        for b in bundles:
+            prog_id, issues = sync_program(b, repo)
+            for issue in issues:
+                prefix = "ERROR" if issue.level == "error" else "WARN"
+                click.echo(f"  [{prefix}] {b.program.name}: {issue.message}", err=True)
+            if prog_id:
+                count += 1
+        click.echo(f"Programs: {count} synced")
+
+    # 3. Tasks
+    tasks_dir = egg / "tasks"
+    if tasks_dir.is_dir():
+        loaded_tasks = load_tasks_from_dir(tasks_dir)
+        created = 0
+        updated = 0
+        for t in loaded_tasks:
+            existing = repo.get_task_by_name(t.name)
+            if existing:
+                t.status = existing.status
+                t.creator = existing.creator
+                t.parent_task_id = existing.parent_task_id
+                repo.upsert_task(t, update_priority=False)
+                updated += 1
+            else:
+                repo.upsert_task(t, update_priority=True)
+                created += 1
+        click.echo(f"Tasks: {created} created, {updated} updated")
+
+    # 4. Memories
+    memories_dir = egg / "memories"
+    if memories_dir.is_dir():
+        memories = load_memories_from_dir(memories_dir)
+        existing = {m.name: m for m in repo.query_memory(limit=10000)}
+        added = 0
+        for mem in memories:
+            if mem.name in existing:
+                if force:
+                    repo.delete_memory(existing[mem.name].id)
+                    repo.insert_memory(mem)
+                    added += 1
+            else:
+                repo.insert_memory(mem)
+                added += 1
+        click.echo(f"Memories: {added} synced")
 
 
 @mind.group()

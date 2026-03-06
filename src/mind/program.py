@@ -82,12 +82,22 @@ def _parse_md(path: Path) -> ProgramBundle:
 
 
 def _parse_py(path: Path) -> ProgramBundle:
-    """Parse a .py file: CogentMindProgram config -> metadata, full source -> content."""
+    """Parse a .py file: CogentMindProgram config -> metadata, full source -> content.
+
+    If no CogentMindProgram assignment is found, infer name from filename
+    and treat as a python program with the source as content.
+    """
     source = path.read_text()
     try:
         kwargs = extract_pydantic_config(source, "CogentMindProgram")
-    except (ValueError, SyntaxError) as exc:
-        raise ValueError(f"{path}: {exc}") from exc
+    except (ValueError, SyntaxError):
+        # No config block — infer from filename
+        prog = Program(
+            name=path.stem,
+            program_type=ProgramType.PYTHON,
+            content=source,
+        )
+        return ProgramBundle(program=prog, triggers=[])
 
     cfg = CogentMindProgram(**kwargs)
     name = cfg.name or path.stem

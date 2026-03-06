@@ -137,6 +137,7 @@ class Repository:
             param["value"] = {"stringValue": str(value)}
         elif isinstance(value, UUID):
             param["value"] = {"stringValue": str(value)}
+            param["typeHint"] = "UUID"
         elif isinstance(value, (datetime, date)):
             param["value"] = {"stringValue": value.isoformat()}
         elif isinstance(value, (dict, list)):
@@ -357,10 +358,11 @@ class Repository:
             params.append(self._param("prefix", prefix + "%"))
 
         where = " AND ".join(conditions)
+        where_clause = f"WHERE {where}" if where else ""
         params.append(self._param("limit", limit))
 
         response = self._execute(
-            f"SELECT * FROM memory WHERE {where} ORDER BY name ASC LIMIT :limit",
+            f"SELECT * FROM memory {where_clause} ORDER BY name ASC LIMIT :limit",
             params,
         )
         return [self._memory_from_row(r) for r in self._rows_to_dicts(response)]
