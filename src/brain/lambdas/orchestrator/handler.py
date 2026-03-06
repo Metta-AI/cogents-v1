@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 import time
+from uuid import UUID
 
 import boto3
 
-from brain.db.models import Trigger
+from brain.db.models import TaskStatus, Trigger
 from brain.lambdas.shared.config import get_config
 from brain.lambdas.shared.db import get_repo
 from brain.lambdas.shared.events import from_eventbridge
@@ -71,6 +72,10 @@ def handler(event: dict, context) -> dict:
     except Exception:
         logger.exception("Failed to log event to database")
         return {"statusCode": 500, "body": "event_log_failed"}
+
+    # Handle task:run events directly — look up task, dispatch its program
+    if brain_event.event_type == "task:run":
+        return _handle_task_run(config, repo, brain_event, event_id)
 
     # Load enabled triggers (cached with 60s TTL)
     triggers = _cache.get_triggers()
@@ -146,6 +151,67 @@ def handler(event: dict, context) -> dict:
 
     logger.info(f"Dispatched {dispatched}/{len(matched)} triggers")
     return {"statusCode": 200, "dispatched": dispatched, "event_id": event_id}
+
+
+def _handle_task_run(config, repo, brain_event, event_id) -> dict:
+    """Handle task:run events: look up task from DB, dispatch its program."""
+    event_payload = brain_event.payload or {}
+    task_id = event_payload.get("task_id")
+    if not task_id:
+        logger.error("task:run event missing task_id in payload")
+        return {"statusCode": 400, "body": "missing_task_id"}
+
+    task = repo.get_task(UUID(task_id))
+    if not task:
+        logger.error(f"Task not found: {task_id}")
+        return {"statusCode": 404, "body": "task_not_found"}
+
+    program_name = task.program_name
+    program = repo.get_program(program_name)
+    if not program:
+        logger.error(f"Program not found for task {task_id}: {program_name}")
+        return {"statusCode": 404, "body": "program_not_found"}
+
+    # Update task status to running
+    task.status = TaskStatus.RUNNING
+    repo.update_task(task)
+
+    # Build executor payload with task data
+    session_id = task_id if not task.clear_context else None
+    payload = json.dumps({
+        "trigger": {
+            "id": "task-run",
+            "program_name": program_name,
+            "config": {},
+        },
+        "event": {
+            "id": event_id,
+            "event_type": brain_event.event_type,
+            "source": brain_event.source,
+            "payload": brain_event.payload,
+        },
+        "task": {
+            "id": task_id,
+            "content": task.content or "",
+            "memory_keys": task.memory_keys or [],
+            "tools": task.tools or [],
+            "resources": task.resources or [],
+            "clear_context": task.clear_context,
+        },
+        "session_id": session_id or f"program-{program_name}",
+    })
+
+    runner = task.runner or program.runner or "lambda"
+    lambda_client = boto3.client("lambda", region_name=config.region)
+    ecs_client = boto3.client("ecs", region_name=config.region)
+
+    if runner == "ecs":
+        _dispatch_ecs(config, ecs_client, payload, program_name, session_id=session_id)
+    else:
+        _dispatch_lambda(config, lambda_client, payload, program_name)
+
+    logger.info(f"Dispatched task:run for task {task_id} -> program {program_name} via {runner}")
+    return {"statusCode": 200, "dispatched": 1, "event_id": event_id, "task_id": task_id}
 
 
 def _dispatch_lambda(config, lambda_client, payload: str, program_name: str):
