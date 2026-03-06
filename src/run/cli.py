@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import time
 
 import boto3
 import click
@@ -94,22 +96,70 @@ def list_cmd(ctx: click.Context):
     console.print(table)
 
 
+def _launch_shell_task(name: str) -> None:
+    """Launch a new shell task via mind task create --run."""
+    safe_name = name.replace(".", "-")
+    cmd = [
+        "cogent", name,
+        "mind", "task", "create", f"shell-{safe_name}",
+        "--program", "do-content",
+        "--content", "Interactive shell session",
+        "--runner", "ecs",
+        "--run",
+    ]
+    click.echo("Creating task...")
+    subprocess.run(cmd, check=True)
+
+
+def _wait_for_task(ecs_client, cluster: str, timeout: int = 120) -> dict | None:
+    """Poll for a new RUNNING task with SSM agent ready."""
+    click.echo("Waiting for ECS task to start...")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        tasks = _list_running_tasks(ecs_client, cluster)
+        for task in tasks:
+            # Check if SSM managed agent is running (needed for ECS Exec)
+            for container in task.get("containers", []):
+                for agent in container.get("managedAgents", []):
+                    if agent.get("name") == "ExecuteCommandAgent" and agent.get("lastStatus") == "RUNNING":
+                        return task
+        time.sleep(5)
+        click.echo("  ...")
+    return None
+
+
 @run.command("shell")
 @click.argument("run_id", required=False)
+@click.option("--new", "launch_new", is_flag=True, help="Launch a new shell task")
 @click.pass_context
-def shell_cmd(ctx: click.Context, run_id: str | None):
+def shell_cmd(ctx: click.Context, run_id: str | None, launch_new: bool):
     """Attach to a running ECS task's tmux session.
 
     If RUN_ID is provided, connect to that specific task.
     Otherwise, list running tasks and prompt for selection.
+    Use --new to launch a fresh shell task.
     """
     name = get_cogent_name(ctx)
     cluster = _get_cluster_name(name)
     ecs_client = boto3.client("ecs")
 
+    if launch_new:
+        _launch_shell_task(name)
+        target = _wait_for_task(ecs_client, cluster)
+        if not target:
+            raise click.ClickException("Timed out waiting for task to start")
+        _connect(cluster, target)
+        return
+
     tasks = _list_running_tasks(ecs_client, cluster)
+
     if not tasks:
-        click.echo("No running tasks.")
+        if click.confirm("No running tasks. Launch a new shell?", default=True):
+            _launch_shell_task(name)
+            target = _wait_for_task(ecs_client, cluster)
+            if not target:
+                raise click.ClickException("Timed out waiting for task to start")
+            _connect(cluster, target)
         return
 
     if run_id:
@@ -125,18 +175,33 @@ def shell_cmd(ctx: click.Context, run_id: str | None):
     elif len(tasks) == 1:
         target = tasks[0]
     else:
-        click.echo("Multiple running tasks:")
+        click.echo("Running tasks:")
         for i, task in enumerate(tasks):
             task_id = _task_id_from_arn(task["taskArn"])
             program = _get_program_name(task)
             click.echo(f"  [{i}] {task_id[:12]}  {program}")
+        click.echo(f"  [n] Launch new shell")
 
-        choice = click.prompt("Select task", type=int)
-        if choice < 0 or choice >= len(tasks):
+        choice = click.prompt("Select task", default="0")
+        if choice.lower() == "n":
+            _launch_shell_task(name)
+            target = _wait_for_task(ecs_client, cluster)
+            if not target:
+                raise click.ClickException("Timed out waiting for task to start")
+            _connect(cluster, target)
+            return
+
+        idx = int(choice)
+        if idx < 0 or idx >= len(tasks):
             click.echo("Invalid selection.")
             return
-        target = tasks[choice]
+        target = tasks[idx]
 
+    _connect(cluster, target)
+
+
+def _connect(cluster: str, target: dict) -> None:
+    """Connect to a task's tmux session via ECS Exec."""
     task_arn = target["taskArn"]
     task_id = _task_id_from_arn(task_arn)
     click.echo(f"Connecting to {task_id[:12]}...")

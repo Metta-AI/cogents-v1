@@ -521,6 +521,7 @@ def task() -> None:
 @click.option("--parent", type=str, default=None, help="Parent task ID")
 @click.option("--creator", default="cli")
 @click.option("--disabled", is_flag=True, default=False, help="Create in DISABLED status")
+@click.option("--run", "run_now", is_flag=True, default=False, help="Send task:run event to trigger immediate execution")
 @click.option("--limits", default="{}", help="JSON limits")
 @click.option("--metadata", "metadata_json", default="{}", help="JSON metadata")
 @click.pass_context
@@ -540,6 +541,7 @@ def task_create(
     parent: str | None,
     creator: str,
     disabled: bool,
+    run_now: bool,
     limits: str,
     metadata_json: str,
 ) -> None:
@@ -571,6 +573,35 @@ def task_create(
     repo = _repo()
     task_id = repo.create_task(t)
     _output({"id": str(task_id), "name": name, "status": t.status.value}, use_json=ctx.obj["json"])
+
+    if run_now:
+        _send_task_run_event(ctx, repo, task_id)
+
+
+def _send_task_run_event(ctx: click.Context, repo, task_id) -> None:
+    """Send a task:run event to trigger immediate execution via EventBridge."""
+    import os
+
+    ev = Event(
+        event_type="task:run",
+        source="cli",
+        payload={"task_id": str(task_id)},
+    )
+    event_id = repo.append_event(ev)
+
+    bus_name = os.environ.get("EVENT_BUS_NAME")
+    if not bus_name:
+        obj = ctx.find_root().obj
+        cogent_name = (obj.get("cogent_id") if obj else None) or os.environ.get("COGENT_ID")
+        if cogent_name:
+            bus_name = f"cogent-{cogent_name.replace('.', '-')}"
+
+    if bus_name:
+        from brain.lambdas.shared.events import put_event
+        put_event(ev, bus_name)
+        click.echo(f"Sent task:run event (id={event_id}) to {bus_name}")
+    else:
+        click.echo(f"Warning: task:run event stored (id={event_id}) but no EventBridge bus found")
 
 
 @task.command("list")

@@ -211,9 +211,15 @@ class PolisStack(cdk.Stack):
                 actions=[
                     "ecs:DescribeClusters",
                     "ecs:DescribeServices",
-                    "ecs:ListServices",
-                    "ecs:UpdateService",
+                    "ecs:DescribeTasks",
                     "ecs:DescribeTaskDefinition",
+                    "ecs:ExecuteCommand",
+                    "ecs:ListServices",
+                    "ecs:ListTasks",
+                    "ecs:ListTaskDefinitions",
+                    "ecs:RunTask",
+                    "ecs:StopTask",
+                    "ecs:UpdateService",
                     "ecs:RegisterTaskDefinition",
                     "ecs:DeregisterTaskDefinition",
                     "ecr:DescribeRepositories",
@@ -284,9 +290,13 @@ class PolisStack(cdk.Stack):
         self.admin_role.add_to_policy(
             iam.PolicyStatement(
                 actions=[
+                    "ec2:DescribeVpcs",
+                    "ec2:DescribeSubnets",
+                    "ec2:DescribeSecurityGroups",
                     "elasticloadbalancing:DescribeLoadBalancers",
                     "elasticloadbalancing:DescribeTargetGroups",
                     "elasticloadbalancing:DescribeTargetHealth",
+                    "ssm:StartSession",
                 ],
                 resources=["*"],
             )
