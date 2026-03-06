@@ -33,13 +33,12 @@ def create_cmd(ctx: click.Context, profile: str, watch: bool):
     import os
     import subprocess
 
-    import boto3
-
     name = get_cogent_name(ctx)
     safe_name = name.replace(".", "-")
 
     # Look up certificate ARN from polis account
-    from polis.aws import get_polis_session
+    from polis.aws import get_polis_session, set_profile
+    set_profile(profile)
     polis_session, _ = get_polis_session()
     cert_arn = _find_certificate(polis_session, f"{safe_name}.softmax-cogents.com")
 
@@ -63,8 +62,10 @@ def create_cmd(ctx: click.Context, profile: str, watch: bool):
         raise click.ClickException("CDK deploy failed")
     click.echo(f"Brain infrastructure for cogent-{name} deployed in polis account.")
 
-    # Fetch stack outputs for memory schema
-    cf = boto3.Session(profile_name=profile, region_name="us-east-1").client("cloudformation")
+    # Re-assume role after CDK deploy (original session may have expired)
+    polis_session, _ = get_polis_session()
+    polis_creds = polis_session.get_credentials().get_frozen_credentials()
+    cf = polis_session.client("cloudformation", region_name="us-east-1")
     try:
         resp = cf.describe_stacks(StackName=f"cogent-{safe_name}-brain")
         outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
@@ -79,6 +80,11 @@ def create_cmd(ctx: click.Context, profile: str, watch: bool):
                     if r["PhysicalResourceId"].startswith("arn:aws:secretsmanager:"):
                         os.environ["DB_SECRET_ARN"] = r["PhysicalResourceId"]
                         break
+        # Set AWS credentials so apply_schema() can access RDS Data API in polis account
+        os.environ["AWS_ACCESS_KEY_ID"] = polis_creds.access_key
+        os.environ["AWS_SECRET_ACCESS_KEY"] = polis_creds.secret_key
+        if polis_creds.token:
+            os.environ["AWS_SESSION_TOKEN"] = polis_creds.token
     except Exception as e:
         click.echo(f"Warning: could not read stack outputs: {e}")
 
@@ -87,10 +93,15 @@ def create_cmd(ctx: click.Context, profile: str, watch: bool):
     ctx.invoke(_memory_create)
 
     # Update Route53 DNS to point at the dashboard ALB
+    # Use OrganizationAccountAccessRole which has full admin (cogent-polis-admin lacks ELB perms)
     if cert_arn:
         click.echo("Updating DNS...")
         try:
-            _update_dashboard_dns(polis_session, safe_name, "softmax-cogents.com")
+            from polis.aws import _assume_role, get_org_session, POLIS_ACCOUNT_ID
+            dns_session = _assume_role(
+                get_org_session(), POLIS_ACCOUNT_ID, "OrganizationAccountAccessRole",
+            )
+            _update_dashboard_dns(dns_session, safe_name, "softmax-cogents.com")
         except Exception as e:
             click.echo(f"Warning: DNS update failed: {e}")
 
