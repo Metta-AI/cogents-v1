@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from dashboard.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -54,6 +57,14 @@ def create_app() -> FastAPI:
     app.include_router(triggers.router, prefix="/api/cogents/{name}")
     app.include_router(memory.router, prefix="/api/cogents/{name}")
     app.include_router(cron.router, prefix="/api/cogents/{name}")
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        logger.error("Unhandled error on %s: %s", request.url.path, exc, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(exc), "type": type(exc).__name__},
+        )
 
     @app.get("/healthz")
     async def healthz() -> dict:

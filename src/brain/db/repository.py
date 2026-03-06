@@ -51,11 +51,33 @@ class Repository:
         resource_arn: str,
         secret_arn: str,
         database: str,
+        *,
+        role_arn: str = "",
+        region: str = "us-east-1",
     ) -> None:
         self._client = client
         self._resource_arn = resource_arn
         self._secret_arn = secret_arn
         self._database = database
+        self._role_arn = role_arn
+        self._region = region
+
+    def _refresh_client(self) -> None:
+        """Re-assume cross-account role and replace the RDS Data API client."""
+        if not self._role_arn:
+            return
+        sts = boto3.client("sts", region_name=self._region)
+        creds = sts.assume_role(
+            RoleArn=self._role_arn,
+            RoleSessionName="dashboard",
+        )["Credentials"]
+        session = boto3.Session(
+            aws_access_key_id=creds["AccessKeyId"],
+            aws_secret_access_key=creds["SecretAccessKey"],
+            aws_session_token=creds["SessionToken"],
+            region_name=self._region,
+        )
+        self._client = session.client("rds-data", region_name=self._region)
 
     @classmethod
     def create(
@@ -95,7 +117,10 @@ class Repository:
             client = session.client("rds-data", region_name=region)
         else:
             client = boto3.client("rds-data", region_name=region)
-        return cls(client, resource_arn, secret_arn, database)
+        return cls(
+            client, resource_arn, secret_arn, database,
+            role_arn=role_arn, region=region,
+        )
 
     def __enter__(self) -> Repository:
         return self
@@ -109,7 +134,10 @@ class Repository:
     # ═══════════════════════════════════════════════════════════
 
     def _execute(self, sql: str, params: list[dict] | None = None) -> dict:
-        """Execute SQL statement using RDS Data API."""
+        """Execute SQL statement using RDS Data API.
+
+        Automatically refreshes cross-account credentials on expiry.
+        """
         kwargs: dict[str, Any] = {
             "resourceArn": self._resource_arn,
             "secretArn": self._secret_arn,
@@ -119,7 +147,18 @@ class Repository:
         }
         if params:
             kwargs["parameters"] = params
-        return self._client.execute_statement(**kwargs)
+        try:
+            return self._client.execute_statement(**kwargs)
+        except Exception as exc:
+            if not self._role_arn:
+                raise
+            # Refresh credentials on expired token or forbidden errors
+            err_code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+            if err_code in ("ExpiredTokenException", "ForbiddenException", "AccessDeniedException"):
+                logger.info("Credentials expired (%s), refreshing cross-account role", err_code)
+                self._refresh_client()
+                return self._client.execute_statement(**kwargs)
+            raise
 
     def _param(self, name: str, value: Any) -> dict:
         """Build Data API parameter dict from Python value."""
