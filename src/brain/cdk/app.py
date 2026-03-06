@@ -12,8 +12,9 @@ def main() -> None:
     app = cdk.App()
     cogent_name = app.node.try_get_context("cogent_name") or "default"
     certificate_arn = app.node.try_get_context("certificate_arn") or ""
+    ecr_repo_uri = app.node.try_get_context("ecr_repo_uri") or ""
 
-    config = BrainConfig(cogent_name=cogent_name)
+    config = BrainConfig(cogent_name=cogent_name, ecr_repo_uri=ecr_repo_uri)
 
     BrainStack(
         app,

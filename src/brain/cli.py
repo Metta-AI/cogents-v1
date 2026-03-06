@@ -184,11 +184,19 @@ def create_cmd(ctx: click.Context, profile: str, watch: bool):
     name = get_cogent_name(ctx)
     safe_name = name.replace(".", "-")
 
-    # Look up certificate ARN from polis account
+    # Look up certificate ARN and ECR repo URI from polis account
     from polis.aws import get_polis_session, set_profile
     set_profile(profile)
     polis_session, _ = get_polis_session()
     cert_arn = _find_certificate(polis_session, f"{safe_name}.softmax-cogents.com")
+
+    ecr_repo_uri = ""
+    try:
+        ecr_client = polis_session.client("ecr")
+        repos = ecr_client.describe_repositories(repositoryNames=["cogent"])["repositories"]
+        ecr_repo_uri = repos[0]["repositoryUri"]
+    except Exception:
+        click.echo("Warning: Could not resolve polis ECR repo. Using default image.")
 
     click.echo(f"Deploying brain for cogent-{name} in polis account...")
     if cert_arn:
@@ -198,6 +206,7 @@ def create_cmd(ctx: click.Context, profile: str, watch: bool):
         "cdk", "deploy", f"cogent-{safe_name}-brain",
         "-c", f"cogent_name={name}",
         "-c", f"certificate_arn={cert_arn}",
+        "-c", f"ecr_repo_uri={ecr_repo_uri}",
         "--app", "python -m brain.cdk.app",
         "--require-approval", "never",
     ]
@@ -340,13 +349,15 @@ def destroy_cmd(ctx: click.Context, profile: str, yes: bool):
 
 
 @brain.command("build")
-@click.option("--profile", default="softmax-org", help="AWS profile")
+@click.option("--profile", default=CDK_PROFILE, help="AWS profile for polis account")
 @click.pass_context
 def build_cmd(ctx: click.Context, profile: str):
     """Build and push the executor Docker image to polis ECR."""
+    import base64
     import subprocess
 
-    from polis.aws import get_polis_session
+    from polis.aws import get_polis_session, set_profile
+    set_profile(profile)
 
     name = get_cogent_name(ctx)
     safe_name = name.replace(".", "-")
@@ -363,18 +374,21 @@ def build_cmd(ctx: click.Context, profile: str):
 
     # Build
     result = subprocess.run(
-        ["docker", "build", "-f", "src/brain/docker/Dockerfile", "-t", image, "."],
+        ["docker", "build", "--platform", "linux/amd64", "-f", "src/brain/docker/Dockerfile", "-t", image, "."],
         capture_output=False,
     )
     if result.returncode != 0:
         raise click.ClickException("Docker build failed")
 
-    # Login to ECR
+    # Login to ECR (auth token is base64-encoded "AWS:password")
     token = ecr_client.get_authorization_token()
-    registry = repo_uri.split("/")[0]
+    auth_data = token["authorizationData"][0]
+    decoded = base64.b64decode(auth_data["authorizationToken"]).decode()
+    password = decoded.split(":", 1)[1]
+    registry = auth_data["proxyEndpoint"]
     subprocess.run(
         ["docker", "login", "--username", "AWS", "--password-stdin", registry],
-        input=token["authorizationData"][0]["authorizationToken"].encode(),
+        input=password.encode(),
         capture_output=False,
     )
 
