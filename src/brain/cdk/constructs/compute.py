@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aws_cdk import Duration
+from aws_cdk import BundlingOptions, Duration
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
@@ -99,6 +99,19 @@ class ComputeConstruct(Construct):
             )
         )
 
+        # Lambda code with bundled dependencies
+        lambda_code = lambda_.Code.from_asset(
+            ".",
+            bundling=BundlingOptions(
+                image=lambda_.Runtime.PYTHON_3_12.bundling_image,
+                command=[
+                    "bash", "-c",
+                    "pip install pydantic boto3 -t /asset-output"
+                    " && cp -r /asset-input/src/* /asset-output/",
+                ],
+            ),
+        )
+
         # Orchestrator Lambda (no VPC — uses only AWS APIs)
         self.orchestrator = lambda_.Function(
             self,
@@ -106,7 +119,7 @@ class ComputeConstruct(Construct):
             function_name=f"cogent-{safe_name}-orchestrator",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="brain.lambdas.orchestrator.handler.handler",
-            code=lambda_.Code.from_asset("src"),
+            code=lambda_code,
             memory_size=config.orchestrator_memory_mb,
             timeout=Duration.seconds(config.orchestrator_timeout_s),
             role=orchestrator_role,
@@ -123,7 +136,7 @@ class ComputeConstruct(Construct):
             function_name=f"cogent-{safe_name}-executor",
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="brain.lambdas.executor.handler.handler",
-            code=lambda_.Code.from_asset("src"),
+            code=lambda_code,
             memory_size=config.executor_memory_mb,
             timeout=Duration.seconds(config.executor_timeout_s),
             role=executor_role,

@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     memory_keys     JSONB NOT NULL DEFAULT '[]',
     tools           JSONB NOT NULL DEFAULT '[]',
     status          TEXT NOT NULL DEFAULT 'runnable'
-                    CHECK (status IN ('runnable', 'running', 'completed', 'disabled')),
+                    CHECK (status IN ('runnable', 'scheduled', 'running', 'completed', 'disabled')),
     priority        DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     runner          TEXT CHECK (runner IN ('lambda', 'ecs')) DEFAULT NULL,
     clear_context   BOOLEAN NOT NULL DEFAULT false,
