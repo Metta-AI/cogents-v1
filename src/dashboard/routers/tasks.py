@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import json
 import logging
-import subprocess
+import os
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 
-from brain.db.models import Task as DbTask, TaskStatus
+from brain.db.models import Event, Task as DbTask, TaskStatus
+from brain.lambdas.shared.events import put_event
 from dashboard.db import get_repo
 from dashboard.models import Task, TaskCreate, TaskUpdate, TasksResponse
 
@@ -17,21 +17,25 @@ router = APIRouter(tags=["tasks"])
 
 
 def _send_task_run_event(cogent_name: str, task: DbTask) -> None:
-    """Fire a task:run event via the mind event CLI."""
-    import os
+    """Fire a task:run event to EventBridge and log to DB."""
+    repo = get_repo()
+    ev = Event(
+        event_type="task:run",
+        source="dashboard",
+        payload={"task_id": str(task.id), "task_name": task.name},
+    )
+    repo.append_event(ev)
 
-    payload = json.dumps({"task_id": str(task.id), "task_name": task.name})
-    env = {**os.environ, "COGENT_ID": cogent_name}
-    cmd = [
-        "mind", "event", "send", "task:run",
-        "--source", "dashboard",
-        "--payload", payload,
-    ]
+    bus_name = os.environ.get("EVENT_BUS_NAME")
+    if not bus_name:
+        safe = cogent_name.replace(".", "-")
+        bus_name = f"cogent-{safe}"
+
     try:
-        subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        put_event(ev, bus_name)
         logger.info("Sent task:run event for task %s (%s)", task.name, task.id)
     except Exception:
-        logger.exception("Failed to send task:run event for task %s", task.id)
+        logger.exception("Failed to publish task:run event for task %s", task.id)
 
 
 def _task_to_response(t: DbTask) -> Task:

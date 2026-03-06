@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aws_cdk import BundlingOptions, Duration
+from aws_cdk import BundlingOptions, DockerImage, Duration
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
@@ -10,6 +10,28 @@ from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
 from brain.cdk.config import BrainConfig
+
+
+class _LocalBundler:
+    """Bundle Lambda code locally: install deps + copy src."""
+
+    def try_bundle(self, output_dir: str, *, image=None, **kwargs) -> bool:
+        import shutil
+        import subprocess
+
+        subprocess.check_call(
+            ["pip", "install", "pydantic", "boto3", "-t", output_dir, "--quiet"],
+        )
+        # Copy src/ contents into output
+        src_dir = "src"
+        for item in __import__("os").listdir(src_dir):
+            s = __import__("os").path.join(src_dir, item)
+            d = __import__("os").path.join(output_dir, item)
+            if __import__("os").path.isdir(s):
+                shutil.copytree(s, d, dirs_exist_ok=True)
+            else:
+                shutil.copy2(s, d)
+        return True
 
 
 class ComputeConstruct(Construct):
@@ -99,16 +121,12 @@ class ComputeConstruct(Construct):
             )
         )
 
-        # Lambda code with bundled dependencies
+        # Lambda code with bundled dependencies (local bundling, no Docker)
         lambda_code = lambda_.Code.from_asset(
             ".",
             bundling=BundlingOptions(
-                image=lambda_.Runtime.PYTHON_3_12.bundling_image,
-                command=[
-                    "bash", "-c",
-                    "pip install pydantic boto3 -t /asset-output"
-                    " && cp -r /asset-input/src/* /asset-output/",
-                ],
+                image=DockerImage.from_registry("dummy"),
+                local=_LocalBundler(),
             ),
         )
 
