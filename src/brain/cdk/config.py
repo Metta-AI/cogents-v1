@@ -28,4 +28,5 @@ class BrainConfig:
     ecs_cpu: int = 2048
     ecs_memory: int = 4096
     ecs_timeout_s: int = 3600
+    ecr_repo_uri: str = ""
     session_expiry_days: Duration = Duration.days(30)

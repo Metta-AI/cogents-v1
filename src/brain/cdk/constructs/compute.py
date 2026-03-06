@@ -176,6 +176,19 @@ class ComputeConstruct(Construct):
             task_role.add_to_policy(stmt)
         sessions_bucket.grant_read_write(task_role)
 
+        # SSM permissions for ECS Exec
+        task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "ssmmessages:CreateControlChannel",
+                    "ssmmessages:CreateDataChannel",
+                    "ssmmessages:OpenControlChannel",
+                    "ssmmessages:OpenDataChannel",
+                ],
+                resources=["*"],
+            )
+        )
+
         # ECS Task Definition (runs on shared cogent-polis cluster)
         self.task_definition = ecs.FargateTaskDefinition(
             self,
@@ -186,9 +199,34 @@ class ComputeConstruct(Construct):
             task_role=task_role,
         )
 
+        # Use custom executor image from polis ECR repo if available
+        if config.ecr_repo_uri:
+            image = ecs.ContainerImage.from_registry(
+                f"{config.ecr_repo_uri}:executor-{safe_name}"
+            )
+            # Grant execution role permission to pull from cross-account ECR
+            self.task_definition.add_to_execution_role_policy(
+                iam.PolicyStatement(
+                    actions=["ecr:GetAuthorizationToken"],
+                    resources=["*"],
+                )
+            )
+            self.task_definition.add_to_execution_role_policy(
+                iam.PolicyStatement(
+                    actions=[
+                        "ecr:BatchCheckLayerAvailability",
+                        "ecr:GetDownloadUrlForLayer",
+                        "ecr:BatchGetImage",
+                    ],
+                    resources=["*"],
+                )
+            )
+        else:
+            image = ecs.ContainerImage.from_registry("python:3.12-slim")
+
         self.task_definition.add_container(
             "Executor",
-            image=ecs.ContainerImage.from_registry("python:3.12-slim"),
+            image=image,
             logging=ecs.LogDrivers.aws_logs(stream_prefix="executor"),
             environment=env,
         )

@@ -237,6 +237,7 @@ def _dispatch_ecs(config, ecs_client, payload: str, program_name: str,
         cluster=config.ecs_cluster_arn,
         taskDefinition=config.ecs_task_definition,
         launchType="FARGATE",
+        enableExecuteCommand=True,
         networkConfiguration={
             "awsvpcConfiguration": {
                 "subnets": subnets,
