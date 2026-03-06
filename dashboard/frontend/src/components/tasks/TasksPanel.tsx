@@ -19,6 +19,7 @@ type BadgeVariant = "success" | "warning" | "error" | "info" | "neutral" | "acce
 
 const STATUS_VARIANT: Record<string, BadgeVariant> = {
   runnable: "info",
+  scheduled: "warning",
   running: "accent",
   completed: "success",
   disabled: "neutral",
@@ -26,7 +27,7 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   timeout: "warning",
 };
 
-const STATUSES = ["runnable", "running", "completed", "disabled"];
+const STATUSES = ["runnable", "scheduled", "running", "completed", "disabled"];
 
 const STUCK_THRESHOLD_MS = 10 * 60 * 1000;
 const RECENT_THRESHOLD_MS = 60 * 60 * 1000;
@@ -256,7 +257,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
   const activeWindow = TIME_RANGE_TO_WINDOW[timeRange];
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
-      if (t.status === "running") return true;
+      if (t.status === "running" || t.status === "scheduled") return true;
       const c = t.run_counts?.[activeWindow];
       if (c && c.runs > 0) return true;
       if (!t.run_counts || Object.values(t.run_counts).every((v) => v.runs === 0)) return true;
@@ -295,7 +296,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
 
   // Categorized task lists (from filtered, sorted)
   const runningTasks = useMemo(
-    () => sortTasks(filteredTasks.filter((t) => t.status === "running" && !isStuck(t))),
+    () => sortTasks(filteredTasks.filter((t) => (t.status === "running" || t.status === "scheduled") && !isStuck(t))),
     [filteredTasks, sortTasks],
   );
   const stuckTasks = useMemo(
@@ -310,7 +311,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
     () => sortTasks(filteredTasks.filter((t) =>
       (t.last_run_status === "failed" || t.last_run_status === "timeout") &&
       isRecent(t.last_run_at) &&
-      t.status !== "running",
+      t.status !== "running" && t.status !== "scheduled",
     )),
     [filteredTasks, sortTasks],
   );
@@ -466,7 +467,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
 
   const handleRunTask = useCallback(async (e: React.MouseEvent, taskId: string) => {
     e.stopPropagation();
-    await api.updateTask(cogentName, taskId, { status: "running" });
+    await api.updateTask(cogentName, taskId, { status: "scheduled" });
     onRefresh();
   }, [cogentName, onRefresh]);
 
@@ -505,7 +506,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
       tools: task.tools?.length ? task.tools : undefined,
       resources: task.resources?.length ? task.resources : undefined,
       creator: "dashboard",
-      status: "running",
+      status: "scheduled",
     });
     onRefresh();
   }, [cogentName, onRefresh]);
@@ -827,7 +828,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
             </span>
           ) : (
             <>
-              {task.status === "running" ? (
+              {task.status === "running" || task.status === "scheduled" ? (
                 <button
                   onClick={(e) => requestStop(e, task.id)}
                   className="border-0 bg-transparent cursor-pointer text-[var(--text-muted)] hover:text-[var(--warning)] text-[11px]"
@@ -1166,6 +1167,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
         const isCollapsed = collapsedGroups.has(group);
         const statusCounts = {
           runnable: groupTasks.filter((t) => t.status === "runnable").length,
+          scheduled: groupTasks.filter((t) => t.status === "scheduled").length,
           running: groupTasks.filter((t) => t.status === "running").length,
           completed: groupTasks.filter((t) => t.status === "completed").length,
           disabled: groupTasks.filter((t) => t.status === "disabled").length,
@@ -1193,6 +1195,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
               <span className="text-[10px] text-[var(--text-muted)]">({groupTasks.length})</span>
               <div className="flex-1" />
               <div className="flex gap-1">
+                {statusCounts.scheduled > 0 && <Badge variant="warning">{statusCounts.scheduled} scheduled</Badge>}
                 {statusCounts.running > 0 && <Badge variant="accent">{statusCounts.running} running</Badge>}
                 {statusCounts.runnable > 0 && <Badge variant="info">{statusCounts.runnable} runnable</Badge>}
                 {statusCounts.disabled > 0 && <Badge variant="neutral">{statusCounts.disabled} disabled</Badge>}

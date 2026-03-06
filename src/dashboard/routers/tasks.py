@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import subprocess
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -9,7 +11,27 @@ from brain.db.models import Task as DbTask, TaskStatus
 from dashboard.db import get_repo
 from dashboard.models import Task, TaskCreate, TaskUpdate, TasksResponse
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["tasks"])
+
+
+def _send_task_run_event(cogent_name: str, task: DbTask) -> None:
+    """Fire a task:run event via the mind event CLI."""
+    import os
+
+    payload = json.dumps({"task_id": str(task.id), "task_name": task.name})
+    env = {**os.environ, "COGENT_ID": cogent_name}
+    cmd = [
+        "mind", "event", "send", "task:run",
+        "--source", "dashboard",
+        "--payload", payload,
+    ]
+    try:
+        subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        logger.info("Sent task:run event for task %s (%s)", task.name, task.id)
+    except Exception:
+        logger.exception("Failed to send task:run event for task %s", task.id)
 
 
 def _task_to_response(t: DbTask) -> Task:
@@ -112,6 +134,10 @@ def create_task(name: str, body: TaskCreate) -> Task:
         metadata=body.metadata or {},
     )
     repo.create_task(db_task)
+
+    if db_task.status == TaskStatus.SCHEDULED:
+        _send_task_run_event(name, db_task)
+
     return _task_to_response(db_task)
 
 
@@ -130,8 +156,11 @@ def update_task(name: str, task_id: str, body: TaskUpdate) -> Task:
         t.content = body.content
     if body.program_name is not None:
         t.program_name = body.program_name
+    scheduled = False
     if body.status is not None:
         t.status = TaskStatus(body.status)
+        if t.status == TaskStatus.SCHEDULED:
+            scheduled = True
         if t.status == TaskStatus.COMPLETED:
             from datetime import datetime
             t.completed_at = datetime.utcnow()
@@ -161,6 +190,10 @@ def update_task(name: str, task_id: str, body: TaskUpdate) -> Task:
         t.metadata = body.metadata
 
     repo.update_task(t)
+
+    if scheduled:
+        _send_task_run_event(name, t)
+
     return _task_to_response(t)
 
 

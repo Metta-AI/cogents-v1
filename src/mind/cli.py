@@ -136,7 +136,7 @@ def mind(ctx: click.Context, use_json: bool) -> None:
     # Auto-discover DB ARNs from polis account so all subcommands use RDS
     if not (os.environ.get("DB_RESOURCE_ARN") or os.environ.get("DB_CLUSTER_ARN")):
         obj = ctx.find_root().obj
-        name = obj.get("cogent_id") if obj else None
+        name = obj.get("cogent_id") if obj else os.environ.get("COGENT_ID")
         if name:
             _ensure_db_env(name)
 

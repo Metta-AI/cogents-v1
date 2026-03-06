@@ -20,6 +20,7 @@ class MemoryScope(str, enum.Enum):
 
 class TaskStatus(str, enum.Enum):
     RUNNABLE = "runnable"
+    SCHEDULED = "scheduled"
     RUNNING = "running"
     COMPLETED = "completed"
     DISABLED = "disabled"
