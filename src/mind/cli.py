@@ -128,8 +128,17 @@ def _output_single(data: dict) -> None:
 @click.pass_context
 def mind(ctx: click.Context, use_json: bool) -> None:
     """Manage programs, tasks, triggers, and cron schedules."""
+    import os
+
     ctx.ensure_object(dict)
     ctx.obj["json"] = use_json
+
+    # Auto-discover DB ARNs from polis account so all subcommands use RDS
+    if not (os.environ.get("DB_RESOURCE_ARN") or os.environ.get("DB_CLUSTER_ARN")):
+        obj = ctx.find_root().obj
+        name = obj.get("cogent_id") if obj else None
+        if name:
+            _ensure_db_env(name)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -148,19 +157,12 @@ _DEFAULT_RESOURCES_FILE = "eggs/ovo/resources.py"
 @click.pass_context
 def mind_status(ctx: click.Context) -> None:
     """Show mind status: programs, tasks, triggers, cron, and resources."""
-    import os
-
     from rich.console import Console
     from rich.table import Table
 
     from brain.db.models import ResourceType
 
     name = get_cogent_name(ctx)
-
-    # Auto-discover DB ARNs
-    if not (os.environ.get("DB_RESOURCE_ARN") or os.environ.get("DB_CLUSTER_ARN")):
-        _ensure_db_env(name)
-
     repo = _repo()
     console = Console()
 
@@ -221,10 +223,6 @@ def mind_update(ctx: click.Context, egg_dir: str, force: bool) -> None:
 
     from mind.memory_loader import load_memories_from_dir
     from mind.task_loader import load_tasks_from_dir
-
-    # Auto-discover DB ARNs from CloudFormation if not already set
-    if not (os.environ.get("DB_RESOURCE_ARN") or os.environ.get("DB_CLUSTER_ARN")):
-        _ensure_db_env(get_cogent_name(ctx))
 
     egg = Path(egg_dir)
     repo = _repo()
