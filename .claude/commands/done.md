@@ -14,4 +14,10 @@ Commit all changes, sync with remote, and push to main.
    - Stage resolved files and `git rebase --continue`
 8. Run `git push origin main`
 9. If push is rejected, pull --rebase again and retry push (max 2 retries)
-10. Run `/clear` to reset conversation context
+10. Print a session summary:
+    - List the key things accomplished (commits made, features added, bugs fixed, deployments done)
+    - Keep it concise — bullet points, not paragraphs
+11. Rename the conversation to a short descriptive title reflecting what was done (e.g. "Fix polis status + dashboard deploy")
+12. Ask the user: "Done? [Y/n]"
+    - If yes (default): run `/clear`
+    - If no: stop and let the user continue working
