@@ -35,14 +35,19 @@ from mind.program import load_program, load_programs_dir, sync_program, validate
 
 
 def _ensure_db_env(cogent_name: str) -> None:
-    """Set DB env vars from CloudFormation stack outputs/resources."""
+    """Set DB env vars from CloudFormation stack outputs in the polis account."""
     import os
-
-    import boto3
 
     safe_name = cogent_name.replace(".", "-")
     stack_name = f"cogent-{safe_name}-brain"
-    cf = boto3.client("cloudformation", region_name="us-east-1")
+
+    try:
+        from polis.aws import get_polis_session, set_profile
+        set_profile("softmax-org")
+        session, _ = get_polis_session()
+        cf = session.client("cloudformation")
+    except Exception:
+        return
 
     try:
         resp = cf.describe_stacks(StackName=stack_name)
@@ -63,6 +68,13 @@ def _ensure_db_env(cogent_name: str) -> None:
                     os.environ.setdefault("DB_SECRET_ARN", r["PhysicalResourceId"])
                     break
     os.environ.setdefault("DB_NAME", "cogent")
+
+    # Export polis credentials so Repository's boto3 client can access RDS Data API
+    creds = session.get_credentials().get_frozen_credentials()
+    os.environ["AWS_ACCESS_KEY_ID"] = creds.access_key
+    os.environ["AWS_SECRET_ACCESS_KEY"] = creds.secret_key
+    if creds.token:
+        os.environ["AWS_SESSION_TOKEN"] = creds.token
 
 
 def _repo() -> Repository | LocalRepository:

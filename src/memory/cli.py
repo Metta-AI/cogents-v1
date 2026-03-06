@@ -34,12 +34,16 @@ def status_cmd(ctx: click.Context):
     from rich.table import Table
 
     from brain.db.local_repository import LocalRepository
-    from brain.db.repository import Repository
 
     name = get_cogent_name(ctx)
     console = Console()
 
+    # Ensure polis DB credentials are available
+    from mind.cli import _ensure_db_env
+    _ensure_db_env(name)
+
     # Try Data API first, fall back to local repository
+    source = ""
     try:
         store = _get_store()
         table = Table(title=f"Memory Status: {name}")

@@ -219,6 +219,16 @@ class PolisStack(cdk.Stack):
                 resources=["*"],
             )
         )
+        # RDS Data API — CLI access to cogent databases
+        self.admin_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "rds-data:ExecuteStatement",
+                    "rds-data:BatchExecuteStatement",
+                ],
+                resources=["*"],
+            )
+        )
         # CloudFormation, Lambda, RDS, ELB — read-only for status checks
         self.admin_role.add_to_policy(
             iam.PolicyStatement(
