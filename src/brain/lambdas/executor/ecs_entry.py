@@ -154,8 +154,6 @@ def main() -> None:
 
         result = subprocess.run(
             cmd,
-            capture_output=True,
-            text=True,
             timeout=config.ecs_timeout_s if hasattr(config, "ecs_timeout_s") else 3600,
             cwd=WORKSPACE_DIR,
         )
@@ -167,7 +165,7 @@ def main() -> None:
             logger.info(f"Run {run_id} completed in {duration_ms}ms")
         else:
             run.status = RunStatus.FAILED
-            run.error = result.stderr[:4000] if result.stderr else f"Exit code {result.returncode}"
+            run.error = f"Exit code {result.returncode}"
             logger.error(f"Run {run_id} failed: {run.error}")
 
         run.duration_ms = duration_ms
