@@ -24,13 +24,14 @@ def _build_lambda_package() -> str:
         shutil.rmtree(build_dir)
     os.makedirs(build_dir)
 
-    import sys
-
     # Install pydantic (boto3 is in Lambda runtime)
+    # Use uv which is available in the project's toolchain
+    uv = shutil.which("uv")
+    if not uv:
+        raise RuntimeError("uv not found on PATH; needed to bundle Lambda dependencies")
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "pydantic", "-t", build_dir, "--quiet",
-         "--platform", "manylinux2014_x86_64", "--only-binary=:all:",
-         "--python-version", "3.12", "--implementation", "cp"],
+        [uv, "pip", "install", "pydantic", "--target", build_dir, "--quiet",
+         "--python-platform", "linux", "--python-version", "3.12"],
     )
     # Copy src/ contents
     src_dir = "src"
