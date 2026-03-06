@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import type { Execution } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
-import { fmtCost, fmtMs, fmtNum, fmtRelative } from "@/lib/format";
+import { fmtCost, fmtMs, fmtNum, fmtTimestamp } from "@/lib/format";
 
 interface ExecutionDetailProps {
   programName: string;
@@ -114,7 +114,7 @@ export function ExecutionDetail({
               <span className="text-[var(--text-muted)]">{fmtCost(exec.cost_usd)}</span>
             )}
             <div className="flex-1" />
-            <span className="text-[var(--text-muted)]">{fmtRelative(exec.started_at)}</span>
+            <span className="text-[var(--text-muted)]">{fmtTimestamp(exec.started_at)}</span>
             {exec.error && (
               <span className="text-red-400 truncate max-w-[200px]" title={exec.error}>
                 {exec.error}

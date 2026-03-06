@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import type { Program } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
-import { fmtCost, fmtRelative } from "@/lib/format";
+import { fmtCost, fmtTimestamp } from "@/lib/format";
 import { ExecutionDetail } from "./ExecutionDetail";
 
 interface ProgramsPanelProps {
@@ -90,7 +90,7 @@ export function ProgramsPanel({
                   <span className="font-mono text-[10px] text-[var(--text-muted)]">{fmtCost(prog.total_cost)}</span>
                 )}
                 <span className="text-[10px] text-[var(--text-muted)]" style={{ minWidth: "60px", textAlign: "right" }}>
-                  {fmtRelative(prog.last_run)}
+                  {fmtTimestamp(prog.last_run)}
                 </span>
               </div>
 

@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback } from "react";
 import type { MemoryItem } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
 import { JsonViewer } from "@/components/shared/JsonViewer";
-import { fmtRelative } from "@/lib/format";
+import { fmtTimestamp } from "@/lib/format";
 import { createMemory, updateMemory, deleteMemory } from "@/lib/api";
 
 interface MemoryPanelProps {
@@ -577,7 +577,7 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
                           </span>
                         )}
                         <span className="text-[10px] text-[var(--text-muted)] ml-auto flex items-center gap-2">
-                          {fmtRelative(item.updated_at)}
+                          {fmtTimestamp(item.updated_at)}
                           {canMutate && deleteConfirm === item.id ? (
                             <span className="text-[11px]">
                               <span className="text-[var(--text-muted)] mr-1">Delete?</span>

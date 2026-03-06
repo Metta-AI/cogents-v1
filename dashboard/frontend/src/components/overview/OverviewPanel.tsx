@@ -2,7 +2,7 @@
 import type { DashboardData } from "@/lib/types";
 import { StatCard } from "@/components/shared/StatCard";
 import { Badge } from "@/components/shared/Badge";
-import { fmtRelative, fmtNum } from "@/lib/format";
+import { fmtTimestamp, fmtNum } from "@/lib/format";
 
 interface Props {
   data: DashboardData;
@@ -59,7 +59,7 @@ export function OverviewPanel({ data }: Props) {
                     <div key={t.id} className="flex items-center gap-2 py-1 text-xs">
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent)]" style={{ animation: "pulse-dot 1.5s ease-in-out infinite" }} />
                       <span className="text-[var(--text-primary)] font-mono truncate">{t.name}</span>
-                      {t.updated_at && <span className="text-[var(--text-muted)] ml-auto">{fmtRelative(t.updated_at)}</span>}
+                      {t.updated_at && <span className="text-[var(--text-muted)] ml-auto">{fmtTimestamp(t.updated_at)}</span>}
                     </div>
                   ))}
                 </div>
@@ -87,7 +87,7 @@ export function OverviewPanel({ data }: Props) {
             <div key={i} className="flex items-center gap-2 py-1.5 text-xs">
               <Badge variant="info">{e.event_type || "unknown"}</Badge>
               <span className="text-[var(--text-secondary)] font-mono truncate">{e.source}</span>
-              <span className="text-[var(--text-muted)] ml-auto">{fmtRelative(e.created_at)}</span>
+              <span className="text-[var(--text-muted)] ml-auto">{fmtTimestamp(e.created_at)}</span>
             </div>
           ))}
           {data.events.length === 0 && (

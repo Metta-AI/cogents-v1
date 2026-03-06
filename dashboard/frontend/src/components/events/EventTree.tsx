@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Badge } from "@/components/shared/Badge";
-import { fmtRelative } from "@/lib/format";
+import { fmtTimestamp } from "@/lib/format";
 import { getEventTree } from "@/lib/api";
 import type { DashboardEvent } from "@/lib/types";
 
@@ -82,7 +82,7 @@ function TreeNodeView({
           {node.event.source ?? "--"}
         </span>
         <span className="text-[var(--text-muted)] text-[11px] ml-auto">
-          {fmtRelative(node.event.created_at)}
+          {fmtTimestamp(node.event.created_at)}
         </span>
       </div>
       {node.children.map((child) => (

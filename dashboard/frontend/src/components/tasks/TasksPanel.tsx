@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import type { Task, MemoryItem, Program, TimeRange } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
 import * as api from "@/lib/api";
-import { fmtRelative } from "@/lib/format";
+import { fmtTimestamp } from "@/lib/format";
 
 interface TasksPanelProps {
   tasks: Task[];
@@ -791,14 +791,14 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
           {/* Last ran / time stuck */}
           {isStuck(task) ? (
             <span className="text-[10px] text-[var(--warning)]" title="Time stuck">
-              stuck {fmtRelative(task.updated_at)}
+              stuck {fmtTimestamp(task.updated_at)}
             </span>
           ) : task.last_run_at ? (
             <span className="text-[10px] text-[var(--text-muted)]" title="Last ran">
-              ran {fmtRelative(task.last_run_at)}
+              ran {fmtTimestamp(task.last_run_at)}
             </span>
           ) : (
-            <span className="text-[10px] text-[var(--text-muted)]">{fmtRelative(task.updated_at)}</span>
+            <span className="text-[10px] text-[var(--text-muted)]">{fmtTimestamp(task.updated_at)}</span>
           )}
 
           {isConfirming ? (
@@ -942,11 +942,11 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
 
                 {/* Stats row: timestamps, run counts, last run */}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] py-1" style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
-                  <span className="text-[var(--text-muted)]">created <span className="text-[var(--text-secondary)]">{fmtRelative(task.created_at)}</span></span>
-                  <span className="text-[var(--text-muted)]">updated <span className="text-[var(--text-secondary)]">{fmtRelative(task.updated_at)}</span></span>
-                  {task.completed_at && <span className="text-[var(--text-muted)]">completed <span className="text-[var(--text-secondary)]">{fmtRelative(task.completed_at)}</span></span>}
+                  <span className="text-[var(--text-muted)]">created <span className="text-[var(--text-secondary)]">{fmtTimestamp(task.created_at)}</span></span>
+                  <span className="text-[var(--text-muted)]">updated <span className="text-[var(--text-secondary)]">{fmtTimestamp(task.updated_at)}</span></span>
+                  {task.completed_at && <span className="text-[var(--text-muted)]">completed <span className="text-[var(--text-secondary)]">{fmtTimestamp(task.completed_at)}</span></span>}
                   {task.last_run_status && (
-                    <span className="text-[var(--text-muted)]">last run: <Badge variant={STATUS_VARIANT[task.last_run_status] ?? "neutral"}>{task.last_run_status}</Badge>{task.last_run_at && <span className="ml-1 text-[var(--text-secondary)]">{fmtRelative(task.last_run_at)}</span>}</span>
+                    <span className="text-[var(--text-muted)]">last run: <Badge variant={STATUS_VARIANT[task.last_run_status] ?? "neutral"}>{task.last_run_status}</Badge>{task.last_run_at && <span className="ml-1 text-[var(--text-secondary)]">{fmtTimestamp(task.last_run_at)}</span>}</span>
                   )}
                   {task.last_run_error && <span className="text-red-400 truncate max-w-[300px]" title={task.last_run_error}>{task.last_run_error}</span>}
                   {task.run_counts && (
@@ -1026,7 +1026,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
                           <span className="text-[var(--text-muted)]">${run.cost_usd.toFixed(4)}</span>
                         )}
                         <div className="flex-1" />
-                        <span className="text-[var(--text-muted)]">{fmtRelative(run.started_at)}</span>
+                        <span className="text-[var(--text-muted)]">{fmtTimestamp(run.started_at)}</span>
                         {run.error && <span className="text-red-400 truncate max-w-[200px]" title={run.error}>{run.error}</span>}
                       </div>
                     );

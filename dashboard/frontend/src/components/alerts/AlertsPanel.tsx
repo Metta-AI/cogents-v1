@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import type { Alert } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
 import { resolveAlert, resolveAllAlerts, getResolvedAlerts, createAlert, deleteAlert } from "@/lib/api";
-import { fmtRelative } from "@/lib/format";
+import { fmtTimestamp } from "@/lib/format";
 
 interface AlertsPanelProps {
   alerts: Alert[];
@@ -343,7 +343,7 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
                     {truncated}
                   </td>
                   <td className="px-3 py-2 text-[var(--text-muted)] text-[11px]">
-                    {fmtRelative(a.created_at)}
+                    {fmtTimestamp(a.created_at)}
                   </td>
                   <td className="px-3 py-2 text-right">
                     {deleteConfirm === a.id ? (
@@ -446,8 +446,8 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
                       <td className="px-3 py-2 font-mono text-[var(--text-secondary)]">{a.alert_type ?? "--"}</td>
                       <td className="px-3 py-2 font-mono text-[var(--text-muted)]">{a.source ?? "--"}</td>
                       <td className="px-3 py-2 text-[var(--text-secondary)]" title={msg}>{truncated}</td>
-                      <td className="px-3 py-2 text-[var(--text-muted)] text-[11px]">{fmtRelative(a.created_at)}</td>
-                      <td className="px-3 py-2 text-[var(--text-muted)] text-[11px]">{fmtRelative(a.resolved_at)}</td>
+                      <td className="px-3 py-2 text-[var(--text-muted)] text-[11px]">{fmtTimestamp(a.created_at)}</td>
+                      <td className="px-3 py-2 text-[var(--text-muted)] text-[11px]">{fmtTimestamp(a.resolved_at)}</td>
                     </tr>
                   );
                 })}

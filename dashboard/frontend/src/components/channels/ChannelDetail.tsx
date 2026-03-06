@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/shared/Badge";
-import { fmtRelative } from "@/lib/format";
+import { fmtTimestamp } from "@/lib/format";
 import type { DashboardEvent } from "@/lib/types";
 
 interface ChannelDetailProps {
@@ -33,7 +33,7 @@ export function ChannelDetail({ channelName, events }: ChannelDetailProps) {
                 {evt.source ?? "--"}
               </span>
               <span className="ml-auto text-[var(--text-muted)] text-[11px]">
-                {fmtRelative(evt.created_at)}
+                {fmtTimestamp(evt.created_at)}
               </span>
             </div>
           ))}

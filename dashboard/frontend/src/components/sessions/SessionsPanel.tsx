@@ -2,7 +2,7 @@
 
 import { DataTable, type Column } from "@/components/shared/DataTable";
 import { Badge } from "@/components/shared/Badge";
-import { fmtCost, fmtRelative, fmtNum } from "@/lib/format";
+import { fmtCost, fmtTimestamp, fmtNum } from "@/lib/format";
 import type { Session } from "@/lib/types";
 
 interface SessionsPanelProps {
@@ -76,7 +76,7 @@ const columns: Column<Session & Record<string, unknown>>[] = [
   {
     key: "last_active",
     label: "Last Active",
-    render: (row) => fmtRelative(row.last_active),
+    render: (row) => fmtTimestamp(row.last_active),
   },
 ];
 
