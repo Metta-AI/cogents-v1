@@ -13,6 +13,12 @@ interface MemoryPanelProps {
   onRefresh?: () => void;
 }
 
+interface TreeNode {
+  name: string;
+  path: string;
+  items: MemoryItem[];
+  children: Map<string, TreeNode>;
+}
 
 function tryParseJSON(str: string): unknown | null {
   try {
@@ -82,6 +88,118 @@ function MemoryContent({ content }: { content: string }) {
   );
 }
 
+function buildTree(items: MemoryItem[]): TreeNode {
+  const root: TreeNode = { name: "", path: "", items: [], children: new Map() };
+
+  for (const item of items) {
+    const group = item.group || "default";
+    const parts = group.split("/").filter(Boolean);
+
+    let node = root;
+    let pathSoFar = "";
+    for (const part of parts) {
+      pathSoFar = pathSoFar ? `${pathSoFar}/${part}` : part;
+      if (!node.children.has(part)) {
+        node.children.set(part, {
+          name: part,
+          path: pathSoFar,
+          items: [],
+          children: new Map(),
+        });
+      }
+      node = node.children.get(part)!;
+    }
+    node.items.push(item);
+  }
+
+  return root;
+}
+
+function countAllItems(node: TreeNode): number {
+  let count = node.items.length;
+  for (const child of node.children.values()) {
+    count += countAllItems(child);
+  }
+  return count;
+}
+
+function getAllItems(node: TreeNode): MemoryItem[] {
+  const result = [...node.items];
+  for (const child of node.children.values()) {
+    result.push(...getAllItems(child));
+  }
+  return result;
+}
+
+function sortedChildren(node: TreeNode): TreeNode[] {
+  return [...node.children.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+interface TreeNodeRowProps {
+  node: TreeNode;
+  depth: number;
+  selectedPath: string | null;
+  expandedPaths: Set<string>;
+  onSelect: (path: string) => void;
+  onToggle: (path: string) => void;
+}
+
+function TreeNodeRow({ node, depth, selectedPath, expandedPaths, onSelect, onToggle }: TreeNodeRowProps) {
+  const hasChildren = node.children.size > 0;
+  const isExpanded = expandedPaths.has(node.path);
+  const isSelected = selectedPath === node.path;
+  const totalItems = countAllItems(node);
+  const children = sortedChildren(node);
+
+  return (
+    <>
+      <div
+        className="flex items-center gap-1 py-1 px-2 cursor-pointer transition-colors rounded-sm"
+        style={{
+          paddingLeft: `${depth * 16 + 8}px`,
+          background: isSelected ? "var(--bg-hover)" : "transparent",
+          borderLeft: isSelected ? "2px solid var(--accent)" : "2px solid transparent",
+        }}
+        onClick={() => {
+          onSelect(node.path);
+          if (hasChildren && !isExpanded) onToggle(node.path);
+        }}
+      >
+        {hasChildren ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggle(node.path); }}
+            className="text-[9px] text-[var(--text-muted)] bg-transparent border-0 cursor-pointer p-0 w-3 flex-shrink-0"
+          >
+            {isExpanded ? "\u25BC" : "\u25B6"}
+          </button>
+        ) : (
+          <span className="w-3 flex-shrink-0" />
+        )}
+        <span
+          className="text-[12px] font-mono truncate"
+          style={{ color: isSelected ? "var(--accent)" : "var(--text-primary)" }}
+        >
+          {node.name}
+        </span>
+        <span className="text-[10px] text-[var(--text-muted)] ml-auto flex-shrink-0">
+          {totalItems}
+        </span>
+      </div>
+      {hasChildren && isExpanded && children.map((child) => (
+        <TreeNodeRow
+          key={child.path}
+          node={child}
+          depth={depth + 1}
+          selectedPath={selectedPath}
+          expandedPaths={expandedPaths}
+          onSelect={onSelect}
+          onToggle={onToggle}
+        />
+      ))}
+    </>
+  );
+}
+
 const inputStyle = {
   background: "var(--bg-base)",
   borderColor: "var(--border)",
@@ -90,22 +208,8 @@ const inputStyle = {
 
 export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps) {
   const [scopeFilter, setScopeFilter] = useState<"cogent" | "polis">("cogent");
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-
-  // Filter by selected scope, then group
-  const filteredItems = useMemo(
-    () => memory.filter((m) => (m.scope ?? "cogent") === scopeFilter),
-    [memory, scopeFilter],
-  );
-  const groups = useMemo(() => {
-    const g: Record<string, MemoryItem[]> = {};
-    for (const item of filteredItems) {
-      const group = item.group || "default";
-      if (!g[group]) g[group] = [];
-      g[group].push(item);
-    }
-    return Object.entries(g).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredItems]);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
 
   // Create form state
   const [creating, setCreating] = useState(false);
@@ -122,9 +226,39 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
   // Delete confirmation
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  const toggleGroup = useCallback((key: string) => {
-    setCollapsedGroups((c) => ({ ...c, [key]: !c[key] }));
+  const filteredItems = useMemo(
+    () => memory.filter((m) => (m.scope ?? "cogent") === scopeFilter),
+    [memory, scopeFilter],
+  );
+
+  const tree = useMemo(() => buildTree(filteredItems), [filteredItems]);
+
+  const toggleExpanded = useCallback((path: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
   }, []);
+
+  // Get items for the selected node (or all if nothing selected)
+  const selectedNode = useMemo(() => {
+    if (!selectedPath) return null;
+    const parts = selectedPath.split("/");
+    let node = tree;
+    for (const part of parts) {
+      const child = node.children.get(part);
+      if (!child) return null;
+      node = child;
+    }
+    return node;
+  }, [tree, selectedPath]);
+
+  const displayItems = useMemo(() => {
+    if (!selectedNode) return filteredItems;
+    return getAllItems(selectedNode);
+  }, [selectedNode, filteredItems]);
 
   const handleCreate = useCallback(async () => {
     if (!cogentName || !newName.trim()) return;
@@ -166,17 +300,18 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
   }, [cogentName, onRefresh]);
 
   const canMutate = !!cogentName && !!onRefresh;
+  const children = sortedChildren(tree);
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col h-full" style={{ minHeight: "calc(100vh - 160px)" }}>
       {/* Header with scope toggle, count, and create button */}
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <span className="flex text-[11px] font-mono rounded overflow-hidden border" style={{ borderColor: "var(--border)" }}>
             {(["cogent", "polis"] as const).map((s) => (
               <button
                 key={s}
-                onClick={() => setScopeFilter(s)}
+                onClick={() => { setScopeFilter(s); setSelectedPath(null); }}
                 className="border-0 cursor-pointer px-2.5 py-1 transition-colors"
                 style={{
                   background: scopeFilter === s ? "var(--accent)" : "transparent",
@@ -212,7 +347,7 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
       {/* Create form */}
       {creating && (
         <div
-          className="p-4 rounded-md border space-y-3"
+          className="p-4 rounded-md border space-y-3 mb-3"
           style={{
             background: "var(--bg-surface)",
             borderColor: "var(--accent)",
@@ -292,43 +427,90 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
         </div>
       )}
 
-      {/* Empty state */}
-      {filteredItems.length === 0 && !creating && (
-        <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md">
-          <div className="text-[var(--text-muted)] text-[13px] py-8 text-center">
-            No {scopeFilter} memory items
-          </div>
-        </div>
-      )}
-
-      {/* Grouped display — flat, no scope nesting */}
-      {groups.map(([group, items]) => {
-        const isGroupCollapsed = collapsedGroups[group] ?? false;
-
-        return (
-          <div key={group} className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md overflow-hidden">
-            {/* Group header */}
-            <div
-              className="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
-              onClick={() => toggleGroup(group)}
+      {/* Split pane: tree left, detail right */}
+      <div className="flex gap-0 flex-1 min-h-0 border rounded-md overflow-hidden" style={{ borderColor: "var(--border)" }}>
+        {/* Left: hierarchy tree */}
+        <div
+          className="flex-shrink-0 overflow-y-auto border-r py-2"
+          style={{
+            width: "220px",
+            background: "var(--bg-surface)",
+            borderColor: "var(--border)",
+          }}
+        >
+          {/* "All" root entry */}
+          <div
+            className="flex items-center gap-1 py-1 px-2 cursor-pointer transition-colors rounded-sm"
+            style={{
+              paddingLeft: "8px",
+              background: selectedPath === null ? "var(--bg-hover)" : "transparent",
+              borderLeft: selectedPath === null ? "2px solid var(--accent)" : "2px solid transparent",
+            }}
+            onClick={() => setSelectedPath(null)}
+          >
+            <span className="w-3 flex-shrink-0" />
+            <span
+              className="text-[12px] font-mono"
+              style={{ color: selectedPath === null ? "var(--accent)" : "var(--text-primary)" }}
             >
-              <span className="text-[var(--text-muted)] text-[9px]">
-                {isGroupCollapsed ? "\u25B6" : "\u25BC"}
-              </span>
-              <span className="text-[12px] text-[var(--text-secondary)] font-medium">
-                {group}
-              </span>
-              <span className="text-[10px] text-[var(--text-muted)]">
-                ({items.length})
-              </span>
-            </div>
+              All
+            </span>
+            <span className="text-[10px] text-[var(--text-muted)] ml-auto flex-shrink-0">
+              {filteredItems.length}
+            </span>
+          </div>
 
-            {/* Items */}
-            {!isGroupCollapsed &&
-              items.map((item) => (
+          {children.map((child) => (
+            <TreeNodeRow
+              key={child.path}
+              node={child}
+              depth={0}
+              selectedPath={selectedPath}
+              expandedPaths={expandedPaths}
+              onSelect={setSelectedPath}
+              onToggle={toggleExpanded}
+            />
+          ))}
+
+          {children.length === 0 && (
+            <div className="text-[11px] text-[var(--text-muted)] text-center py-4">
+              No groups
+            </div>
+          )}
+        </div>
+
+        {/* Right: detail view */}
+        <div
+          className="flex-1 overflow-y-auto"
+          style={{ background: "var(--bg-base)" }}
+        >
+          {/* Selected group header */}
+          <div
+            className="sticky top-0 z-10 px-4 py-2 border-b flex items-center gap-2"
+            style={{
+              background: "var(--bg-surface)",
+              borderColor: "var(--border)",
+            }}
+          >
+            <span className="text-[12px] font-mono font-medium text-[var(--text-primary)]">
+              {selectedPath ?? "All"}
+            </span>
+            <span className="text-[10px] text-[var(--text-muted)]">
+              {displayItems.length} item{displayItems.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          {displayItems.length === 0 ? (
+            <div className="text-[var(--text-muted)] text-[13px] py-8 text-center">
+              No {scopeFilter} memory items{selectedPath ? ` in ${selectedPath}` : ""}
+            </div>
+          ) : (
+            <div>
+              {displayItems.map((item) => (
                 <div
                   key={item.id}
-                  className="px-6 py-2 border-t border-[var(--border)] hover:bg-[var(--bg-hover)] transition-colors"
+                  className="px-4 py-3 border-b hover:bg-[var(--bg-hover)] transition-colors"
+                  style={{ borderColor: "var(--border)" }}
                 >
                   {editingId === item.id ? (
                     <div className="space-y-2">
@@ -360,7 +542,7 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
                         <textarea
                           value={editContent}
                           onChange={(e) => setEditContent(e.target.value)}
-                          rows={3}
+                          rows={4}
                           className="w-full px-2 py-1 text-[12px] rounded border font-mono resize-y"
                           style={inputStyle}
                         />
@@ -384,11 +566,16 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
                     </div>
                   ) : (
                     <>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[12px] font-mono text-[var(--text-primary)]">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-[12px] font-mono font-medium text-[var(--text-primary)]">
                           {item.name}
                         </span>
                         {item.type && <Badge variant="neutral">{item.type}</Badge>}
+                        {item.group && item.group !== "default" && (
+                          <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                            {item.group}
+                          </span>
+                        )}
                         <span className="text-[10px] text-[var(--text-muted)] ml-auto flex items-center gap-2">
                           {fmtRelative(item.updated_at)}
                           {canMutate && deleteConfirm === item.id ? (
@@ -410,9 +597,10 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
                   )}
                 </div>
               ))}
-          </div>
-        );
-      })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
