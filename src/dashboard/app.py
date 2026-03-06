@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from dashboard.config import settings
 
@@ -65,6 +69,23 @@ def create_app() -> FastAPI:
                 await ws.receive_text()
         except WebSocketDisconnect:
             manager.disconnect(name, ws)
+
+    # Serve static frontend files if DASHBOARD_STATIC_DIR is set
+    static_dir = os.environ.get("DASHBOARD_STATIC_DIR")
+    if static_dir and Path(static_dir).is_dir():
+        index_html = Path(static_dir) / "index.html"
+
+        # Serve static assets (JS, CSS, images)
+        app.mount("/_next", StaticFiles(directory=str(Path(static_dir) / "_next")), name="next-static")
+
+        # SPA fallback: serve index.html for any non-API route
+        @app.get("/{full_path:path}")
+        async def spa_fallback(full_path: str):
+            # Try to serve the exact file first (e.g. favicon.ico)
+            file_path = Path(static_dir) / full_path
+            if full_path and file_path.is_file():
+                return FileResponse(str(file_path))
+            return FileResponse(str(index_html))
 
     return app
 

@@ -110,6 +110,23 @@ def serve(ctx: click.Context, port: int, frontend_port: int, no_browser: bool):
 
 @dashboard.command()
 @click.pass_context
+def deploy(ctx: click.Context):
+    """Deploy the dashboard via polis (build Docker image, push to ECR, restart ECS)."""
+    from cli import get_cogent_name
+    from polis.aws import set_profile
+    from polis.cli import dashboard_deploy
+    from polis.config import PolisConfig
+
+    name = get_cogent_name(ctx)
+    ctx.ensure_object(dict)
+    ctx.obj.setdefault("config", PolisConfig())
+    ctx.obj.setdefault("profile", None)
+    set_profile(None)
+    ctx.invoke(dashboard_deploy, name=name)
+
+
+@dashboard.command()
+@click.pass_context
 def login(ctx: click.Context):
     """Generate and store an API key locally."""
     from cli import get_cogent_name

@@ -243,7 +243,7 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
               </label>
               <select
                 value={newScope}
-                onChange={(e) => setNewScope(e.target.value)}
+                onChange={(e) => setNewScope(e.target.value as "cogent" | "polis")}
                 className="w-full px-2 py-1.5 text-[12px] rounded border"
                 style={inputStyle}
               >
