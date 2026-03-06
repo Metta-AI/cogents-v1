@@ -34,9 +34,10 @@ export default function DashboardPage() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-  const cogentName = typeof window !== "undefined"
-    ? window.location.hostname.split(".")[0].replace(/-/g, ".")
-    : "cogent";
+  const [cogentName, setCogentName] = useState("cogent");
+  useEffect(() => {
+    setCogentName(window.location.hostname.split(".")[0].replace(/-/g, "."));
+  }, []);
   const { data, loading, error, refresh, timeRange, setTimeRange, connected } = useCogentData(cogentName);
 
   const STUCK_THRESHOLD_MS = 10 * 60 * 1000;
@@ -74,7 +75,7 @@ export default function DashboardPage() {
         wsConnected={connected}
       />
       <main
-        className="fixed overflow-y-auto p-5"
+        className="fixed overflow-y-auto p-5 pb-16"
         style={{
           top: "var(--header-h)",
           left: "var(--sidebar-w)",

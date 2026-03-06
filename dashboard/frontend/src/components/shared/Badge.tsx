@@ -23,7 +23,7 @@ export function Badge({ children, variant = "neutral" }: BadgeProps) {
 
   return (
     <span
-      className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${styles[variant]}`}
+      className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide max-w-full truncate ${styles[variant]}`}
     >
       {children}
     </span>

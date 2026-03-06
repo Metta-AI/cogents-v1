@@ -8,8 +8,8 @@ interface ResourcesPanelProps {
 }
 
 export function ResourcesPanel({ data }: ResourcesPanelProps) {
-  const activeSessions = data.status ? data.status.active_sessions : null;
   const sessions = data.sessions ?? [];
+  const activeSessions = sessions.length;
 
   return (
     <div className="space-y-5">

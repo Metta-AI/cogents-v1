@@ -58,6 +58,20 @@ export function EventsPanel({ events, cogentName, triggers, timeRange, onTabChan
     setTreeId(null);
   }, []);
 
+  const formatContent = useCallback((payload: unknown): string => {
+    if (payload == null) return "--";
+    if (typeof payload === "object" && !Array.isArray(payload)) {
+      const obj = payload as Record<string, unknown>;
+      return Object.entries(obj)
+        .map(([k, v]) => {
+          const val = typeof v === "object" && v !== null ? JSON.stringify(v) : String(v ?? "");
+          return `[${k}: ${val}]`;
+        })
+        .join(" ");
+    }
+    return String(payload);
+  }, []);
+
   return (
     <div>
       <div className="text-[var(--text-muted)] text-xs mb-3">
@@ -72,10 +86,11 @@ export function EventsPanel({ events, cogentName, triggers, timeRange, onTabChan
         {filteredEvents.length > 0 && (
           <div
             className="grid items-center px-3 py-1.5 text-[10px] uppercase tracking-wide font-medium text-[var(--text-muted)]"
-            style={{ gridTemplateColumns: "minmax(120px, 1fr) minmax(100px, 2fr) minmax(80px, 1fr) 60px", background: "var(--bg-deep)", borderBottom: "1px solid var(--border)" }}
+            style={{ gridTemplateColumns: "minmax(100px, 1fr) minmax(80px, 1fr) minmax(200px, 3fr) minmax(80px, 1fr) 60px", background: "var(--bg-deep)", borderBottom: "1px solid var(--border)" }}
           >
             <span>Event</span>
             <span>Source</span>
+            <span>Content</span>
             <span>Triggers</span>
             <span className="text-right">Time</span>
           </div>
@@ -89,7 +104,7 @@ export function EventsPanel({ events, cogentName, triggers, timeRange, onTabChan
               <div
                 className="grid items-center px-3 py-2 cursor-pointer transition-colors"
                 style={{
-                  gridTemplateColumns: "minmax(120px, 1fr) minmax(100px, 2fr) minmax(80px, 1fr) 60px",
+                  gridTemplateColumns: "minmax(100px, 1fr) minmax(80px, 1fr) minmax(200px, 3fr) minmax(80px, 1fr) 60px",
                   background: isExpanded ? "var(--bg-hover)" : "var(--bg-surface)",
                   borderBottom: "1px solid var(--border)",
                 }}
@@ -101,9 +116,12 @@ export function EventsPanel({ events, cogentName, triggers, timeRange, onTabChan
                   if (!isExpanded) e.currentTarget.style.background = "var(--bg-surface)";
                 }}
               >
-                <span><Badge variant="accent">{evt.event_type ?? "event"}</Badge></span>
+                <span className="truncate min-w-0"><Badge variant="accent">{evt.event_type ?? "event"}</Badge></span>
                 <span className="text-[11px] text-[var(--text-secondary)] truncate">
-                  {evt.source ?? (evt.payload ? JSON.stringify(evt.payload).slice(0, 60) : "--")}
+                  {evt.source ?? "--"}
+                </span>
+                <span className="text-[11px] text-[var(--text-muted)] font-mono truncate">
+                  {formatContent(evt.payload)}
                 </span>
                 <span className="flex gap-1 flex-wrap">
                   {matchedPrograms.map((p) => (
