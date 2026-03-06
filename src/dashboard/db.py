@@ -1,34 +1,34 @@
 """Singleton Repository for dashboard handlers.
 
-Uses RDS Data API when credentials are configured, otherwise falls back to
-LocalRepository for local development with persistent in-memory data.
+Requires DB_RESOURCE_ARN, DB_SECRET_ARN, and DB_NAME env vars for RDS Data API.
+Set USE_LOCAL_DB=1 to use LocalRepository (JSON file persistence) for local dev.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 
-from brain.db.local_repository import LocalRepository
 from brain.db.repository import Repository
 
 logger = logging.getLogger(__name__)
 
-_repo: Repository | LocalRepository | None = None
+_repo: Repository | None = None
 
 
-def get_repo() -> Repository | LocalRepository:
+def get_repo() -> Repository:
     """Return cached Repository singleton (reads env vars on first call).
 
-    If Data API credentials are not set, returns a LocalRepository that
-    stores data in-memory with JSON file persistence so the dashboard
-    works with local data from the mind CLI.
+    Requires DB_RESOURCE_ARN, DB_SECRET_ARN, and DB_NAME environment variables.
+    Set USE_LOCAL_DB=1 to use LocalRepository instead (local dev only).
     """
     global _repo
     if _repo is None:
-        try:
+        if os.environ.get("USE_LOCAL_DB") == "1":
+            from brain.db.local_repository import LocalRepository
+            logger.info("USE_LOCAL_DB=1, using local repository")
+            _repo = LocalRepository()
+        else:
             _repo = Repository.create()
             logger.info("Connected to database via Data API")
-        except (ValueError, Exception) as exc:
-            logger.warning("Database not configured, using local repository: %s", exc)
-            _repo = LocalRepository()
     return _repo

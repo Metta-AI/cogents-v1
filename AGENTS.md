@@ -144,10 +144,14 @@ The backend serves REST API under `/api/cogents/{name}/`:
 
 ### Architecture
 
-- **Backend**: FastAPI + asyncpg (PostgreSQL), port 8100
+- **Backend**: FastAPI + RDS Data API, port 8100
 - **Frontend**: Next.js 15 + React 19 + Tailwind v4, port 5174
 - **Real-time**: WebSocket via PostgreSQL LISTEN/NOTIFY
 - **Auth**: API key in `x-api-key` header (SHA-256 hashed, stored in Secrets Manager)
+
+### Database Connection
+
+Both the dashboard and `mind` CLI require RDS Data API credentials (`DB_CLUSTER_ARN`, `DB_SECRET_ARN`, `DB_NAME`). Set `USE_LOCAL_DB=1` to use LocalRepository (JSON file at `~/.cogent/local/data.json`) for local dev without AWS.
 
 ## Development
 

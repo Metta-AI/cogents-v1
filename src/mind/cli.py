@@ -38,16 +38,21 @@ def _ensure_db_env(cogent_name: str) -> None:
     """Set DB env vars from CloudFormation stack outputs in the polis account."""
     import os
 
+    if os.environ.get("USE_LOCAL_DB") == "1":
+        return
+
+    from polis.aws import get_polis_session, set_profile
+
     safe_name = cogent_name.replace(".", "-")
     stack_name = f"cogent-{safe_name}-brain"
 
     try:
-        from polis.aws import get_polis_session, set_profile
         set_profile("softmax-org")
         session, _ = get_polis_session()
-        cf = session.client("cloudformation")
     except Exception:
         return
+
+    cf = session.client("cloudformation", region_name="us-east-1")
 
     try:
         resp = cf.describe_stacks(StackName=stack_name)
@@ -78,11 +83,16 @@ def _ensure_db_env(cogent_name: str) -> None:
 
 
 def _repo() -> Repository | LocalRepository:
-    """Create a repository from environment variables, falling back to local."""
-    try:
-        return Repository.create()
-    except (ValueError, Exception):
+    """Create a repository from environment variables.
+
+    Set USE_LOCAL_DB=1 to use LocalRepository (JSON file) for local dev.
+    Otherwise requires DB_RESOURCE_ARN, DB_SECRET_ARN, and DB_NAME.
+    """
+    import os
+
+    if os.environ.get("USE_LOCAL_DB") == "1":
         return LocalRepository()
+    return Repository.create()
 
 
 def _output(data: dict | list, *, use_json: bool = False) -> None:

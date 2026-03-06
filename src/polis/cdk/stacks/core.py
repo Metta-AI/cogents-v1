@@ -279,6 +279,25 @@ class PolisStack(cdk.Stack):
                 resources=[self.status_table.table_arn],
             )
         )
+        # RDS Data API + CloudFormation (for CLI mind/brain commands)
+        self.admin_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "rds-data:ExecuteStatement",
+                    "rds-data:BatchExecuteStatement",
+                ],
+                resources=["*"],
+            )
+        )
+        self.admin_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "cloudformation:DescribeStacks",
+                    "cloudformation:ListStackResources",
+                ],
+                resources=["*"],
+            )
+        )
 
         # --- Outputs ---
         cdk.CfnOutput(self, "ECRRepositoryUri", value=self.ecr_repo.repository_uri)

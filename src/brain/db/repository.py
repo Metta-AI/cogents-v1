@@ -51,33 +51,11 @@ class Repository:
         resource_arn: str,
         secret_arn: str,
         database: str,
-        *,
-        role_arn: str = "",
-        region: str = "us-east-1",
     ) -> None:
         self._client = client
         self._resource_arn = resource_arn
         self._secret_arn = secret_arn
         self._database = database
-        self._role_arn = role_arn
-        self._region = region
-
-    def _refresh_client(self) -> None:
-        """Re-assume cross-account role and replace the RDS Data API client."""
-        if not self._role_arn:
-            return
-        sts = boto3.client("sts", region_name=self._region)
-        creds = sts.assume_role(
-            RoleArn=self._role_arn,
-            RoleSessionName="dashboard",
-        )["Credentials"]
-        session = boto3.Session(
-            aws_access_key_id=creds["AccessKeyId"],
-            aws_secret_access_key=creds["SecretAccessKey"],
-            aws_session_token=creds["SessionToken"],
-            region_name=self._region,
-        )
-        self._client = session.client("rds-data", region_name=self._region)
 
     @classmethod
     def create(
@@ -87,7 +65,13 @@ class Repository:
         database: str | None = None,
         region: str | None = None,
     ) -> Repository:
-        """Create repository from arguments or environment variables."""
+        """Create repository from arguments or environment variables.
+
+        Callers must ensure AWS credentials are set for the polis account
+        (where all cogent databases live). The CLI does this via
+        _ensure_db_env(); the dashboard container has credentials from its
+        ECS task role.
+        """
         resource_arn = resource_arn or os.environ.get("DB_RESOURCE_ARN", "")
         secret_arn = secret_arn or os.environ.get("DB_SECRET_ARN", "")
         database = database or os.environ.get("DB_NAME", "")
@@ -100,33 +84,13 @@ class Repository:
                 "(DB_RESOURCE_ARN, DB_SECRET_ARN, DB_NAME)"
             )
 
-        # Support cross-account access via role assumption (e.g. polis dashboard)
-        role_arn = os.environ.get("AWS_ROLE_ARN", "")
-        if role_arn:
-            sts = boto3.client("sts", region_name=region)
-            creds = sts.assume_role(
-                RoleArn=role_arn,
-                RoleSessionName="dashboard",
-            )["Credentials"]
-            session = boto3.Session(
-                aws_access_key_id=creds["AccessKeyId"],
-                aws_secret_access_key=creds["SecretAccessKey"],
-                aws_session_token=creds["SessionToken"],
-                region_name=region,
-            )
-            client = session.client("rds-data", region_name=region)
-        else:
-            client = boto3.client("rds-data", region_name=region)
-        return cls(
-            client, resource_arn, secret_arn, database,
-            role_arn=role_arn, region=region,
-        )
+        client = boto3.client("rds-data", region_name=region)
+        return cls(client, resource_arn, secret_arn, database)
 
     def __enter__(self) -> Repository:
         return self
 
     def __exit__(self, *exc: object) -> None:
-        # No cleanup needed for Data API
         pass
 
     # ═══════════════════════════════════════════════════════════
@@ -134,10 +98,7 @@ class Repository:
     # ═══════════════════════════════════════════════════════════
 
     def _execute(self, sql: str, params: list[dict] | None = None) -> dict:
-        """Execute SQL statement using RDS Data API.
-
-        Automatically refreshes cross-account credentials on expiry.
-        """
+        """Execute SQL statement using RDS Data API."""
         kwargs: dict[str, Any] = {
             "resourceArn": self._resource_arn,
             "secretArn": self._secret_arn,
@@ -147,18 +108,7 @@ class Repository:
         }
         if params:
             kwargs["parameters"] = params
-        try:
-            return self._client.execute_statement(**kwargs)
-        except Exception as exc:
-            if not self._role_arn:
-                raise
-            # Refresh credentials on expired token or forbidden errors
-            err_code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
-            if err_code in ("ExpiredTokenException", "ForbiddenException", "AccessDeniedException"):
-                logger.info("Credentials expired (%s), refreshing cross-account role", err_code)
-                self._refresh_client()
-                return self._client.execute_statement(**kwargs)
-            raise
+        return self._client.execute_statement(**kwargs)
 
     def _param(self, name: str, value: Any) -> dict:
         """Build Data API parameter dict from Python value."""
