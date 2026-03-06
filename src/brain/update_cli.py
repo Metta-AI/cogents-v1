@@ -35,21 +35,25 @@ def update():
 
 
 def _get_session(profile: str | None = None) -> boto3.Session:
-    """Get a boto3 session for the brain account (current AWS account)."""
-    if profile and profile != "softmax-org":
-        return boto3.Session(profile_name=profile, region_name=DEFAULT_REGION)
-    # Default: use current credentials (brain resources are in the cogent account, not org)
-    return boto3.Session(region_name=DEFAULT_REGION)
+    """Get a boto3 session for the polis account (all brain resources live there)."""
+    from polis.aws import get_polis_session, set_profile
+    set_profile(profile or "softmax-org")
+    session, _ = get_polis_session()
+    return session
 
 
 def _ensure_db_env(name: str) -> None:
-    """Ensure DB_CLUSTER_ARN and DB_SECRET_ARN are set from CloudFormation stack."""
+    """Ensure DB_CLUSTER_ARN and DB_SECRET_ARN are set from CloudFormation stack in polis."""
     if os.environ.get("DB_CLUSTER_ARN") and os.environ.get("DB_SECRET_ARN"):
         return
 
+    from polis.aws import get_polis_session, set_profile
+    set_profile("softmax-org")
+    session, _ = get_polis_session()
+
     safe_name = name.replace(".", "-")
     stack_name = f"cogent-{safe_name}-brain"
-    cf = boto3.client("cloudformation", region_name=DEFAULT_REGION)
+    cf = session.client("cloudformation", region_name=DEFAULT_REGION)
 
     resp = cf.describe_stacks(StackName=stack_name)
     outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
@@ -67,6 +71,13 @@ def _ensure_db_env(name: str) -> None:
                 if r["PhysicalResourceId"].startswith("arn:aws:secretsmanager:"):
                     os.environ["DB_SECRET_ARN"] = r["PhysicalResourceId"]
                     break
+
+    # Export polis credentials so Repository's boto3 client can access RDS Data API
+    creds = session.get_credentials().get_frozen_credentials()
+    os.environ["AWS_ACCESS_KEY_ID"] = creds.access_key
+    os.environ["AWS_SECRET_ACCESS_KEY"] = creds.secret_key
+    if creds.token:
+        os.environ["AWS_SESSION_TOKEN"] = creds.token
 
 
 def _package_lambda_code() -> bytes:
@@ -149,23 +160,29 @@ def update_ecs(ctx: click.Context, profile: str, skip_health: bool):
     name = get_cogent_name(ctx)
     session = _get_session(profile)
     safe_name = name.replace(".", "-")
-    cluster_name = f"cogent-{safe_name}"
+    cluster_name = "cogent-polis"
 
     ecs_client = session.client("ecs", region_name=DEFAULT_REGION)
 
-    # Find services in the cluster
+    # Find dashboard service for this cogent in the shared polis cluster
     try:
-        services = ecs_client.list_services(cluster=cluster_name)["serviceArns"]
+        service_arns = ecs_client.list_services(cluster=cluster_name)["serviceArns"]
     except Exception:
-        click.echo(f"  No ECS cluster found for cogent-{name}.")
-        click.echo("  This cogent may be in serverless mode. Use 'update lambda' instead.")
+        click.echo(f"  No ECS cluster '{cluster_name}' found.")
         return
 
-    if not services:
-        click.echo(f"  No ECS services found in cluster {cluster_name}.")
+    # Match the dashboard service for this cogent
+    service_arn = None
+    for arn in service_arns:
+        svc_name = arn.rsplit("/", 1)[-1]
+        if safe_name in svc_name and ("DashService" in svc_name or "dashboard" in svc_name):
+            service_arn = arn
+            break
+
+    if not service_arn:
+        click.echo(f"  No dashboard ECS service found for cogent-{name} in {cluster_name}.")
         return
 
-    service_arn = services[0]
     click.echo(f"Forcing new ECS deployment for cogent-{name}...")
     click.echo(f"  Cluster: {cluster_name}")
     click.echo(f"  Service: {service_arn}")
@@ -224,24 +241,37 @@ def update_mind(ctx: click.Context):
 @click.option("--profile", default="softmax-org", help="AWS profile")
 @click.pass_context
 def update_stack(ctx: click.Context, profile: str):
-    """Full CDK stack update."""
+    """Full CDK stack update (rebuilds dashboard container)."""
     import subprocess
+
+    from polis.aws import get_polis_session, set_profile
 
     name = get_cogent_name(ctx)
     safe_name = name.replace(".", "-")
+
+    # Look up certificate ARN from polis account
+    set_profile(profile)
+    session, _ = get_polis_session()
+    acm = session.client("acm", region_name=DEFAULT_REGION)
+    cert_arn = ""
+    domain = f"{safe_name}.softmax-cogents.com"
+    for cert in acm.list_certificates()["CertificateSummaryList"]:
+        if cert["DomainName"] == domain:
+            cert_arn = cert["CertificateArn"]
+            break
+
     click.echo(f"Updating CDK stack for cogent-{name}...")
     cmd = [
         "cdk",
         "deploy",
         f"cogent-{safe_name}-brain",
-        "-c",
-        f"cogent_name={name}",
-        "--app",
-        "python -m brain.cdk.app",
-        "--require-approval",
-        "never",
+        "-c", f"cogent_name={name}",
+        "-c", f"certificate_arn={cert_arn}",
+        "--app", "python -m brain.cdk.app",
+        "--require-approval", "never",
     ]
-    result = subprocess.run(cmd, capture_output=False)
+    env = {**os.environ, "AWS_PROFILE": profile}
+    result = subprocess.run(cmd, capture_output=False, env=env)
     if result.returncode != 0:
         raise click.ClickException("CDK deploy failed")
     click.echo(f"Stack update for cogent-{name} completed.")

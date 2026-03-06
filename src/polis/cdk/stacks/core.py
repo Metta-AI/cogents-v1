@@ -212,6 +212,7 @@ class PolisStack(cdk.Stack):
                     "ecs:DescribeClusters",
                     "ecs:DescribeServices",
                     "ecs:ListServices",
+                    "ecs:UpdateService",
                     "ecr:DescribeRepositories",
                     "ecr:DescribeImages",
                     "ecr:ListImages",
@@ -245,6 +246,7 @@ class PolisStack(cdk.Stack):
                 actions=[
                     "lambda:GetFunction",
                     "lambda:ListFunctions",
+                    "lambda:UpdateFunctionCode",
                 ],
                 resources=["*"],
             )
