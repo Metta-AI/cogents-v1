@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
+import os
 import sys
+import zipfile
 
+import boto3
 import click
 
 from brain.cli import DefaultCommandGroup, get_cogent_name
+
+DEFAULT_REGION = "us-east-1"
 
 
 class UpdateGroup(DefaultCommandGroup):
@@ -26,11 +33,27 @@ def update():
     pass
 
 
-def _get_aws(profile: str):
-    """Lazy import AwsContext — fails clearly if body.aws not yet ported."""
-    from body.aws import AwsContext
+def _get_session(profile: str) -> boto3.Session:
+    """Get a boto3 session for the brain account (current AWS account)."""
+    return boto3.Session(profile_name=profile, region_name=DEFAULT_REGION)
 
-    return AwsContext(profile=profile)
+
+def _package_lambda_code() -> bytes:
+    """Zip the src/ directory for Lambda deployment."""
+    src_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, _dirs, files in os.walk(src_dir):
+            # Skip __pycache__, .pyc, test files
+            if "__pycache__" in root or ".egg-info" in root:
+                continue
+            for fname in files:
+                if fname.endswith(".pyc"):
+                    continue
+                full_path = os.path.join(root, fname)
+                arc_name = os.path.relpath(full_path, os.path.dirname(src_dir))
+                zf.write(full_path, arc_name)
+    return buf.getvalue()
 
 
 @update.command("all")
@@ -48,60 +71,33 @@ def update_all(ctx: click.Context, profile: str):
 def update_lambda(ctx: click.Context, profile: str):
     """Update Lambda function code."""
     name = get_cogent_name(ctx)
-    aws = _get_aws(profile)
-    session, _ = aws.get_cogent_session(name)
+    session = _get_session(profile)
     safe_name = name.replace(".", "-")
 
     click.echo(f"Updating cogent-{name} Lambda functions...")
 
-    from cli.create import _package_and_upload_lambdas
+    click.echo("  Packaging Lambda code...")
+    zip_bytes = _package_lambda_code()
+    click.echo(f"  Package size: {len(zip_bytes) / 1024:.0f} KB")
 
-    s3_bucket, s3_key = _package_and_upload_lambdas(session, aws.region)
-
-    lambda_client = session.client("lambda", region_name=aws.region)
+    lambda_client = session.client("lambda", region_name=DEFAULT_REGION)
 
     lambda_functions = [
         f"cogent-{safe_name}-orchestrator",
-        f"cogent-{safe_name}-reconciler",
-        f"cogent-{safe_name}-github-ingestion",
-        f"cogent-{safe_name}-api",
-        f"cogent-{safe_name}-api-beta",
+        f"cogent-{safe_name}-executor",
     ]
 
     for fn_name in lambda_functions:
         try:
             lambda_client.update_function_code(
                 FunctionName=fn_name,
-                S3Bucket=s3_bucket,
-                S3Key=s3_key,
+                ZipFile=zip_bytes,
             )
             click.echo(f"  {fn_name}: {click.style('updated', fg='green')}")
         except lambda_client.exceptions.ResourceNotFoundException:
-            click.echo(f"  {fn_name}: {click.style('not found', fg='red')}")
+            click.echo(f"  {fn_name}: {click.style('not found (skip)', fg='yellow')}")
         except Exception as e:
             click.echo(f"  {fn_name}: {click.style(str(e), fg='red')}")
-
-    executor_name = f"cogent-{safe_name}-executor"
-    try:
-        fn_config = lambda_client.get_function(FunctionName=executor_name)
-        image_uri = fn_config["Code"].get("ImageUri", "")
-        if image_uri:
-            lambda_client.update_function_code(
-                FunctionName=executor_name,
-                ImageUri=image_uri,
-            )
-            click.echo(f"  {executor_name}: {click.style('updated (image)', fg='green')}")
-        else:
-            lambda_client.update_function_code(
-                FunctionName=executor_name,
-                S3Bucket=s3_bucket,
-                S3Key=s3_key,
-            )
-            click.echo(f"  {executor_name}: {click.style('updated', fg='green')}")
-    except lambda_client.exceptions.ResourceNotFoundException:
-        click.echo(f"  {executor_name}: {click.style('not found', fg='red')}")
-    except Exception as e:
-        click.echo(f"  {executor_name}: {click.style(str(e), fg='red')}")
 
     click.echo(f"  Lambda update for cogent-{name} completed.")
 
@@ -113,27 +109,40 @@ def update_lambda(ctx: click.Context, profile: str):
 def update_ecs(ctx: click.Context, profile: str, skip_health: bool):
     """Force new ECS deployment (new container)."""
     name = get_cogent_name(ctx)
-    aws = _get_aws(profile)
-    session, _ = aws.get_cogent_session(name)
-    ecs_info = aws.get_ecs_info(session, name)
-    cluster = ecs_info["cluster_arn"]
-    service = ecs_info["service_name"]
+    session = _get_session(profile)
+    safe_name = name.replace(".", "-")
+    cluster_name = f"cogent-{safe_name}"
 
-    if not cluster or not service:
-        click.echo(f"  No ECS service found for cogent-{name}.")
+    ecs_client = session.client("ecs", region_name=DEFAULT_REGION)
+
+    # Find services in the cluster
+    try:
+        services = ecs_client.list_services(cluster=cluster_name)["serviceArns"]
+    except Exception:
+        click.echo(f"  No ECS cluster found for cogent-{name}.")
         click.echo("  This cogent may be in serverless mode. Use 'update lambda' instead.")
         return
 
-    click.echo(f"Forcing new ECS deployment for cogent-{name}...")
-    click.echo(f"  Cluster: {cluster}")
-    click.echo(f"  Service: {service}")
+    if not services:
+        click.echo(f"  No ECS services found in cluster {cluster_name}.")
+        return
 
-    aws.force_new_deployment(session, cluster, service)
+    service_arn = services[0]
+    click.echo(f"Forcing new ECS deployment for cogent-{name}...")
+    click.echo(f"  Cluster: {cluster_name}")
+    click.echo(f"  Service: {service_arn}")
+
+    ecs_client.update_service(
+        cluster=cluster_name,
+        service=service_arn,
+        forceNewDeployment=True,
+    )
 
     if not skip_health:
         click.echo("  Waiting for service to stabilize...")
         try:
-            aws.wait_for_stable(session, cluster, service)
+            waiter = ecs_client.get_waiter("services_stable")
+            waiter.wait(cluster=cluster_name, services=[service_arn])
             click.echo(f"  ECS deployment for cogent-{name} completed.")
         except Exception as e:
             click.echo(f"  Service did not stabilize: {e}", err=True)
