@@ -1,0 +1,447 @@
+"""Generate realistic mock data and write it to the LocalRepository JSON store.
+
+Usage:
+    python -m dashboard.mock_data.generate          # writes to ~/.cogent/local/data.json
+    python -m dashboard.mock_data.generate /tmp/out  # writes to /tmp/out/data.json
+"""
+
+from __future__ import annotations
+
+import json
+import random
+import sys
+from datetime import datetime, timedelta
+from decimal import Decimal
+from pathlib import Path
+from uuid import uuid4
+
+from brain.db.models import (
+    Alert,
+    AlertSeverity,
+    Channel,
+    ChannelType,
+    Conversation,
+    ConversationStatus,
+    Cron,
+    Event,
+    MemoryRecord,
+    MemoryScope,
+    Program,
+    ProgramType,
+    Run,
+    RunStatus,
+    Task,
+    TaskStatus,
+    Trace,
+    Trigger,
+    TriggerConfig,
+)
+
+NOW = datetime.utcnow()
+
+
+def _ago(**kw: int) -> datetime:
+    return NOW - timedelta(**kw)
+
+
+# ── Programs ──────────────────────────────────────────────
+
+PROGRAM_DEFS = [
+    ("triage-issue", ProgramType.PROMPT, "Triage incoming GitHub issues, label and assign.",
+     ["github-tools", "label-tools"], ["issue-triage-rules"]),
+    ("do-content", ProgramType.PROMPT, "Execute content creation tasks from the task queue.",
+     ["web-search", "write-tools"], ["brand-voice", "content-calendar"]),
+    ("monitor-alerts", ProgramType.PROMPT, "Monitor system health and escalate alerts.",
+     ["metrics-tools", "slack-notify"], ["alert-thresholds"]),
+    ("code-review", ProgramType.PYTHON, "Automated code review for pull requests.",
+     ["github-tools", "lint-tools"], ["code-standards"]),
+    ("email-responder", ProgramType.PROMPT, "Draft email responses for common inquiries.",
+     ["email-tools", "knowledge-base"], ["email-templates", "faq"]),
+    ("data-sync", ProgramType.PYTHON, "Synchronize data between external services.",
+     ["api-tools", "db-tools"], []),
+]
+
+
+def make_programs() -> list[Program]:
+    programs = []
+    for name, ptype, content, tools, mem_keys in PROGRAM_DEFS:
+        programs.append(Program(
+            id=uuid4(),
+            name=name,
+            program_type=ptype,
+            content=content,
+            tools=tools,
+            memory_keys=mem_keys,
+            created_at=_ago(days=30),
+            updated_at=_ago(days=random.randint(0, 10)),
+        ))
+    return programs
+
+
+# ── Channels ──────────────────────────────────────────────
+
+CHANNEL_DEFS = [
+    ("general-discord", ChannelType.DISCORD, "1098765432100"),
+    ("eng-alerts", ChannelType.DISCORD, "1098765432101"),
+    ("github-events", ChannelType.GITHUB, "repo:cogents/main"),
+    ("support-inbox", ChannelType.EMAIL, "support@example.com"),
+    ("project-board", ChannelType.ASANA, "project-12345"),
+    ("local-cli", ChannelType.CLI, None),
+]
+
+
+def make_channels() -> list[Channel]:
+    channels = []
+    for name, ctype, ext_id in CHANNEL_DEFS:
+        channels.append(Channel(
+            id=uuid4(),
+            type=ctype,
+            name=name,
+            external_id=ext_id,
+            enabled=True,
+            config={"webhook_url": f"https://hooks.example.com/{name}"} if ctype == ChannelType.DISCORD else {},
+            created_at=_ago(days=25),
+        ))
+    return channels
+
+
+# ── Tasks ─────────────────────────────────────────────────
+
+TASK_DEFS = [
+    ("Review Q1 metrics report", "do-content", TaskStatus.COMPLETED, 10.0, "Compile and review Q1 metrics."),
+    ("Write blog post: AI agents", "do-content", TaskStatus.RUNNING, 8.0, "Draft a blog post about AI agent architecture."),
+    ("Triage issue #142", "triage-issue", TaskStatus.COMPLETED, 5.0, "Investigate and label the reported bug."),
+    ("Update API documentation", "do-content", TaskStatus.RUNNABLE, 6.0, "Refresh API docs for v2 endpoints."),
+    ("Deploy staging environment", "data-sync", TaskStatus.COMPLETED, 9.0, "Deploy latest build to staging."),
+    ("Monitor weekend alerts", "monitor-alerts", TaskStatus.RUNNING, 7.0, "Watch for critical alerts over the weekend."),
+    ("Review PR #87: auth refactor", "code-review", TaskStatus.COMPLETED, 4.0, "Review authentication refactor PR."),
+    ("Respond to partner inquiry", "email-responder", TaskStatus.RUNNABLE, 3.0, "Draft response to partnership email."),
+    ("Sync CRM contacts", "data-sync", TaskStatus.DISABLED, 2.0, "Synchronize contacts from CRM to local DB."),
+    ("Triage issue #155", "triage-issue", TaskStatus.RUNNING, 5.0, "New feature request needs labeling."),
+    ("Weekly digest email", "email-responder", TaskStatus.COMPLETED, 1.0, "Send weekly project digest."),
+    ("Code review PR #92", "code-review", TaskStatus.RUNNABLE, 6.0, "Review dashboard component changes."),
+]
+
+
+def make_tasks() -> list[Task]:
+    tasks = []
+    for i, (name, prog, status, priority, desc) in enumerate(TASK_DEFS):
+        created = _ago(days=random.randint(1, 14), hours=random.randint(0, 23))
+        updated = created + timedelta(hours=random.randint(1, 48))
+        completed = updated + timedelta(hours=random.randint(1, 6)) if status == TaskStatus.COMPLETED else None
+        tasks.append(Task(
+            id=uuid4(),
+            name=name,
+            description=desc,
+            program_name=prog,
+            status=status,
+            priority=priority,
+            content=f"Task content for: {name}",
+            memory_keys=["project-context"] if i % 3 == 0 else [],
+            tools=["web-search"] if i % 4 == 0 else [],
+            recurrent=i % 5 == 0,
+            creator="system" if i % 2 == 0 else "user",
+            created_at=created,
+            updated_at=updated,
+            completed_at=completed,
+        ))
+    return tasks
+
+
+# ── Runs ──────────────────────────────────────────────────
+
+def make_runs(tasks: list[Task], programs: list[Program], triggers: list[Trigger]) -> list[Run]:
+    runs = []
+    prog_names = [p.name for p in programs]
+    for task in tasks:
+        n_runs = random.randint(1, 4)
+        for j in range(n_runs):
+            started = (task.created_at or _ago(days=5)) + timedelta(hours=j * 2)
+            if task.status == TaskStatus.COMPLETED and j == n_runs - 1:
+                status = RunStatus.COMPLETED
+            elif task.status == TaskStatus.RUNNING and j == n_runs - 1:
+                status = RunStatus.RUNNING
+            else:
+                status = random.choice([RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.COMPLETED])
+            duration = random.randint(5000, 120000) if status != RunStatus.RUNNING else None
+            completed = started + timedelta(milliseconds=duration) if duration else None
+            runs.append(Run(
+                id=uuid4(),
+                program_name=task.program_name,
+                task_id=task.id,
+                trigger_id=random.choice(triggers).id if triggers and random.random() > 0.5 else None,
+                status=status,
+                tokens_input=random.randint(500, 15000),
+                tokens_output=random.randint(200, 8000),
+                cost_usd=Decimal(str(round(random.uniform(0.01, 0.50), 4))),
+                duration_ms=duration,
+                error="Rate limit exceeded" if status == RunStatus.FAILED and random.random() > 0.5 else
+                      "Timeout after 120s" if status == RunStatus.FAILED else None,
+                model_version="claude-sonnet-4-20250514" if random.random() > 0.3 else "claude-haiku-4-5-20251001",
+                started_at=started,
+                completed_at=completed,
+            ))
+    return runs
+
+
+# ── Triggers ──────────────────────────────────────────────
+
+TRIGGER_DEFS = [
+    ("triage-issue", "github.issue.opened", 5),
+    ("code-review", "github.pull_request.opened", 5),
+    ("monitor-alerts", "system.alert.fired", 1),
+    ("email-responder", "email.received", 10),
+    ("data-sync", "schedule.daily", 20),
+    ("do-content", "task.created", 15),
+]
+
+
+def make_triggers() -> list[Trigger]:
+    triggers = []
+    for prog, pattern, priority in TRIGGER_DEFS:
+        triggers.append(Trigger(
+            id=uuid4(),
+            program_name=prog,
+            event_pattern=pattern,
+            priority=priority,
+            config=TriggerConfig(retry_max_attempts=2 if priority < 10 else 1),
+            enabled=True,
+            created_at=_ago(days=20),
+        ))
+    return triggers
+
+
+# ── Crons ─────────────────────────────────────────────────
+
+CRON_DEFS = [
+    ("0 9 * * *", "schedule.daily", True, {"description": "Daily morning sync"}),
+    ("0 */6 * * *", "health.check", True, {"description": "Health check every 6 hours"}),
+    ("0 0 * * 1", "schedule.weekly", True, {"description": "Weekly Monday digest"}),
+    ("30 14 * * 5", "report.weekly", False, {"description": "Friday afternoon report"}),
+    ("0 0 1 * *", "schedule.monthly", True, {"description": "Monthly cleanup"}),
+]
+
+
+def make_crons() -> list[Cron]:
+    crons = []
+    for expr, pattern, enabled, meta in CRON_DEFS:
+        crons.append(Cron(
+            id=uuid4(),
+            cron_expression=expr,
+            event_pattern=pattern,
+            enabled=enabled,
+            metadata=meta,
+            created_at=_ago(days=15),
+        ))
+    return crons
+
+
+# ── Events ────────────────────────────────────────────────
+
+EVENT_TYPES = [
+    "github.issue.opened", "github.issue.closed", "github.pull_request.opened",
+    "github.pull_request.merged", "email.received", "email.sent",
+    "system.alert.fired", "system.alert.resolved", "task.created",
+    "task.completed", "schedule.daily", "health.check",
+    "channel.message", "user.login", "deploy.started", "deploy.completed",
+]
+
+EVENT_SOURCES = [
+    "github-webhook", "email-gateway", "cron-scheduler",
+    "system-monitor", "user-action", "api-gateway",
+]
+
+
+def make_events(n: int = 60) -> tuple[list[Event], int]:
+    events = []
+    for i in range(1, n + 1):
+        etype = random.choice(EVENT_TYPES)
+        created = _ago(hours=random.randint(0, 72))
+        parent = random.choice(events).id if events and random.random() > 0.7 else None
+        events.append(Event(
+            id=i,
+            event_type=etype,
+            source=random.choice(EVENT_SOURCES),
+            payload=_event_payload(etype),
+            parent_event_id=parent,
+            created_at=created,
+        ))
+    events.sort(key=lambda e: e.created_at or datetime.min)
+    return events, n
+
+
+def _event_payload(etype: str) -> dict:
+    if "github.issue" in etype:
+        return {"issue_number": random.randint(100, 200), "repo": "cogents/main",
+                "title": random.choice(["Bug: login fails", "Feature: dark mode", "Perf: slow queries"])}
+    if "github.pull_request" in etype:
+        return {"pr_number": random.randint(80, 120), "repo": "cogents/main",
+                "author": random.choice(["alice", "bob", "charlie"])}
+    if "email" in etype:
+        return {"from": "partner@example.com", "subject": "Re: Integration proposal"}
+    if "system.alert" in etype:
+        return {"metric": "cpu_usage", "value": round(random.uniform(70, 99), 1), "threshold": 80}
+    if "deploy" in etype:
+        return {"environment": random.choice(["staging", "production"]), "version": f"v1.{random.randint(0,9)}.{random.randint(0,20)}"}
+    return {"detail": etype}
+
+
+# ── Conversations ─────────────────────────────────────────
+
+def make_conversations(channels: list[Channel]) -> list[Conversation]:
+    convs = []
+    statuses = [ConversationStatus.ACTIVE, ConversationStatus.ACTIVE,
+                ConversationStatus.IDLE, ConversationStatus.CLOSED]
+    for i in range(8):
+        started = _ago(hours=random.randint(1, 72))
+        convs.append(Conversation(
+            id=uuid4(),
+            context_key=f"conv-{i:03d}",
+            channel_id=random.choice(channels).id if channels else None,
+            status=random.choice(statuses),
+            started_at=started,
+            last_active=started + timedelta(minutes=random.randint(5, 300)),
+        ))
+    return convs
+
+
+# ── Alerts ────────────────────────────────────────────────
+
+ALERT_DEFS = [
+    (AlertSeverity.CRITICAL, "high_cpu", "system-monitor", "CPU usage exceeded 95% on worker-3"),
+    (AlertSeverity.WARNING, "slow_query", "db-monitor", "Query took >5s: SELECT * FROM events WHERE..."),
+    (AlertSeverity.EMERGENCY, "service_down", "health-check", "API gateway not responding (3 consecutive failures)"),
+    (AlertSeverity.WARNING, "rate_limit", "api-gateway", "Rate limit 80% consumed for Claude API"),
+    (AlertSeverity.CRITICAL, "memory_leak", "system-monitor", "Memory usage growing steadily on worker-1"),
+    (AlertSeverity.WARNING, "cert_expiry", "cert-monitor", "TLS certificate expires in 7 days"),
+    (AlertSeverity.WARNING, "disk_space", "system-monitor", "Disk usage at 85% on /data volume"),
+]
+
+
+def make_alerts() -> list[Alert]:
+    alerts = []
+    for i, (severity, atype, source, message) in enumerate(ALERT_DEFS):
+        created = _ago(hours=random.randint(0, 48))
+        resolved = created + timedelta(hours=random.randint(1, 6)) if i >= 4 else None
+        alerts.append(Alert(
+            id=uuid4(),
+            severity=severity,
+            alert_type=atype,
+            source=source,
+            message=message,
+            metadata={"host": f"worker-{random.randint(1,4)}", "region": "us-east-1"},
+            acknowledged_at=created + timedelta(minutes=15) if i % 2 == 0 else None,
+            resolved_at=resolved,
+            created_at=created,
+        ))
+    return alerts
+
+
+# ── Memory ────────────────────────────────────────────────
+
+MEMORY_DEFS = [
+    (MemoryScope.COGENT, "brand-voice", "Maintain a professional but approachable tone. Use active voice. Avoid jargon unless writing for a technical audience."),
+    (MemoryScope.COGENT, "code-standards", "All Python code must pass ruff and mypy --strict. Max line length 120. Prefer explicit imports."),
+    (MemoryScope.COGENT, "alert-thresholds", "CPU: warn at 80%, critical at 95%. Memory: warn at 75%, critical at 90%. Disk: warn at 80%."),
+    (MemoryScope.COGENT, "email-templates", "Use the standard greeting format: 'Hi {name},' followed by a blank line. Sign off with 'Best regards, Cogent Team'."),
+    (MemoryScope.COGENT, "issue-triage-rules", "P0: service down or data loss. P1: degraded functionality. P2: cosmetic or minor. P3: feature request."),
+    (MemoryScope.POLIS, "project-context", "Cogent is an AI agent orchestration platform. Key repos: cogents/main, cogents/dashboard. Deploy target: AWS ECS Fargate."),
+    (MemoryScope.POLIS, "team-contacts", "Engineering lead: Alice (alice@example.com). Product: Bob (bob@example.com). DevOps: Charlie (charlie@example.com)."),
+    (MemoryScope.COGENT, "content-calendar", "Blog posts every Tuesday. Newsletter every other Friday. Social media daily at 10am EST."),
+    (MemoryScope.COGENT, "faq", "Q: How do I reset my API key? A: Go to Settings > API Keys > Regenerate. Q: What models are supported? A: Claude Sonnet, Haiku, and Opus."),
+    (MemoryScope.POLIS, "deployment-notes", "Last deploy: v1.4.2 on 2025-02-28. Known issue: WebSocket reconnection can take up to 30s after deploy."),
+]
+
+
+def make_memory() -> list[MemoryRecord]:
+    records = []
+    for scope, name, content in MEMORY_DEFS:
+        created = _ago(days=random.randint(2, 30))
+        records.append(MemoryRecord(
+            id=uuid4(),
+            scope=scope,
+            name=name,
+            content=content,
+            provenance={"source": "manual", "author": "admin"},
+            created_at=created,
+            updated_at=created + timedelta(days=random.randint(0, 5)),
+        ))
+    return records
+
+
+# ── Traces ────────────────────────────────────────────────
+
+def make_traces(runs: list[Run]) -> list[Trace]:
+    traces = []
+    for run in runs:
+        if run.status == RunStatus.RUNNING:
+            continue
+        traces.append(Trace(
+            id=uuid4(),
+            run_id=run.id,
+            tool_calls=[
+                {"tool": "web-search", "args": {"query": "latest AI news"}, "result": "ok"},
+                {"tool": "write-file", "args": {"path": "/tmp/draft.md"}, "result": "ok"},
+            ] if random.random() > 0.3 else [],
+            memory_ops=[
+                {"op": "read", "key": "brand-voice"},
+            ] if random.random() > 0.5 else [],
+            model_version=run.model_version,
+            created_at=run.completed_at or run.started_at,
+        ))
+    return traces
+
+
+# ── Assemble & Write ──────────────────────────────────────
+
+def generate(data_dir: str | None = None) -> Path:
+    """Generate mock data and write to data.json. Returns the file path."""
+    from brain.db.local_repository import _json_serial
+
+    if data_dir is None:
+        import os
+        data_dir = os.environ.get("COGENT_LOCAL_DATA", str(Path.home() / ".cogent" / "local"))
+
+    out_dir = Path(data_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / "data.json"
+
+    programs = make_programs()
+    channels = make_channels()
+    triggers = make_triggers()
+    crons = make_crons()
+    tasks = make_tasks()
+    runs = make_runs(tasks, programs, triggers)
+    events, event_seq = make_events(60)
+    conversations = make_conversations(channels)
+    alerts = make_alerts()
+    memory = make_memory()
+    traces = make_traces(runs)
+
+    data = {
+        "programs": [p.model_dump(mode="json") for p in programs],
+        "tasks": [t.model_dump(mode="json") for t in tasks],
+        "triggers": [t.model_dump(mode="json") for t in triggers],
+        "crons": [c.model_dump(mode="json") for c in crons],
+        "events": [e.model_dump(mode="json") for e in events],
+        "event_seq": event_seq,
+        "runs": [r.model_dump(mode="json") for r in runs],
+        "conversations": [c.model_dump(mode="json") for c in conversations],
+        "channels": [ch.model_dump(mode="json") for ch in channels],
+        "alerts": [a.model_dump(mode="json") for a in alerts],
+        "memory": [m.model_dump(mode="json") for m in memory],
+        "traces": [t.model_dump(mode="json") for t in traces],
+    }
+
+    out_file.write_text(json.dumps(data, indent=2, default=_json_serial))
+    print(f"Wrote mock data to {out_file}")
+    print(f"  {len(programs)} programs, {len(tasks)} tasks, {len(runs)} runs")
+    print(f"  {len(triggers)} triggers, {len(crons)} crons, {len(events)} events")
+    print(f"  {len(channels)} channels, {len(conversations)} conversations")
+    print(f"  {len(alerts)} alerts, {len(memory)} memory records, {len(traces)} traces")
+    return out_file
+
+
+if __name__ == "__main__":
+    target = sys.argv[1] if len(sys.argv) > 1 else None
+    generate(target)

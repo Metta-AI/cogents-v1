@@ -567,7 +567,7 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
             onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
             style={inputStyle}
             autoFocus={opts.autoFocus}
-            placeholder="/path/to/task-name"
+            placeholder="my-task-name"
           />
         </div>
         <div className="flex items-center gap-2">

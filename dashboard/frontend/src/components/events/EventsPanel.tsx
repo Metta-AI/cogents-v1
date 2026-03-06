@@ -75,7 +75,7 @@ export function EventsPanel({ events, cogentName, triggers, timeRange, onTabChan
             style={{ gridTemplateColumns: "minmax(120px, 1fr) minmax(100px, 2fr) minmax(80px, 1fr) 60px", background: "var(--bg-deep)", borderBottom: "1px solid var(--border)" }}
           >
             <span>Event</span>
-            <span>Content</span>
+            <span>Source</span>
             <span>Triggers</span>
             <span className="text-right">Time</span>
           </div>
