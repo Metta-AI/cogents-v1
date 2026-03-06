@@ -89,12 +89,15 @@ def _package_lambda_code() -> bytes:
 
 @update.command("all")
 @click.option("--profile", default="softmax-org", help="AWS profile")
+@click.option("--no-mind", is_flag=True, help="Skip mind update")
 @click.pass_context
-def update_all(ctx: click.Context, profile: str):
-    """Update Lambda + DB migrations (default)."""
+def update_all(ctx: click.Context, profile: str, no_mind: bool):
+    """Update Lambda + DB migrations + mind sync (default)."""
     t0 = time.monotonic()
     ctx.invoke(update_lambda, profile=profile)
     ctx.invoke(update_rds, profile=profile, force=False)
+    if not no_mind:
+        ctx.invoke(update_mind)
     click.echo(f"\nTotal: {time.monotonic() - t0:.1f}s")
 
 
@@ -200,6 +203,21 @@ def update_rds(ctx: click.Context, profile: str | None, force: bool):
     click.echo(f"Running migrations for cogent-{name} via Data API...")
     version = apply_schema()
     click.echo(f"  Schema at version {version}. ({time.monotonic() - t0:.1f}s)")
+
+
+@update.command("mind")
+@click.pass_context
+def update_mind(ctx: click.Context):
+    """Sync mind (programs, tasks, memories) from egg directory."""
+    from mind.cli import _ensure_db_env as _mind_ensure_db_env
+    from mind.cli import mind_update
+
+    t0 = time.monotonic()
+    name = get_cogent_name(ctx)
+    _mind_ensure_db_env(name)
+    click.echo("Syncing mind from egg directory...")
+    ctx.invoke(mind_update, force=False)
+    click.echo(f"  Mind: {time.monotonic() - t0:.1f}s")
 
 
 @update.command("stack")
