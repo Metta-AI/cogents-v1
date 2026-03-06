@@ -37,9 +37,14 @@ def handler(event: dict, context) -> dict:
         return {"statusCode": 404, "error": f"Program not found: {program_name}"}
 
     # Create run record
+    trigger_id_raw = trigger_data.get("id")
+    try:
+        trigger_id = UUID(trigger_id_raw) if trigger_id_raw else None
+    except ValueError:
+        trigger_id = None
     run = Run(
         program_name=program_name,
-        trigger_id=trigger_data.get("id"),
+        trigger_id=trigger_id,
         status=RunStatus.RUNNING,
     )
     task_id_str = task_data.get("id")
@@ -135,7 +140,7 @@ def execute_program(program: Program, event_data: dict, run: Run, config,
     # Build tool config from merged program tools
     tool_config = _build_tool_config(program.tools) if program.tools else None
 
-    model_id = program.model_version or "anthropic.claude-sonnet-4-20250514"
+    model_id = program.metadata.get("model_version") or "us.anthropic.claude-sonnet-4-20250514-v1:0"
     run.model_version = model_id
 
     total_input_tokens = 0

@@ -127,8 +127,11 @@ class Repository:
         elif isinstance(value, UUID):
             param["value"] = {"stringValue": str(value)}
             param["typeHint"] = "UUID"
-        elif isinstance(value, (datetime, date)):
+        elif isinstance(value, datetime):
+            param["value"] = {"stringValue": value.strftime("%Y-%m-%d %H:%M:%S.%f")}
+        elif isinstance(value, date):
             param["value"] = {"stringValue": value.isoformat()}
+            param["typeHint"] = "DATE"
         elif isinstance(value, (dict, list)):
             param["value"] = {"stringValue": json.dumps(value)}
         else:
@@ -915,7 +918,7 @@ class Repository:
                                  status, tokens_input, tokens_output, cost_usd,
                                  duration_ms, events_emitted, error, model_version)
                VALUES (:id, :program_name, :task_id, :trigger_id, :conversation_id,
-                       :status, :tokens_input, :tokens_output, :cost_usd,
+                       :status, :tokens_input, :tokens_output, CAST(:cost_usd AS NUMERIC),
                        :duration_ms, :events_emitted::jsonb, :error, :model_version)
                RETURNING id, started_at""",
             [
@@ -943,9 +946,10 @@ class Repository:
     def update_run(self, run: Run) -> bool:
         response = self._execute(
             """UPDATE runs SET status = :status, tokens_input = :tokens_input,
-                      tokens_output = :tokens_output, cost_usd = :cost_usd,
+                      tokens_output = :tokens_output, cost_usd = CAST(:cost_usd AS NUMERIC),
                       duration_ms = :duration_ms, events_emitted = :events_emitted::jsonb,
-                      error = :error, model_version = :model_version, completed_at = :completed_at
+                      error = :error, model_version = :model_version,
+                      completed_at = CAST(:completed_at AS TIMESTAMPTZ)
                WHERE id = :id""",
             [
                 self._param("id", run.id),
