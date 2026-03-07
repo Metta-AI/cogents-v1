@@ -12,10 +12,10 @@ from uuid import UUID
 
 import boto3
 
-from brain.db.models import TaskStatus, Trigger
+from brain.db.models import Event as BrainEvent, TaskStatus, Trigger
 from brain.lambdas.shared.config import get_config
 from brain.lambdas.shared.db import get_repo
-from brain.lambdas.shared.events import from_eventbridge
+from brain.lambdas.shared.events import from_eventbridge, put_event
 from brain.lambdas.shared.logging import setup_logging
 
 logger = setup_logging()
@@ -99,6 +99,38 @@ def handler(event: dict, context) -> dict:
             if brain_event.source and brain_event.source == trigger.program_name:
                 logger.info(f"Skipping cascade: {trigger.program_name} triggered by itself")
                 continue
+
+            # Throttle check
+            max_events = trigger.config.max_events
+            if max_events > 0:
+                result = repo.throttle_check(
+                    trigger.id, max_events, trigger.config.throttle_window_seconds
+                )
+                if not result.allowed:
+                    logger.info(f"Throttled trigger {trigger.id} for {trigger.program_name}")
+                    if result.state_changed:
+                        put_event(
+                            BrainEvent(
+                                event_type="trigger:throttle:on",
+                                source="orchestrator",
+                                payload={"trigger_id": str(trigger.id),
+                                         "program_name": trigger.program_name},
+                                parent_event_id=event_id,
+                            ),
+                            config.event_bus_name,
+                        )
+                    continue
+                if result.state_changed:
+                    put_event(
+                        BrainEvent(
+                            event_type="trigger:throttle:off",
+                            source="orchestrator",
+                            payload={"trigger_id": str(trigger.id),
+                                     "program_name": trigger.program_name},
+                            parent_event_id=event_id,
+                        ),
+                        config.event_bus_name,
+                    )
 
             # Session ID: caller can specify via event payload, otherwise default to program name
             session_id = (
