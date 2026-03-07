@@ -18,7 +18,7 @@ Commit all changes, sync with remote, and push to main.
     - List the key things accomplished (commits made, features added, bugs fixed, deployments done)
     - Keep it concise — bullet points, not paragraphs
 11. Rename the conversation to a short descriptive title reflecting what was done (e.g. "Fix polis status + dashboard deploy")
-12. Reset the cmux workspace name by running: `cmux rename-workspace "cwd -- cogents.3"`
+12. Reset the cmux workspace name by running: `cmux rename-workspace "cogents.3"`
 13. Use the AskUserQuestion tool to ask: "Press Enter to clear, or type 'n' to keep working"
     - If the response is empty or anything other than "n"/"no": use the Skill tool to invoke the "clear" skill
     - If the response is "n" or "no": stop and let the user continue working
