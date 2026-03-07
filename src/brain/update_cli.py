@@ -81,20 +81,51 @@ def _ensure_db_env(name: str) -> None:
 
 
 def _package_lambda_code() -> bytes:
-    """Zip the src/ directory for Lambda deployment."""
+    """Zip the src/ directory with pip-installed dependencies for Lambda deployment.
+
+    The Lambda handler expects top-level packages (brain/, memory/, etc.) without
+    a src/ prefix, so we use src_dir as the base for archive paths.  Dependencies
+    are installed into a temporary directory and bundled into the same zip.
+    """
+    import subprocess
+    import tempfile
+
     src_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)))
+    project_root = os.path.dirname(src_dir)
+
+    # Install runtime deps into a temp directory
+    deps_dir = tempfile.mkdtemp(prefix="lambda-deps-")
+    lambda_deps = ["pydantic", "pydantic-settings", "pydantic-core", "annotated-types"]
+    subprocess.check_call(
+        ["uv", "pip", "install", "--target", deps_dir, "--quiet", "--python", "3.12"]
+        + lambda_deps,
+    )
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Add source code (brain/, memory/, channels/, polis/, etc.)
         for root, _dirs, files in os.walk(src_dir):
-            # Skip __pycache__, .pyc, test files
             if "__pycache__" in root or ".egg-info" in root:
                 continue
             for fname in files:
                 if fname.endswith(".pyc"):
                     continue
                 full_path = os.path.join(root, fname)
-                arc_name = os.path.relpath(full_path, os.path.dirname(src_dir))
+                arc_name = os.path.relpath(full_path, src_dir)
                 zf.write(full_path, arc_name)
+        # Add dependencies
+        for root, _dirs, files in os.walk(deps_dir):
+            if "__pycache__" in root:
+                continue
+            for fname in files:
+                if fname.endswith(".pyc"):
+                    continue
+                full_path = os.path.join(root, fname)
+                arc_name = os.path.relpath(full_path, deps_dir)
+                zf.write(full_path, arc_name)
+
+    import shutil
+    shutil.rmtree(deps_dir, ignore_errors=True)
     return buf.getvalue()
 
 
