@@ -1288,8 +1288,10 @@ class Repository:
 
     def insert_trigger(self, trigger: Trigger) -> UUID:
         response = self._execute(
-            """INSERT INTO triggers (id, program_name, event_pattern, priority, config, enabled)
-               VALUES (:id, :program_name, :event_pattern, :priority, :config::jsonb, :enabled)
+            """INSERT INTO triggers (id, program_name, event_pattern, priority, config, enabled,
+                                    throttle_timestamps, throttle_rejected, throttle_active)
+               VALUES (:id, :program_name, :event_pattern, :priority, :config::jsonb, :enabled,
+                       :throttle_timestamps::jsonb, :throttle_rejected, :throttle_active)
                RETURNING id, created_at""",
             [
                 self._param("id", trigger.id),
@@ -1298,6 +1300,9 @@ class Repository:
                 self._param("priority", trigger.priority),
                 self._param("config", trigger.config.model_dump()),
                 self._param("enabled", trigger.enabled),
+                self._param("throttle_timestamps", trigger.throttle_timestamps),
+                self._param("throttle_rejected", trigger.throttle_rejected),
+                self._param("throttle_active", trigger.throttle_active),
             ],
         )
         row = self._first_row(response)
@@ -1350,6 +1355,9 @@ class Repository:
         config = row.get("config", {})
         if isinstance(config, str):
             config = json.loads(config)
+        timestamps = row.get("throttle_timestamps", [])
+        if isinstance(timestamps, str):
+            timestamps = json.loads(timestamps)
         return Trigger(
             id=UUID(row["id"]),
             program_name=row["program_name"],
@@ -1357,7 +1365,68 @@ class Repository:
             priority=row.get("priority", 10),
             config=TriggerConfig(**config) if config else TriggerConfig(),
             enabled=row.get("enabled", True),
+            throttle_timestamps=[float(t) for t in timestamps],
+            throttle_rejected=row.get("throttle_rejected", 0),
+            throttle_active=row.get("throttle_active", False),
             created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def throttle_check(self, trigger_id: UUID, max_events: int, window_seconds: int) -> "ThrottleResult":
+        from brain.db.models import ThrottleResult
+
+        if max_events <= 0:
+            return ThrottleResult(allowed=True, state_changed=False, throttle_active=False)
+
+        import time
+        now = time.time()
+        cutoff = now - window_seconds
+
+        sql = """
+            WITH prev AS (
+                SELECT throttle_active AS prev_active FROM triggers WHERE id = :id
+            ),
+            pruned AS (
+                SELECT COALESCE(jsonb_agg(t), '[]'::jsonb) AS ts
+                FROM jsonb_array_elements_text(
+                    (SELECT throttle_timestamps FROM triggers WHERE id = :id)
+                ) AS t
+                WHERE t::double precision > :cutoff
+            ),
+            pruned_count AS (
+                SELECT jsonb_array_length((SELECT ts FROM pruned)) AS cnt
+            )
+            UPDATE triggers
+            SET
+                throttle_timestamps = CASE
+                    WHEN (SELECT cnt FROM pruned_count) >= :max_events
+                    THEN (SELECT ts FROM pruned)
+                    ELSE (SELECT ts FROM pruned) || to_jsonb(:now::text)
+                END,
+                throttle_rejected = CASE
+                    WHEN (SELECT cnt FROM pruned_count) >= :max_events
+                    THEN throttle_rejected + 1
+                    ELSE throttle_rejected
+                END,
+                throttle_active = (SELECT cnt FROM pruned_count) >= :max_events
+            WHERE id = :id
+            RETURNING throttle_active, (SELECT prev_active FROM prev) AS prev_throttle_active
+        """
+        response = self._execute(sql, [
+            self._param("id", trigger_id),
+            self._param("cutoff", cutoff),
+            self._param("max_events", max_events),
+            self._param("now", now),
+        ])
+        row = self._first_row(response)
+        if not row:
+            return ThrottleResult(allowed=True, state_changed=False, throttle_active=False)
+
+        active = row.get("throttle_active", False)
+        prev = row.get("prev_throttle_active", False)
+        return ThrottleResult(
+            allowed=not active,
+            state_changed=active != prev,
+            throttle_active=active,
         )
 
     # ═══════════════════════════════════════════════════════════
