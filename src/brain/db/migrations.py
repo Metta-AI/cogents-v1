@@ -124,6 +124,7 @@ def get_current_version(client, resource_arn: str, secret_arn: str, database: st
 
 # Incremental migrations keyed by target version.
 MIGRATIONS: dict[int, list[str]] = {
+    # Each value is a list of individual statements (Data API doesn't support multi-statement).
     5: [
         # Add status column to events table for proposed/sent tracking
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('proposed', 'sent'))",
@@ -149,6 +150,47 @@ $$ LANGUAGE plpgsql""",
     FOR EACH ROW
     EXECUTE FUNCTION task_scheduled_trigger()""",
         "INSERT INTO schema_version (version) VALUES (5) ON CONFLICT DO NOTHING",
+    ],
+    6: [
+        # --- Create versioned memory tables ---
+        """CREATE TABLE IF NOT EXISTS memory_v2 (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name            TEXT UNIQUE NOT NULL,
+            active_version  INT NOT NULL DEFAULT 1,
+            created_at      TIMESTAMPTZ DEFAULT now(),
+            modified_at     TIMESTAMPTZ DEFAULT now()
+        )""",
+        """CREATE TABLE IF NOT EXISTS memory_version (
+            id          UUID DEFAULT gen_random_uuid(),
+            memory_id   UUID NOT NULL REFERENCES memory_v2(id) ON DELETE CASCADE,
+            version     INT NOT NULL,
+            read_only   BOOLEAN DEFAULT FALSE,
+            content     TEXT DEFAULT '',
+            source      TEXT DEFAULT 'cogent',
+            created_at  TIMESTAMPTZ DEFAULT now(),
+            PRIMARY KEY (memory_id, version)
+        )""",
+        # --- Migrate data from old memory table ---
+        """INSERT INTO memory_v2 (id, name, active_version, created_at, modified_at)
+           SELECT id, name, 1, created_at, updated_at
+           FROM memory
+           WHERE name IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM memory_v2 WHERE memory_v2.name = memory.name)""",
+        """INSERT INTO memory_version (memory_id, version, read_only, content, source, created_at)
+           SELECT id, 1,
+                  CASE WHEN scope = 'polis' THEN TRUE ELSE FALSE END,
+                  content,
+                  scope,
+                  created_at
+           FROM memory
+           WHERE name IS NOT NULL
+             AND NOT EXISTS (
+                 SELECT 1 FROM memory_version
+                 WHERE memory_version.memory_id = memory.id AND memory_version.version = 1
+             )""",
+        # --- Rename old table to preserve it ---
+        "ALTER TABLE IF EXISTS memory RENAME TO memory_legacy",
+        "INSERT INTO schema_version (version) VALUES (6) ON CONFLICT DO NOTHING",
     ],
 }
 
@@ -194,6 +236,9 @@ def reset_schema(
         client, resource_arn, secret_arn, database = _get_data_client()
 
     drop_sql = """
+        DROP TABLE IF EXISTS memory_version CASCADE;
+        DROP TABLE IF EXISTS memory_v2 CASCADE;
+        DROP TABLE IF EXISTS memory_legacy CASCADE;
         DROP TABLE IF EXISTS resource_usage CASCADE;
         DROP TABLE IF EXISTS resources CASCADE;
         DROP TABLE IF EXISTS traces CASCADE;

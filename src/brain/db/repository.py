@@ -8,7 +8,7 @@ import os
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import boto3
 
@@ -23,8 +23,10 @@ from brain.db.models import (
     ConversationStatus,
     Cron,
     Event,
+    Memory,
     MemoryRecord,
     MemoryScope,
+    MemoryVersion,
     Program,
     ProgramType,
     Resource,
@@ -474,6 +476,365 @@ class Repository:
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
+
+    # ═══════════════════════════════════════════════════════════
+    # MEMORY v2 (versioned)
+    # ═══════════════════════════════════════════════════════════
+
+    def _memory_v2_from_rows(self, rows: list[dict]) -> Memory | None:
+        """Build a Memory with versions dict from JOIN query rows."""
+        if not rows:
+            return None
+        first = rows[0]
+        mem = Memory(
+            id=UUID(first["id"]),
+            name=first["name"],
+            active_version=first["active_version"],
+            created_at=datetime.fromisoformat(first["created_at"]) if first.get("created_at") else None,
+            modified_at=datetime.fromisoformat(first["modified_at"]) if first.get("modified_at") else None,
+        )
+        for row in rows:
+            if row.get("version") is not None:
+                mv = MemoryVersion(
+                    id=UUID(row["mv_id"]) if row.get("mv_id") else uuid4(),
+                    memory_id=mem.id,
+                    version=row["version"],
+                    read_only=row.get("read_only", False),
+                    content=row.get("content", ""),
+                    source=row.get("source", "cogent"),
+                    created_at=datetime.fromisoformat(row["mv_created_at"]) if row.get("mv_created_at") else None,
+                )
+                mem.versions[mv.version] = mv
+        return mem
+
+    def insert_memory_v2(self, mem: Memory) -> UUID:
+        """Insert a new versioned memory record."""
+        response = self._execute(
+            """INSERT INTO memory_v2 (id, name, active_version)
+               VALUES (:id, :name, :active_version)
+               ON CONFLICT (name)
+               DO UPDATE SET active_version = EXCLUDED.active_version,
+                            modified_at = now()
+               RETURNING id, created_at, modified_at""",
+            [
+                self._param("id", mem.id),
+                self._param("name", mem.name),
+                self._param("active_version", mem.active_version),
+            ],
+        )
+        row = self._first_row(response)
+        if row:
+            mem.created_at = datetime.fromisoformat(row["created_at"])
+            mem.modified_at = datetime.fromisoformat(row["modified_at"])
+            return UUID(row["id"])
+        raise RuntimeError("Failed to insert memory_v2")
+
+    def get_memory_by_name(self, name: str) -> Memory | None:
+        """Get a versioned memory by name, with all versions populated."""
+        response = self._execute(
+            """SELECT m.id, m.name, m.active_version, m.created_at, m.modified_at,
+                      mv.id as mv_id, mv.version, mv.read_only, mv.content,
+                      mv.source, mv.created_at as mv_created_at
+               FROM memory_v2 m
+               LEFT JOIN memory_version mv ON mv.memory_id = m.id
+               WHERE m.name = :name""",
+            [self._param("name", name)],
+        )
+        rows = self._rows_to_dicts(response)
+        return self._memory_v2_from_rows(rows)
+
+    def insert_memory_version(self, mv: MemoryVersion) -> None:
+        """Insert a new memory version row."""
+        self._execute(
+            """INSERT INTO memory_version (id, memory_id, version, read_only, content, source)
+               VALUES (:id, :memory_id, :version, :read_only, :content, :source)""",
+            [
+                self._param("id", mv.id),
+                self._param("memory_id", mv.memory_id),
+                self._param("version", mv.version),
+                self._param("read_only", mv.read_only),
+                self._param("content", mv.content),
+                self._param("source", mv.source),
+            ],
+        )
+        # Update modified_at on parent memory
+        self._execute(
+            "UPDATE memory_v2 SET modified_at = now() WHERE id = :id",
+            [self._param("id", mv.memory_id)],
+        )
+
+    def get_memory_version(self, memory_id: UUID, version: int) -> MemoryVersion | None:
+        """Get a specific version of a memory."""
+        response = self._execute(
+            """SELECT * FROM memory_version
+               WHERE memory_id = :memory_id AND version = :version""",
+            [
+                self._param("memory_id", memory_id),
+                self._param("version", version),
+            ],
+        )
+        row = self._first_row(response)
+        if not row:
+            return None
+        return MemoryVersion(
+            id=UUID(row["id"]),
+            memory_id=UUID(row["memory_id"]),
+            version=row["version"],
+            read_only=row.get("read_only", False),
+            content=row.get("content", ""),
+            source=row.get("source", "cogent"),
+            created_at=datetime.fromisoformat(row["created_at"]) if row.get("created_at") else None,
+        )
+
+    def get_max_version(self, memory_id: UUID) -> int:
+        """Return the highest version number for a memory, or 0 if none."""
+        response = self._execute(
+            "SELECT COALESCE(MAX(version), 0) AS max_v FROM memory_version WHERE memory_id = :memory_id",
+            [self._param("memory_id", memory_id)],
+        )
+        row = self._first_row(response)
+        return row["max_v"] if row else 0
+
+    def list_memory_versions(self, memory_id: UUID) -> list[MemoryVersion]:
+        """List all versions for a memory, ordered by version."""
+        response = self._execute(
+            "SELECT * FROM memory_version WHERE memory_id = :memory_id ORDER BY version",
+            [self._param("memory_id", memory_id)],
+        )
+        results = []
+        for row in self._rows_to_dicts(response):
+            results.append(MemoryVersion(
+                id=UUID(row["id"]),
+                memory_id=UUID(row["memory_id"]),
+                version=row["version"],
+                read_only=row.get("read_only", False),
+                content=row.get("content", ""),
+                source=row.get("source", "cogent"),
+                created_at=datetime.fromisoformat(row["created_at"]) if row.get("created_at") else None,
+            ))
+        return results
+
+    def update_active_version(self, memory_id: UUID, version: int) -> None:
+        """Set the active version for a memory."""
+        self._execute(
+            "UPDATE memory_v2 SET active_version = :version, modified_at = now() WHERE id = :id",
+            [
+                self._param("id", memory_id),
+                self._param("version", version),
+            ],
+        )
+
+    def update_version_read_only(self, memory_id: UUID, version: int, read_only: bool) -> None:
+        """Set the read_only flag on a specific memory version."""
+        self._execute(
+            """UPDATE memory_version SET read_only = :read_only
+               WHERE memory_id = :memory_id AND version = :version""",
+            [
+                self._param("memory_id", memory_id),
+                self._param("version", version),
+                self._param("read_only", read_only),
+            ],
+        )
+
+    def update_memory_name(self, memory_id: UUID, new_name: str) -> None:
+        """Rename a memory."""
+        self._execute(
+            "UPDATE memory_v2 SET name = :name, modified_at = now() WHERE id = :id",
+            [
+                self._param("id", memory_id),
+                self._param("name", new_name),
+            ],
+        )
+
+    def delete_memory_v2(self, memory_id: UUID) -> None:
+        """Delete a versioned memory (CASCADE removes versions)."""
+        self._execute(
+            "DELETE FROM memory_v2 WHERE id = :id",
+            [self._param("id", memory_id)],
+        )
+
+    def delete_memory_version(self, memory_id: UUID, version: int) -> None:
+        """Delete a specific version of a memory."""
+        self._execute(
+            "DELETE FROM memory_version WHERE memory_id = :memory_id AND version = :version",
+            [
+                self._param("memory_id", memory_id),
+                self._param("version", version),
+            ],
+        )
+
+    def list_memories_v2(
+        self,
+        *,
+        prefix: str | None = None,
+        source: str | None = None,
+        limit: int = 200,
+    ) -> list[Memory]:
+        """List versioned memories with active version populated.
+
+        Optionally filter by name prefix and/or active version source.
+        """
+        conditions: list[str] = []
+        params: list[dict] = []
+
+        if prefix:
+            conditions.append("m.name LIKE :prefix")
+            params.append(self._param("prefix", prefix + "%"))
+        if source:
+            conditions.append("mv.source = :source")
+            params.append(self._param("source", source))
+
+        where_clause = (" AND " + " AND ".join(conditions)) if conditions else ""
+        params.append(self._param("limit", limit))
+
+        response = self._execute(
+            f"""SELECT m.id, m.name, m.active_version, m.created_at, m.modified_at,
+                       mv.id as mv_id, mv.version, mv.read_only, mv.content,
+                       mv.source, mv.created_at as mv_created_at
+                FROM memory_v2 m
+                LEFT JOIN memory_version mv
+                    ON mv.memory_id = m.id AND mv.version = m.active_version
+                WHERE 1=1{where_clause}
+                ORDER BY m.name
+                LIMIT :limit""",
+            params,
+        )
+        rows = self._rows_to_dicts(response)
+        results: list[Memory] = []
+        for row in rows:
+            mem = Memory(
+                id=UUID(row["id"]),
+                name=row["name"],
+                active_version=row["active_version"],
+                created_at=datetime.fromisoformat(row["created_at"]) if row.get("created_at") else None,
+                modified_at=datetime.fromisoformat(row["modified_at"]) if row.get("modified_at") else None,
+            )
+            if row.get("version") is not None:
+                mv = MemoryVersion(
+                    id=UUID(row["mv_id"]) if row.get("mv_id") else uuid4(),
+                    memory_id=mem.id,
+                    version=row["version"],
+                    read_only=row.get("read_only", False),
+                    content=row.get("content", ""),
+                    source=row.get("source", "cogent"),
+                    created_at=datetime.fromisoformat(row["mv_created_at"]) if row.get("mv_created_at") else None,
+                )
+                mem.versions[mv.version] = mv
+            results.append(mem)
+        return results
+
+    def resolve_memory_keys(self, keys: list[str]) -> list[Memory]:
+        """Resolve memory keys with ancestor/child init expansion.
+
+        For each key:
+        1. Walk up the path collecting ancestor /init names
+        2. Include the key itself
+        3. Look for children matching key/ prefix that end in /init
+
+        If two memories share the same name, prefer the one whose active
+        version source is not 'polis'.
+        Sort results by path depth (count of '/' in name).
+        """
+        if not keys:
+            return []
+
+        names_to_fetch: set[str] = set()
+        child_prefixes: list[str] = []
+
+        for key in keys:
+            key = key.rstrip("/")
+            parts = key.strip("/").split("/")
+
+            # Ancestor inits: /a/init, /a/b/init, ...
+            for i in range(1, len(parts)):
+                names_to_fetch.add("/" + "/".join(parts[:i]) + "/init")
+
+            # The key itself
+            names_to_fetch.add(key)
+
+            # Child init prefixes
+            child_prefixes.append(key + "/")
+
+        # --- Batch-fetch by exact names ---
+        records_by_name: dict[str, Memory] = {}
+
+        if names_to_fetch:
+            name_params: list[dict] = []
+            placeholders: list[str] = []
+            for i, n in enumerate(sorted(names_to_fetch)):
+                pname = f"n_{i}"
+                name_params.append(self._param(pname, n))
+                placeholders.append(f":{pname}")
+
+            in_clause = ", ".join(placeholders)
+            response = self._execute(
+                f"""SELECT m.id, m.name, m.active_version, m.created_at, m.modified_at,
+                           mv.id as mv_id, mv.version, mv.read_only, mv.content,
+                           mv.source, mv.created_at as mv_created_at
+                    FROM memory_v2 m
+                    LEFT JOIN memory_version mv ON mv.memory_id = m.id
+                    WHERE m.name IN ({in_clause})""",
+                name_params,
+            )
+            rows = self._rows_to_dicts(response)
+            # Group rows by memory name
+            grouped: dict[str, list[dict]] = {}
+            for row in rows:
+                grouped.setdefault(row["name"], []).append(row)
+            for name, group in grouped.items():
+                mem = self._memory_v2_from_rows(group)
+                if mem:
+                    self._merge_memory_by_name(records_by_name, mem)
+
+        # --- Fetch child /init records by prefix ---
+        if child_prefixes:
+            prefix_conditions: list[str] = []
+            prefix_params: list[dict] = []
+            for i, cp in enumerate(child_prefixes):
+                pname = f"cp_{i}"
+                prefix_params.append(self._param(pname, cp + "%"))
+                prefix_conditions.append(f"m.name LIKE :{pname}")
+
+            or_clause = " OR ".join(prefix_conditions)
+            response = self._execute(
+                f"""SELECT m.id, m.name, m.active_version, m.created_at, m.modified_at,
+                           mv.id as mv_id, mv.version, mv.read_only, mv.content,
+                           mv.source, mv.created_at as mv_created_at
+                    FROM memory_v2 m
+                    LEFT JOIN memory_version mv ON mv.memory_id = m.id
+                    WHERE ({or_clause}) AND m.name LIKE '%/init'""",
+                prefix_params,
+            )
+            rows = self._rows_to_dicts(response)
+            grouped = {}
+            for row in rows:
+                grouped.setdefault(row["name"], []).append(row)
+            for name, group in grouped.items():
+                mem = self._memory_v2_from_rows(group)
+                if mem:
+                    self._merge_memory_by_name(records_by_name, mem)
+
+        return sorted(
+            records_by_name.values(),
+            key=lambda m: m.name.count("/"),
+        )
+
+    @staticmethod
+    def _merge_memory_by_name(
+        records_by_name: dict[str, Memory],
+        mem: Memory,
+    ) -> None:
+        """Insert mem into records_by_name, preferring non-polis source on collision."""
+        existing = records_by_name.get(mem.name)
+        if existing is None:
+            records_by_name[mem.name] = mem
+        else:
+            new_active = mem.versions.get(mem.active_version)
+            old_active = existing.versions.get(existing.active_version)
+            new_source = new_active.source if new_active else "cogent"
+            old_source = old_active.source if old_active else "cogent"
+            if old_source == "polis" and new_source != "polis":
+                records_by_name[mem.name] = mem
 
     # ═══════════════════════════════════════════════════════════
     # PROGRAMS
