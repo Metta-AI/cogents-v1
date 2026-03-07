@@ -172,6 +172,7 @@ class BrainStack(Stack):
             "DB_NAME": "cogent",
             "EVENT_BUS_NAME": self.event_bus.event_bus_name,
             "SESSIONS_BUCKET": self.storage.bucket.bucket_name,
+            "DASHBOARD_ASSETS_S3": f"s3://{self.storage.bucket.bucket_name}/dashboard/frontend.tar.gz",
         }
 
         task_def.add_container(
