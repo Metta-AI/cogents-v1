@@ -1,13 +1,14 @@
-"""Tests for memory.store.MemoryStore."""
+"""Tests for memory.store.MemoryStore (versioned memory system)."""
 
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+from uuid import uuid4
 
 import pytest
 
-from brain.db.models import MemoryRecord, MemoryScope
+from brain.db.models import Memory, MemoryVersion
+from memory.errors import MemoryReadOnlyError
 from memory.store import MemoryStore
 
 
@@ -21,190 +22,347 @@ def store(repo):
     return MemoryStore(repo)
 
 
-def _rec(name: str, scope: MemoryScope = MemoryScope.COGENT) -> MemoryRecord:
-    return MemoryRecord(scope=scope, name=name, content=f"content of {name}")
+def _memory(
+    name: str,
+    content: str = "hello",
+    *,
+    version: int = 1,
+    read_only: bool = False,
+    source: str = "cogent",
+) -> Memory:
+    """Helper to build a Memory with its active version populated."""
+    mid = uuid4()
+    mv = MemoryVersion(
+        memory_id=mid,
+        version=version,
+        read_only=read_only,
+        content=content,
+        source=source,
+    )
+    return Memory(
+        id=mid,
+        name=name,
+        active_version=version,
+        versions={version: mv},
+    )
 
 
-# ── resolve_keys ──
+# ── TestCreate ──
 
 
-class TestResolveKeysAncestorInit:
-    def test_ancestor_inits_are_fetched(self, store, repo):
-        """Key /mind/channels/discord/api triggers ancestor /init lookups."""
-        repo.get_memories_by_names.return_value = [
-            _rec("/mind/init"),
-            _rec("/mind/channels/init"),
-            _rec("/mind/channels/discord/init"),
-            _rec("/mind/channels/discord/api"),
-        ]
-        repo.query_memory_by_prefixes.return_value = []
+class TestCreate:
+    def test_creates_memory_with_version_1(self, store, repo):
+        repo.get_memory_by_name.return_value = None
+        repo.insert_memory.return_value = uuid4()
 
-        result = store.resolve_keys(["/mind/channels/discord/api"])
+        result = store.create("notes", "my content")
 
-        fetched_names = set(repo.get_memories_by_names.call_args[0][0])
-        assert "/mind/init" in fetched_names
-        assert "/mind/channels/init" in fetched_names
-        assert "/mind/channels/discord/init" in fetched_names
-        assert "/mind/channels/discord/api" in fetched_names
-        assert len(result) == 4
+        assert isinstance(result, Memory)
+        assert result.name == "notes"
+        assert result.active_version == 1
+        assert 1 in result.versions
+        assert result.versions[1].content == "my content"
+        assert result.versions[1].version == 1
+        assert result.versions[1].source == "cogent"
+        assert result.versions[1].read_only is False
 
+    def test_create_with_read_only(self, store, repo):
+        repo.get_memory_by_name.return_value = None
+        repo.insert_memory.return_value = uuid4()
 
-class TestResolveKeysChildInit:
-    def test_child_init_records_included(self, store, repo):
-        """Child /init records under the key prefix are included."""
-        repo.get_memories_by_names.return_value = [_rec("/mind")]
-        repo.query_memory_by_prefixes.return_value = [
-            _rec("/mind/child/init"),
-            _rec("/mind/child/notinit"),  # should be filtered out
-        ]
+        result = store.create("notes", "content", read_only=True)
 
-        result = store.resolve_keys(["/mind"])
+        assert result.versions[1].read_only is True
 
-        names = [r.name for r in result]
-        assert "/mind/child/init" in names
-        assert "/mind/child/notinit" not in names
+    def test_create_with_custom_source(self, store, repo):
+        repo.get_memory_by_name.return_value = None
+        repo.insert_memory.return_value = uuid4()
 
+        result = store.create("notes", "content", source="polis")
 
-class TestResolveKeysCogentShadowsPolis:
-    def test_cogent_overrides_polis(self, store, repo):
-        """COGENT-scoped record shadows POLIS-scoped record with same name."""
-        polis = _rec("/mind/init", MemoryScope.POLIS)
-        polis.content = "polis"
-        cogent = _rec("/mind/init", MemoryScope.COGENT)
-        cogent.content = "cogent"
-        # Repository returns polis first, then cogent overrides
-        repo.get_memories_by_names.return_value = [polis, cogent]
-        repo.query_memory_by_prefixes.return_value = []
+        assert result.versions[1].source == "polis"
 
-        result = store.resolve_keys(["/mind/init"])
+    def test_create_calls_repo_insert(self, store, repo):
+        repo.get_memory_by_name.return_value = None
+        repo.insert_memory.return_value = uuid4()
 
-        matching = [r for r in result if r.name == "/mind/init"]
-        assert len(matching) == 1
-        assert matching[0].content == "cogent"
+        store.create("notes", "content")
+
+        repo.insert_memory.assert_called_once()
+        mem = repo.insert_memory.call_args[0][0]
+        assert isinstance(mem, Memory)
+        assert mem.name == "notes"
 
 
-class TestResolveKeysEmpty:
-    def test_empty_keys_returns_empty(self, store, repo):
-        assert store.resolve_keys([]) == []
-        repo.get_memories_by_names.assert_not_called()
+# ── TestNewVersion ──
 
 
-class TestResolveKeysDedup:
-    def test_shared_ancestors_not_duplicated(self, store, repo):
-        """Two keys sharing /mind/init don't produce duplicate records."""
-        init_rec = _rec("/mind/init")
-        repo.get_memories_by_names.return_value = [
-            init_rec,
-            _rec("/mind/a"),
-            _rec("/mind/b"),
-        ]
-        repo.query_memory_by_prefixes.return_value = []
+class TestNewVersion:
+    def test_adds_version_when_content_changed(self, store, repo):
+        existing = _memory("notes", "old content", version=1)
+        repo.get_memory_by_name.return_value = existing
+        repo.get_max_version.return_value = 1
 
-        result = store.resolve_keys(["/mind/a", "/mind/b"])
+        result = store.new_version("notes", "new content")
 
-        names = [r.name for r in result]
-        assert names.count("/mind/init") == 1
+        assert isinstance(result, MemoryVersion)
+        assert result.version == 2
+        assert result.content == "new content"
+        repo.insert_memory_version.assert_called_once()
+        repo.update_active_version.assert_called_once_with(existing.id, 2)
+
+    def test_returns_none_when_content_unchanged(self, store, repo):
+        existing = _memory("notes", "same content", version=1)
+        repo.get_memory_by_name.return_value = existing
+
+        result = store.new_version("notes", "same content")
+
+        assert result is None
+        repo.insert_memory_version.assert_not_called()
+
+    def test_read_only_on_old_version_does_not_block(self, store, repo):
+        existing = _memory("notes", "old", version=1, read_only=True)
+        repo.get_memory_by_name.return_value = existing
+        repo.get_max_version.return_value = 1
+
+        result = store.new_version("notes", "new content")
+
+        assert isinstance(result, MemoryVersion)
+        assert result.version == 2
+
+    def test_returns_none_when_memory_not_found(self, store, repo):
+        repo.get_memory_by_name.return_value = None
+
+        result = store.new_version("nonexistent", "content")
+
+        assert result is None
 
 
-class TestResolveKeysSortedByDepth:
-    def test_results_sorted_root_to_leaf(self, store, repo):
-        repo.get_memories_by_names.return_value = [
-            _rec("/a/b/c/d"),
-            _rec("/a/init"),
-            _rec("/a/b/init"),
-        ]
-        repo.query_memory_by_prefixes.return_value = []
-
-        result = store.resolve_keys(["/a/b/c/d"])
-
-        names = [r.name for r in result]
-        # Depth 2 (/a/init), depth 3 (/a/b/init, /a/b/c/init), depth 4 (/a/b/c/d)
-        assert names[0] == "/a/init"
-        assert names[-1] == "/a/b/c/d"
-        # Shallower records come before deeper ones
-        depths = [n.count("/") for n in names]
-        assert depths == sorted(depths)
-
-
-# ── upsert ──
+# ── TestUpsert ──
 
 
 class TestUpsert:
-    def test_calls_insert_with_embedding(self, store, repo):
-        embedding = [0.1, 0.2, 0.3]
-        mock_bedrock = MagicMock()
-        mock_bedrock.invoke_model.return_value = {
-            "body": MagicMock(read=MagicMock(return_value=json.dumps({"embedding": embedding}).encode())),
-        }
-        store._bedrock = mock_bedrock
+    def test_creates_when_not_exists(self, store, repo):
+        repo.get_memory_by_name.return_value = None
+        repo.insert_memory.return_value = uuid4()
 
-        result = store.upsert("/test", "hello world")
+        result = store.upsert("notes", "content")
 
-        mock_bedrock.invoke_model.assert_called_once()
-        repo.insert_memory.assert_called_once()
-        inserted = repo.insert_memory.call_args[0][0]
-        assert inserted.embedding == embedding
-        assert inserted.name == "/test"
-        assert inserted.content == "hello world"
-
-    def test_embedding_failure_is_non_fatal(self, store, repo):
-        mock_bedrock = MagicMock()
-        mock_bedrock.invoke_model.side_effect = RuntimeError("bedrock down")
-        store._bedrock = mock_bedrock
-
-        result = store.upsert("/test", "hello")
-
-        repo.insert_memory.assert_called_once()
-        inserted = repo.insert_memory.call_args[0][0]
-        assert inserted.embedding is None
-
-    def test_skip_embedding(self, store, repo):
-        store._bedrock = MagicMock()
-
-        result = store.upsert("/test", "hello", generate_embedding=False)
-
-        store._bedrock.invoke_model.assert_not_called()
+        assert isinstance(result, Memory)
         repo.insert_memory.assert_called_once()
 
+    def test_raises_when_active_is_read_only(self, store, repo):
+        existing = _memory("notes", "locked", version=1, read_only=True)
+        repo.get_memory_by_name.return_value = existing
 
-# ── list_memories ──
+        with pytest.raises(MemoryReadOnlyError) as exc_info:
+            store.upsert("notes", "new content")
+
+        assert exc_info.value.name == "notes"
+        assert exc_info.value.version == 1
+
+    def test_skips_when_content_unchanged(self, store, repo):
+        existing = _memory("notes", "same", version=1)
+        repo.get_memory_by_name.return_value = existing
+
+        result = store.upsert("notes", "same")
+
+        assert result is None
+        repo.insert_memory_version.assert_not_called()
+
+    def test_creates_new_version_when_content_changed(self, store, repo):
+        existing = _memory("notes", "old", version=1)
+        repo.get_memory_by_name.return_value = existing
+        repo.get_max_version.return_value = 1
+
+        result = store.upsert("notes", "new")
+
+        assert isinstance(result, MemoryVersion)
+        assert result.version == 2
+
+
+# ── TestActivate ──
+
+
+class TestActivate:
+    def test_switches_active_version(self, store, repo):
+        mem = _memory("notes", "v1", version=1)
+        repo.get_memory_by_name.return_value = mem
+        repo.get_memory_version.return_value = MemoryVersion(
+            memory_id=mem.id, version=2, content="v2"
+        )
+
+        store.activate("notes", 2)
+
+        repo.update_active_version.assert_called_once_with(mem.id, 2)
+
+    def test_raises_when_version_not_found(self, store, repo):
+        mem = _memory("notes", "v1", version=1)
+        repo.get_memory_by_name.return_value = mem
+        repo.get_memory_version.return_value = None
+
+        with pytest.raises(ValueError):
+            store.activate("notes", 99)
+
+
+# ── TestSetReadOnly ──
+
+
+class TestSetReadOnly:
+    def test_sets_read_only_on_active_version(self, store, repo):
+        mem = _memory("notes", "content", version=1)
+        repo.get_memory_by_name.return_value = mem
+
+        store.set_read_only("notes", True)
+
+        repo.update_version_read_only.assert_called_once_with(mem.id, 1, True)
+
+    def test_sets_read_only_on_specific_version(self, store, repo):
+        mem = _memory("notes", "content", version=1)
+        repo.get_memory_by_name.return_value = mem
+
+        store.set_read_only("notes", True, version=3)
+
+        repo.update_version_read_only.assert_called_once_with(mem.id, 3, True)
+
+
+# ── TestResolveKeys ──
+
+
+class TestResolveKeys:
+    def test_delegates_to_repo(self, store, repo):
+        mem = _memory("notes", "content")
+        repo.resolve_memory_keys.return_value = [mem]
+
+        result = store.resolve_keys(["notes"])
+
+        repo.resolve_memory_keys.assert_called_once_with(["notes"])
+        assert result == [mem]
+
+
+# ── TestDelete ──
+
+
+class TestDelete:
+    def test_deletes_entire_memory(self, store, repo):
+        mem = _memory("notes", "content", version=1)
+        repo.get_memory_by_name.return_value = mem
+
+        store.delete("notes")
+
+        repo.delete_memory.assert_called_once_with(mem.id)
+
+    def test_raises_when_active_is_read_only(self, store, repo):
+        mem = _memory("notes", "locked", version=1, read_only=True)
+        repo.get_memory_by_name.return_value = mem
+
+        with pytest.raises(MemoryReadOnlyError):
+            store.delete("notes")
+
+    def test_deletes_specific_version(self, store, repo):
+        mem = _memory("notes", "content", version=1)
+        repo.get_memory_by_name.return_value = mem
+
+        store.delete("notes", version=2)
+
+        repo.delete_memory_version.assert_called_once_with(mem.id, 2)
+
+    def test_raises_when_deleting_active_version(self, store, repo):
+        mem = _memory("notes", "content", version=1)
+        repo.get_memory_by_name.return_value = mem
+
+        with pytest.raises(ValueError):
+            store.delete("notes", version=1)
+
+
+# ── TestRename ──
+
+
+class TestRename:
+    def test_renames_memory(self, store, repo):
+        mem = _memory("old-name", "content")
+        repo.get_memory_by_name.return_value = mem
+
+        store.rename("old-name", "new-name")
+
+        repo.update_memory_name.assert_called_once_with(mem.id, "new-name")
+
+    def test_raises_when_not_found(self, store, repo):
+        repo.get_memory_by_name.return_value = None
+
+        with pytest.raises(ValueError):
+            store.rename("nonexistent", "new-name")
+
+
+# ── TestGet ──
+
+
+class TestGet:
+    def test_returns_memory(self, store, repo):
+        mem = _memory("notes")
+        repo.get_memory_by_name.return_value = mem
+
+        assert store.get("notes") == mem
+
+    def test_returns_none_when_not_found(self, store, repo):
+        repo.get_memory_by_name.return_value = None
+
+        assert store.get("missing") is None
+
+
+# ── TestGetVersion ──
+
+
+class TestGetVersion:
+    def test_returns_version(self, store, repo):
+        mem = _memory("notes")
+        mv = MemoryVersion(memory_id=mem.id, version=2, content="v2")
+        repo.get_memory_by_name.return_value = mem
+        repo.get_memory_version.return_value = mv
+
+        result = store.get_version("notes", 2)
+
+        assert result == mv
+        repo.get_memory_version.assert_called_once_with(mem.id, 2)
+
+    def test_returns_none_when_memory_not_found(self, store, repo):
+        repo.get_memory_by_name.return_value = None
+
+        assert store.get_version("missing", 1) is None
+
+
+# ── TestListMemories ──
 
 
 class TestListMemories:
     def test_delegates_to_repo(self, store, repo):
-        repo.query_memory.return_value = [_rec("/a")]
+        repo.list_memories.return_value = [_memory("a"), _memory("b")]
 
-        result = store.list_memories(prefix="/a", scope=MemoryScope.COGENT, limit=10)
+        result = store.list_memories(prefix="/", source="cogent", limit=10)
 
-        repo.query_memory.assert_called_once_with(scope=MemoryScope.COGENT, prefix="/a", limit=10)
-        assert len(result) == 1
-
-
-# ── get ──
+        repo.list_memories.assert_called_once_with(prefix="/", source="cogent", limit=10)
+        assert len(result) == 2
 
 
-class TestGet:
-    def test_returns_record(self, store, repo):
-        rec = _rec("/test")
-        repo.query_memory.return_value = [rec]
-
-        assert store.get("/test") == rec
-        repo.query_memory.assert_called_once_with(name="/test", limit=1)
-
-    def test_returns_none_when_not_found(self, store, repo):
-        repo.query_memory.return_value = []
-
-        assert store.get("/missing") is None
+# ── TestHistory ──
 
 
-# ── delete_by_prefix ──
+class TestHistory:
+    def test_returns_all_versions(self, store, repo):
+        mem = _memory("notes")
+        versions = [
+            MemoryVersion(memory_id=mem.id, version=1, content="v1"),
+            MemoryVersion(memory_id=mem.id, version=2, content="v2"),
+        ]
+        repo.get_memory_by_name.return_value = mem
+        repo.list_memory_versions.return_value = versions
 
+        result = store.history("notes")
 
-class TestDeleteByPrefix:
-    def test_delegates_to_repo(self, store, repo):
-        repo.delete_memories_by_prefix.return_value = 3
+        assert result == versions
+        repo.list_memory_versions.assert_called_once_with(mem.id)
 
-        result = store.delete_by_prefix("/old/", scope=MemoryScope.COGENT)
+    def test_returns_empty_when_not_found(self, store, repo):
+        repo.get_memory_by_name.return_value = None
 
-        repo.delete_memories_by_prefix.assert_called_once_with("/old/", MemoryScope.COGENT)
-        assert result == 3
+        assert store.history("missing") == []

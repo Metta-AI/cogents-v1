@@ -1,162 +1,201 @@
-"""MemoryStore: high-level memory operations with hierarchical key resolution."""
+"""MemoryStore: high-level versioned memory operations."""
 
 from __future__ import annotations
 
-import json
 import logging
 
-import boto3
-
-from brain.db.models import MemoryRecord, MemoryScope
-from brain.db.repository import Repository
+from brain.db.models import Memory, MemoryVersion
+from memory.errors import MemoryReadOnlyError
 
 logger = logging.getLogger(__name__)
 
 
 class MemoryStore:
-    """Wraps Repository with hierarchical key resolution, scope overrides, and embeddings."""
+    """Wraps a repository with versioned memory operations."""
 
-    def __init__(self, repo: Repository, *, embed_model: str = "amazon.titan-embed-text-v2:0") -> None:
+    def __init__(self, repo) -> None:  # noqa: ANN001
         self._repo = repo
-        self._embed_model = embed_model
-        self._bedrock: boto3.client | None = None
-
-    def _get_bedrock(self) -> boto3.client:
-        if self._bedrock is None:
-            self._bedrock = boto3.client("bedrock-runtime")
-        return self._bedrock
 
     # ───────────────────────────────────────────────────────────
-    # Hierarchical key resolution
+    # Create / Version / Upsert
     # ───────────────────────────────────────────────────────────
 
-    def resolve_keys(self, keys: list[str]) -> list[MemoryRecord]:
-        """Resolve memory keys with ancestor/child init expansion.
-
-        For each key, collects:
-        1. Ancestor /init records walking up the path
-        2. The key itself (exact match)
-        3. Child /init records (immediate children)
-
-        COGENT-scoped records shadow POLIS-scoped records with the same name.
-        Results are sorted root-to-leaf by path depth.
-        """
-        if not keys:
-            return []
-
-        names_to_fetch: set[str] = set()
-        child_prefixes: list[str] = []
-
-        for key in keys:
-            key = key.rstrip("/")
-            parts = key.strip("/").split("/")
-
-            # Ancestor inits: /a/init, /a/b/init, ...
-            for i in range(1, len(parts)):
-                names_to_fetch.add("/" + "/".join(parts[:i]) + "/init")
-
-            # The key itself
-            names_to_fetch.add(key)
-
-            # We'll also look for child inits under this key
-            child_prefixes.append(key + "/")
-
-        # Batch fetch exact names
-        records_by_name: dict[str, MemoryRecord] = {}
-        if names_to_fetch:
-            for rec in self._repo.get_memories_by_names(list(names_to_fetch)):
-                if rec.name:
-                    # COGENT overrides POLIS: scope sorts ASC so cogent comes after polis
-                    records_by_name[rec.name] = rec
-
-        # Fetch children matching key/ prefixes, keep only /init records
-        if child_prefixes:
-            child_records = self._repo.query_memory_by_prefixes(child_prefixes)
-            for rec in child_records:
-                if rec.name and rec.name.endswith("/init"):
-                    records_by_name[rec.name] = rec
-
-        # Sort by path depth (root first), then alphabetically
-        return sorted(
-            records_by_name.values(),
-            key=lambda r: (r.name or "").count("/"),
+    def create(
+        self,
+        name: str,
+        content: str,
+        *,
+        source: str = "cogent",
+        read_only: bool = False,
+    ) -> Memory:
+        """Create a new memory with version 1."""
+        mem = Memory(name=name, active_version=1)
+        mv = MemoryVersion(
+            memory_id=mem.id,
+            version=1,
+            content=content,
+            source=source,
+            read_only=read_only,
         )
+        mem.versions[1] = mv
+        self._repo.insert_memory(mem)
+        return mem
 
-    # ───────────────────────────────────────────────────────────
-    # CRUD
-    # ───────────────────────────────────────────────────────────
+    def new_version(
+        self,
+        name: str,
+        content: str,
+        *,
+        source: str = "cogent",
+        read_only: bool = False,
+    ) -> MemoryVersion | None:
+        """Add a new version if content changed. Returns None if unchanged or not found.
+
+        Does NOT check read_only on the current active version -- it creates a NEW version.
+        """
+        mem = self._repo.get_memory_by_name(name)
+        if mem is None:
+            return None
+
+        # Check if content is unchanged vs active version
+        active_mv = mem.versions.get(mem.active_version)
+        if active_mv and active_mv.content == content:
+            return None
+
+        next_ver = self._repo.get_max_version(mem.id) + 1
+        mv = MemoryVersion(
+            memory_id=mem.id,
+            version=next_ver,
+            content=content,
+            source=source,
+            read_only=read_only,
+        )
+        self._repo.insert_memory_version(mv)
+        self._repo.update_active_version(mem.id, next_ver)
+        return mv
 
     def upsert(
         self,
         name: str,
         content: str,
         *,
-        scope: MemoryScope = MemoryScope.COGENT,
-        provenance: dict | None = None,
-        generate_embedding: bool = True,
-    ) -> MemoryRecord:
-        """Create or update a memory record, optionally generating an embedding."""
-        embedding = None
-        if generate_embedding and content.strip():
-            try:
-                embedding = self._generate_embedding(content)
-            except Exception:
-                logger.warning("Failed to generate embedding for %s", name, exc_info=True)
+        source: str = "cogent",
+        read_only: bool = False,
+    ) -> Memory | MemoryVersion | None:
+        """Create or update a memory.
 
-        record = MemoryRecord(
-            scope=scope,
-            name=name,
-            content=content,
-            embedding=embedding,
-            provenance=provenance or {},
-        )
-        self._repo.insert_memory(record)
-        return record
+        - Creates if not exists (returns Memory).
+        - Raises MemoryReadOnlyError if active version is read_only.
+        - Returns None if content unchanged.
+        - Otherwise creates new version (returns MemoryVersion).
+        """
+        mem = self._repo.get_memory_by_name(name)
+        if mem is None:
+            return self.create(name, content, source=source, read_only=read_only)
+
+        active_mv = mem.versions.get(mem.active_version)
+        if active_mv and active_mv.read_only:
+            raise MemoryReadOnlyError(name, mem.active_version, active_mv.source)
+
+        return self.new_version(name, content, source=source, read_only=read_only)
+
+    # ───────────────────────────────────────────────────────────
+    # Read
+    # ───────────────────────────────────────────────────────────
+
+    def get(self, name: str) -> Memory | None:
+        """Get a memory by name."""
+        return self._repo.get_memory_by_name(name)
+
+    def get_version(self, name: str, version: int) -> MemoryVersion | None:
+        """Get a specific version of a memory."""
+        mem = self._repo.get_memory_by_name(name)
+        if mem is None:
+            return None
+        return self._repo.get_memory_version(mem.id, version)
 
     def list_memories(
         self,
         *,
         prefix: str | None = None,
-        scope: MemoryScope | None = None,
+        source: str | None = None,
         limit: int = 200,
-    ) -> list[MemoryRecord]:
-        return self._repo.query_memory(scope=scope, prefix=prefix, limit=limit)
+    ) -> list[Memory]:
+        """List memories with optional filters."""
+        return self._repo.list_memories(prefix=prefix, source=source, limit=limit)
 
-    def get(self, name: str) -> MemoryRecord | None:
-        """Get a single memory record by exact name."""
-        results = self._repo.query_memory(name=name, limit=1)
-        return results[0] if results else None
-
-    def delete_by_prefix(
-        self,
-        prefix: str,
-        *,
-        scope: MemoryScope | None = None,
-    ) -> int:
-        return self._repo.delete_memories_by_prefix(prefix, scope)
+    def history(self, name: str) -> list[MemoryVersion]:
+        """Return all versions for a memory."""
+        mem = self._repo.get_memory_by_name(name)
+        if mem is None:
+            return []
+        return self._repo.list_memory_versions(mem.id)
 
     # ───────────────────────────────────────────────────────────
-    # Embeddings
+    # Manage
     # ───────────────────────────────────────────────────────────
 
-    def _generate_embedding(self, text: str) -> list[float]:
-        """Generate an embedding vector using Bedrock Titan."""
-        bedrock = self._get_bedrock()
-        response = bedrock.invoke_model(
-            modelId=self._embed_model,
-            body=json.dumps({"inputText": text[:8000]}),
-        )
-        result = json.loads(response["body"].read())
-        return result["embedding"]
+    def activate(self, name: str, version: int) -> None:
+        """Switch the active version. Raises ValueError if version doesn't exist."""
+        mem = self._repo.get_memory_by_name(name)
+        if mem is None:
+            raise ValueError(f"memory '{name}' not found")
+        mv = self._repo.get_memory_version(mem.id, version)
+        if mv is None:
+            raise ValueError(
+                f"version {version} does not exist for memory '{name}'"
+            )
+        self._repo.update_active_version(mem.id, version)
 
-    def search_similar(
-        self,
-        query: str,
-        *,
-        limit: int = 10,
-    ) -> list[MemoryRecord]:
-        """Semantic search: generate embedding for query, then search via pgvector."""
-        # pgvector search is not yet wired through RDS Data API
-        # (Data API doesn't support vector types natively)
-        logger.info("Semantic search not yet available via Data API, returning empty")
-        return []
+    def set_read_only(
+        self, name: str, read_only: bool, *, version: int | None = None
+    ) -> None:
+        """Set read_only flag on a version (defaults to active version)."""
+        mem = self._repo.get_memory_by_name(name)
+        if mem is None:
+            raise ValueError(f"memory '{name}' not found")
+        ver = version if version is not None else mem.active_version
+        self._repo.update_version_read_only(mem.id, ver, read_only)
+
+    def rename(self, old_name: str, new_name: str) -> None:
+        """Rename a memory. Raises ValueError if not found."""
+        mem = self._repo.get_memory_by_name(old_name)
+        if mem is None:
+            raise ValueError(f"memory '{old_name}' not found")
+        self._repo.update_memory_name(mem.id, new_name)
+
+    # ───────────────────────────────────────────────────────────
+    # Delete
+    # ───────────────────────────────────────────────────────────
+
+    def delete(self, name: str, *, version: int | None = None) -> None:
+        """Delete a memory or a specific version.
+
+        Without version: deletes entire memory. Raises MemoryReadOnlyError if active is read_only.
+        With version: deletes single version. Raises ValueError if it's the active version.
+        """
+        mem = self._repo.get_memory_by_name(name)
+        if mem is None:
+            raise ValueError(f"memory '{name}' not found")
+
+        if version is None:
+            active_mv = mem.versions.get(mem.active_version)
+            if active_mv and active_mv.read_only:
+                raise MemoryReadOnlyError(
+                    name, mem.active_version, active_mv.source
+                )
+            self._repo.delete_memory(mem.id)
+        else:
+            if version == mem.active_version:
+                raise ValueError(
+                    f"cannot delete active version {version} of memory '{name}'"
+                )
+            self._repo.delete_memory_version(mem.id, version)
+
+    # ───────────────────────────────────────────────────────────
+    # Key Resolution
+    # ───────────────────────────────────────────────────────────
+
+    def resolve_keys(self, keys: list[str]) -> list[Memory]:
+        """Resolve memory keys — delegates to repo."""
+        return self._repo.resolve_memory_keys(keys)
