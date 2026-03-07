@@ -192,6 +192,12 @@ $$ LANGUAGE plpgsql""",
         "ALTER TABLE IF EXISTS memory RENAME TO memory_legacy",
         "INSERT INTO schema_version (version) VALUES (6) ON CONFLICT DO NOTHING",
     ],
+    7: [
+        "ALTER TABLE triggers ADD COLUMN IF NOT EXISTS throttle_timestamps JSONB NOT NULL DEFAULT '[]'",
+        "ALTER TABLE triggers ADD COLUMN IF NOT EXISTS throttle_rejected INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE triggers ADD COLUMN IF NOT EXISTS throttle_active BOOLEAN NOT NULL DEFAULT false",
+        "INSERT INTO schema_version (version) VALUES (7) ON CONFLICT DO NOTHING",
+    ],
 }
 
 

@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS triggers (
     priority        INTEGER NOT NULL DEFAULT 10,
     config          JSONB NOT NULL DEFAULT '{}',
     enabled         BOOLEAN NOT NULL DEFAULT true,
+    throttle_timestamps JSONB NOT NULL DEFAULT '[]',
+    throttle_rejected   INTEGER NOT NULL DEFAULT 0,
+    throttle_active     BOOLEAN NOT NULL DEFAULT false,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_triggers_enabled ON triggers (event_pattern) WHERE enabled = true;
