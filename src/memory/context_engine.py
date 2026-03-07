@@ -67,12 +67,14 @@ class ContextEngine:
 
         # Layer 80: Declared memories
         if program.memory_keys:
-            records = self._memory.resolve_keys(program.memory_keys)
-            if records:
+            memories = self._memory.resolve_keys(program.memory_keys)
+            if memories:
                 sections = []
-                for rec in records:
-                    label = rec.name or "unnamed"
-                    sections.append(f"<memory name=\"{label}\">\n{rec.content}\n</memory>")
+                for mem in memories:
+                    label = mem.name or "unnamed"
+                    active = mem.versions.get(mem.active_version)
+                    content = active.content if active else ""
+                    sections.append(f"<memory name=\"{label}\">\n{content}\n</memory>")
                 memory_text = "\n\n".join(sections)
                 layers.append(ContextLayer(
                     name="memory",
