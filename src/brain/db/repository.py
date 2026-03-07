@@ -84,7 +84,24 @@ class Repository:
                 "(DB_RESOURCE_ARN, DB_SECRET_ARN, DB_NAME)"
             )
 
-        client = boto3.client("rds-data", region_name=region)
+        # If the DB cluster is in a different account, assume a role there
+        # so the RDS Data API call originates from the correct account.
+        assume_role_arn = os.environ.get("DB_ASSUME_ROLE_ARN", "")
+        if assume_role_arn:
+            sts = boto3.client("sts", region_name=region)
+            creds = sts.assume_role(
+                RoleArn=assume_role_arn,
+                RoleSessionName="cogent-dashboard-db",
+            )["Credentials"]
+            client = boto3.client(
+                "rds-data",
+                region_name=region,
+                aws_access_key_id=creds["AccessKeyId"],
+                aws_secret_access_key=creds["SecretAccessKey"],
+                aws_session_token=creds["SessionToken"],
+            )
+        else:
+            client = boto3.client("rds-data", region_name=region)
         return cls(client, resource_arn, secret_arn, database)
 
     def __enter__(self) -> Repository:

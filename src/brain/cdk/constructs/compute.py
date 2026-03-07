@@ -31,7 +31,9 @@ def _build_lambda_package() -> str:
     if not uv:
         raise RuntimeError("uv not found on PATH; needed to bundle Lambda dependencies")
     subprocess.check_call(
-        [uv, "pip", "install", "pydantic", "--target", build_dir, "--quiet",
+        [uv, "pip", "install",
+         "pydantic", "google-api-python-client", "google-auth",
+         "--target", build_dir, "--quiet",
          "--python-platform", "linux", "--python-version", "3.12"],
     )
     # Copy src/ contents
@@ -130,6 +132,12 @@ class ComputeConstruct(Construct):
             iam.PolicyStatement(
                 actions=["bedrock:InvokeModel", "bedrock:Converse"],
                 resources=["*"],
+            )
+        )
+        executor_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=[f"arn:aws:secretsmanager:*:*:secret:cogent/{config.cogent_name}/*"],
             )
         )
 

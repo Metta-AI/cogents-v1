@@ -95,9 +95,16 @@ def _package_lambda_code() -> bytes:
 
     # Install runtime deps into a temp directory
     deps_dir = tempfile.mkdtemp(prefix="lambda-deps-")
-    lambda_deps = ["pydantic", "pydantic-settings", "pydantic-core", "annotated-types"]
+    lambda_deps = [
+        "pydantic", "pydantic-settings", "pydantic-core", "annotated-types",
+        "google-api-python-client", "google-auth",
+    ]
     subprocess.check_call(
-        ["uv", "pip", "install", "--target", deps_dir, "--quiet", "--python", "3.12"]
+        [
+            "uv", "pip", "install", "--target", deps_dir, "--quiet",
+            "--python", "3.12",
+            "--python-platform", "linux",
+        ]
         + lambda_deps,
     )
 
