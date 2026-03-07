@@ -78,6 +78,25 @@ class MemoryRecord(BaseModel):
     updated_at: datetime | None = None
 
 
+class MemoryVersion(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    memory_id: UUID
+    version: int
+    read_only: bool = False
+    content: str = ""
+    source: str = "cogent"
+    created_at: datetime | None = None
+
+
+class Memory(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    name: str
+    active_version: int = 1
+    versions: dict[int, MemoryVersion] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    modified_at: datetime | None = None
+
+
 class Program(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     name: str
