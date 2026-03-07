@@ -308,22 +308,34 @@ export function TasksPanel({ tasks, cogentName, onRefresh, memory, programs, tim
     () => sortTasks(filteredTasks.filter((t) => t.status === "completed" && isRecent(t.completed_at))),
     [filteredTasks, sortTasks],
   );
+  // IDs already claimed by higher-priority sections
+  const claimedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const t of [...runningTasks, ...stuckTasks, ...recentlyFinished]) {
+      ids.add(t.id);
+    }
+    return ids;
+  }, [runningTasks, stuckTasks, recentlyFinished]);
+
   const recentlyFailed = useMemo(
     () => sortTasks(filteredTasks.filter((t) =>
+      !claimedIds.has(t.id) &&
       (t.last_run_status === "failed" || t.last_run_status === "timeout") &&
       isRecent(t.last_run_at) &&
       t.status !== "running" && t.status !== "scheduled",
     )),
-    [filteredTasks, sortTasks],
+    [filteredTasks, sortTasks, claimedIds],
   );
 
+  const failedIds = useMemo(() => new Set(recentlyFailed.map((t) => t.id)), [recentlyFailed]);
+
   const runnableTasks = useMemo(
-    () => sortTasks(filteredTasks.filter((t) => t.status === "runnable" && !isStuck(t))),
-    [filteredTasks, sortTasks],
+    () => sortTasks(filteredTasks.filter((t) => t.status === "runnable" && !isStuck(t) && !claimedIds.has(t.id) && !failedIds.has(t.id))),
+    [filteredTasks, sortTasks, claimedIds, failedIds],
   );
   const completedTasks = useMemo(
-    () => sortTasks(filteredTasks.filter((t) => t.status === "completed" && !isRecent(t.completed_at))),
-    [filteredTasks, sortTasks],
+    () => sortTasks(filteredTasks.filter((t) => t.status === "completed" && !isRecent(t.completed_at) && !claimedIds.has(t.id) && !failedIds.has(t.id))),
+    [filteredTasks, sortTasks, claimedIds, failedIds],
   );
 
   const highlightIds = useMemo(() => {
