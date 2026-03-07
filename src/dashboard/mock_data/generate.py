@@ -24,8 +24,8 @@ from brain.db.models import (
     ConversationStatus,
     Cron,
     Event,
-    MemoryRecord,
-    MemoryScope,
+    Memory,
+    MemoryVersion,
     Program,
     ProgramType,
     Run,
@@ -340,33 +340,42 @@ def make_alerts() -> list[Alert]:
 # ── Memory ────────────────────────────────────────────────
 
 MEMORY_DEFS = [
-    (MemoryScope.COGENT, "brand-voice", "Maintain a professional but approachable tone. Use active voice. Avoid jargon unless writing for a technical audience."),
-    (MemoryScope.COGENT, "code-standards", "All Python code must pass ruff and mypy --strict. Max line length 120. Prefer explicit imports."),
-    (MemoryScope.COGENT, "alert-thresholds", "CPU: warn at 80%, critical at 95%. Memory: warn at 75%, critical at 90%. Disk: warn at 80%."),
-    (MemoryScope.COGENT, "email-templates", "Use the standard greeting format: 'Hi {name},' followed by a blank line. Sign off with 'Best regards, Cogent Team'."),
-    (MemoryScope.COGENT, "issue-triage-rules", "P0: service down or data loss. P1: degraded functionality. P2: cosmetic or minor. P3: feature request."),
-    (MemoryScope.POLIS, "project-context", "Cogent is an AI agent orchestration platform. Key repos: cogents/main, cogents/dashboard. Deploy target: AWS ECS Fargate."),
-    (MemoryScope.POLIS, "team-contacts", "Engineering lead: Alice (alice@example.com). Product: Bob (bob@example.com). DevOps: Charlie (charlie@example.com)."),
-    (MemoryScope.COGENT, "content-calendar", "Blog posts every Tuesday. Newsletter every other Friday. Social media daily at 10am EST."),
-    (MemoryScope.COGENT, "faq", "Q: How do I reset my API key? A: Go to Settings > API Keys > Regenerate. Q: What models are supported? A: Claude Sonnet, Haiku, and Opus."),
-    (MemoryScope.POLIS, "deployment-notes", "Last deploy: v1.4.2 on 2025-02-28. Known issue: WebSocket reconnection can take up to 30s after deploy."),
+    ("cogent", "/brand-voice", "Maintain a professional but approachable tone. Use active voice. Avoid jargon unless writing for a technical audience."),
+    ("cogent", "/code-standards", "All Python code must pass ruff and mypy --strict. Max line length 120. Prefer explicit imports."),
+    ("cogent", "/alert-thresholds", "CPU: warn at 80%, critical at 95%. Memory: warn at 75%, critical at 90%. Disk: warn at 80%."),
+    ("cogent", "/email-templates", "Use the standard greeting format: 'Hi {name},' followed by a blank line. Sign off with 'Best regards, Cogent Team'."),
+    ("cogent", "/issue-triage-rules", "P0: service down or data loss. P1: degraded functionality. P2: cosmetic or minor. P3: feature request."),
+    ("polis", "/project-context", "Cogent is an AI agent orchestration platform. Key repos: cogents/main, cogents/dashboard. Deploy target: AWS ECS Fargate."),
+    ("polis", "/team-contacts", "Engineering lead: Alice (alice@example.com). Product: Bob (bob@example.com). DevOps: Charlie (charlie@example.com)."),
+    ("cogent", "/content-calendar", "Blog posts every Tuesday. Newsletter every other Friday. Social media daily at 10am EST."),
+    ("cogent", "/faq", "Q: How do I reset my API key? A: Go to Settings > API Keys > Regenerate. Q: What models are supported? A: Claude Sonnet, Haiku, and Opus."),
+    ("polis", "/deployment-notes", "Last deploy: v1.4.2 on 2025-02-28. Known issue: WebSocket reconnection can take up to 30s after deploy."),
 ]
 
 
-def make_memory() -> list[MemoryRecord]:
-    records = []
-    for scope, name, content in MEMORY_DEFS:
+def make_memory() -> tuple[list[Memory], list[MemoryVersion]]:
+    memories = []
+    versions = []
+    for source, name, content in MEMORY_DEFS:
         created = _ago(days=random.randint(2, 30))
-        records.append(MemoryRecord(
+        mem = Memory(
             id=uuid4(),
-            scope=scope,
             name=name,
-            content=content,
-            provenance={"source": "manual", "author": "admin"},
+            active_version=1,
             created_at=created,
-            updated_at=created + timedelta(days=random.randint(0, 5)),
-        ))
-    return records
+            modified_at=created + timedelta(days=random.randint(0, 5)),
+        )
+        mv = MemoryVersion(
+            id=uuid4(),
+            memory_id=mem.id,
+            version=1,
+            content=content,
+            source=source,
+            created_at=created,
+        )
+        memories.append(mem)
+        versions.append(mv)
+    return memories, versions
 
 
 # ── Traces ────────────────────────────────────────────────
@@ -415,7 +424,7 @@ def generate(data_dir: str | None = None) -> Path:
     events, event_seq = make_events(60)
     conversations = make_conversations(channels)
     alerts = make_alerts()
-    memory = make_memory()
+    memories, memory_versions = make_memory()
     traces = make_traces(runs)
 
     data = {
@@ -429,8 +438,9 @@ def generate(data_dir: str | None = None) -> Path:
         "conversations": [c.model_dump(mode="json") for c in conversations],
         "channels": [ch.model_dump(mode="json") for ch in channels],
         "alerts": [a.model_dump(mode="json") for a in alerts],
-        "memory": [m.model_dump(mode="json") for m in memory],
         "traces": [t.model_dump(mode="json") for t in traces],
+        "memories_v2": [m.model_dump(mode="json", exclude={"versions"}) for m in memories],
+        "memory_versions": [mv.model_dump(mode="json") for mv in memory_versions],
     }
 
     out_file.write_text(json.dumps(data, indent=2, default=_json_serial))
@@ -438,7 +448,7 @@ def generate(data_dir: str | None = None) -> Path:
     print(f"  {len(programs)} programs, {len(tasks)} tasks, {len(runs)} runs")
     print(f"  {len(triggers)} triggers, {len(crons)} crons, {len(events)} events")
     print(f"  {len(channels)} channels, {len(conversations)} conversations")
-    print(f"  {len(alerts)} alerts, {len(memory)} memory records, {len(traces)} traces")
+    print(f"  {len(alerts)} alerts, {len(memories)} memories, {len(traces)} traces")
     return out_file
 
 

@@ -24,8 +24,6 @@ from brain.db.models import (
     Cron,
     Event,
     Memory,
-    MemoryRecord,
-    MemoryScope,
     MemoryVersion,
     Program,
     ProgramType,
@@ -316,169 +314,7 @@ class Repository:
         )
 
     # ═══════════════════════════════════════════════════════════
-    # MEMORY
-    # ═══════════════════════════════════════════════════════════
-
-    def insert_memory(self, mem: MemoryRecord) -> UUID:
-        response = self._execute(
-            """INSERT INTO memory (id, scope, name, content, provenance)
-               VALUES (:id, :scope, :name, :content, :provenance::jsonb)
-               ON CONFLICT (scope, name) WHERE name IS NOT NULL
-               DO UPDATE SET content = EXCLUDED.content, provenance = EXCLUDED.provenance,
-                            updated_at = now()
-               RETURNING id, created_at, updated_at""",
-            [
-                self._param("id", mem.id),
-                self._param("scope", mem.scope.value),
-                self._param("name", mem.name),
-                self._param("content", mem.content),
-                self._param("provenance", mem.provenance),
-            ],
-        )
-        row = self._first_row(response)
-        if row:
-            mem.created_at = datetime.fromisoformat(row["created_at"])
-            mem.updated_at = datetime.fromisoformat(row["updated_at"])
-            return UUID(row["id"])
-        raise RuntimeError("Failed to insert memory")
-
-    def get_memory(self, memory_id: UUID) -> MemoryRecord | None:
-        response = self._execute(
-            "SELECT * FROM memory WHERE id = :id",
-            [self._param("id", memory_id)],
-        )
-        row = self._first_row(response)
-        return self._memory_from_row(row) if row else None
-
-    def query_memory(
-        self,
-        *,
-        scope: MemoryScope | None = None,
-        name: str | None = None,
-        prefix: str | None = None,
-        limit: int = 50,
-    ) -> list[MemoryRecord]:
-        conditions = []
-        params = []
-
-        if scope:
-            conditions.append("scope = :scope")
-            params.append(self._param("scope", scope.value))
-        if name:
-            conditions.append("name = :name")
-            params.append(self._param("name", name))
-        if prefix:
-            conditions.append("name LIKE :prefix")
-            params.append(self._param("prefix", prefix + "%"))
-
-        where = " AND ".join(conditions)
-        where_clause = f"WHERE {where}" if where else ""
-        params.append(self._param("limit", limit))
-
-        response = self._execute(
-            f"SELECT * FROM memory {where_clause} ORDER BY name ASC LIMIT :limit",
-            params,
-        )
-        return [self._memory_from_row(r) for r in self._rows_to_dicts(response)]
-
-    def query_memory_by_prefixes(
-        self,
-        prefixes: list[str],
-    ) -> list[MemoryRecord]:
-        """Fetch memory records matching any of the given name prefixes.
-
-        COGENT-scoped records override POLIS-scoped records with the same name.
-        Returns deduplicated results sorted by name.
-        """
-        if not prefixes:
-            return []
-
-        conditions = []
-        params = []
-        for i, prefix in enumerate(prefixes):
-            param_name = f"prefix_{i}"
-            params.append(self._param(param_name, prefix + "%"))
-            conditions.append(f"name LIKE :{param_name}")
-
-        prefix_filter = " OR ".join(conditions)
-        response = self._execute(
-            f"""SELECT * FROM memory
-                WHERE ({prefix_filter})
-                ORDER BY scope ASC, name ASC""",
-            params,
-        )
-
-        seen: dict[str, MemoryRecord] = {}
-        for row in self._rows_to_dicts(response):
-            record = self._memory_from_row(row)
-            if record.name and record.name not in seen:
-                seen[record.name] = record
-        return sorted(seen.values(), key=lambda r: r.name or "")
-
-    def delete_memory(self, memory_id: UUID) -> bool:
-        response = self._execute(
-            "DELETE FROM memory WHERE id = :id",
-            [self._param("id", memory_id)],
-        )
-        return response.get("numberOfRecordsUpdated", 0) == 1
-
-    def get_memories_by_names(
-        self,
-        names: list[str],
-    ) -> list[MemoryRecord]:
-        """Batch fetch memory records by exact name match."""
-        if not names:
-            return []
-        # Build IN clause with individual params
-        name_params = []
-        conditions = []
-        for i, name in enumerate(names):
-            param_name = f"name_{i}"
-            name_params.append(self._param(param_name, name))
-            conditions.append(f":{param_name}")
-
-        in_clause = ", ".join(conditions)
-
-        response = self._execute(
-            f"""SELECT * FROM memory
-                WHERE name IN ({in_clause})
-                ORDER BY scope ASC, name ASC""",
-            name_params,
-        )
-        return [self._memory_from_row(r) for r in self._rows_to_dicts(response)]
-
-    def delete_memories_by_prefix(
-        self,
-        prefix: str,
-        scope: MemoryScope | None = None,
-    ) -> int:
-        """Delete all memory records matching a name prefix."""
-        conditions = ["name LIKE :prefix"]
-        params = [self._param("prefix", prefix + "%")]
-        if scope:
-            conditions.append("scope = :scope")
-            params.append(self._param("scope", scope.value))
-
-        where = " AND ".join(conditions)
-        response = self._execute(f"DELETE FROM memory WHERE {where}", params)
-        return response.get("numberOfRecordsUpdated", 0)
-
-    def _memory_from_row(self, row: dict) -> MemoryRecord:
-        provenance = row.get("provenance", {})
-        if isinstance(provenance, str):
-            provenance = json.loads(provenance)
-        return MemoryRecord(
-            id=UUID(row["id"]),
-            scope=MemoryScope(row["scope"]),
-            name=row.get("name"),
-            content=row.get("content", ""),
-            provenance=provenance,
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
-        )
-
-    # ═══════════════════════════════════════════════════════════
-    # MEMORY v2 (versioned)
+    # MEMORY (versioned)
     # ═══════════════════════════════════════════════════════════
 
     def _memory_v2_from_rows(self, rows: list[dict]) -> Memory | None:
@@ -507,7 +343,7 @@ class Repository:
                 mem.versions[mv.version] = mv
         return mem
 
-    def insert_memory_v2(self, mem: Memory) -> UUID:
+    def insert_memory(self, mem: Memory) -> UUID:
         """Insert a new versioned memory record."""
         response = self._execute(
             """INSERT INTO memory_v2 (id, name, active_version)
@@ -646,7 +482,7 @@ class Repository:
             ],
         )
 
-    def delete_memory_v2(self, memory_id: UUID) -> None:
+    def delete_memory(self, memory_id: UUID) -> None:
         """Delete a versioned memory (CASCADE removes versions)."""
         self._execute(
             "DELETE FROM memory_v2 WHERE id = :id",
@@ -663,7 +499,7 @@ class Repository:
             ],
         )
 
-    def list_memories_v2(
+    def list_memories(
         self,
         *,
         prefix: str | None = None,

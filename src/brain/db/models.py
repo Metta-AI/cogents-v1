@@ -13,11 +13,6 @@ from pydantic import BaseModel, Field
 # --- Enums ---
 
 
-class MemoryScope(str, enum.Enum):
-    POLIS = "polis"
-    COGENT = "cogent"
-
-
 class TaskStatus(str, enum.Enum):
     RUNNABLE = "runnable"
     SCHEDULED = "scheduled"
@@ -65,17 +60,6 @@ class ProgramType(str, enum.Enum):
 
 
 # --- Core Models ---
-
-
-class MemoryRecord(BaseModel):
-    id: UUID = Field(default_factory=uuid4)
-    scope: MemoryScope
-    name: str | None = None
-    content: str = ""
-    embedding: list[float] | None = None
-    provenance: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
 
 
 class MemoryVersion(BaseModel):

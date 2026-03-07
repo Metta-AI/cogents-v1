@@ -21,8 +21,6 @@ from brain.db.models import (
     Cron,
     Event,
     Memory,
-    MemoryRecord,
-    MemoryScope,
     MemoryVersion,
     Program,
     ProgramType,
@@ -74,7 +72,6 @@ class LocalRepository:
         self._conversations: dict[UUID, Conversation] = {}
         self._channels: dict[UUID, Channel] = {}
         self._alerts: dict[UUID, Alert] = {}
-        self._memory: dict[UUID, MemoryRecord] = {}
         self._traces: dict[UUID, Trace] = {}
         self._resources: dict[str, Resource] = {}
         self._resource_usage: list[ResourceUsage] = []
@@ -118,7 +115,6 @@ class LocalRepository:
         self._conversations.clear()
         self._channels.clear()
         self._alerts.clear()
-        self._memory.clear()
         self._traces.clear()
         self._resources.clear()
         self._resource_usage.clear()
@@ -153,9 +149,6 @@ class LocalRepository:
         for a in data.get("alerts", []):
             alert = Alert(**a)
             self._alerts[alert.id] = alert
-        for m in data.get("memory", []):
-            mem = MemoryRecord(**m)
-            self._memory[mem.id] = mem
         for t in data.get("traces", []):
             tr = Trace(**t)
             self._traces[tr.id] = tr
@@ -188,7 +181,6 @@ class LocalRepository:
             "conversations": [c.model_dump(mode="json") for c in self._conversations.values()],
             "channels": [ch.model_dump(mode="json") for ch in self._channels.values()],
             "alerts": [a.model_dump(mode="json") for a in self._alerts.values()],
-            "memory": [m.model_dump(mode="json") for m in self._memory.values()],
             "traces": [t.model_dump(mode="json") for t in self._traces.values()],
             "resources": [r.model_dump(mode="json") for r in self._resources.values()],
             "resource_usage": [u.model_dump(mode="json") for u in self._resource_usage],
@@ -536,42 +528,6 @@ class LocalRepository:
             return True
         return False
 
-    # ── Memory (legacy — will be removed in cleanup task) ───
-
-    def insert_memory(self, mem: MemoryRecord) -> UUID:
-        now = datetime.utcnow()
-        mem.created_at = now
-        mem.updated_at = now
-        self._memory[mem.id] = mem
-        self._save()
-        return mem.id
-
-    def get_memory(self, memory_id: UUID) -> MemoryRecord | None:
-        return self._memory.get(memory_id)
-
-    def query_memory(
-        self,
-        *,
-        scope: MemoryScope | None = None,
-        name_prefix: str | None = None,
-        limit: int = 200,
-    ) -> list[MemoryRecord]:
-        self._maybe_reload()
-        records = list(self._memory.values())
-        if scope:
-            records = [m for m in records if m.scope == scope]
-        if name_prefix:
-            records = [m for m in records if m.name and m.name.startswith(name_prefix)]
-        records.sort(key=lambda m: (m.name or "", m.scope.value if m.scope else ""))
-        return records[:limit]
-
-    def delete_memory(self, memory_id: UUID) -> bool:
-        if memory_id in self._memory:
-            del self._memory[memory_id]
-            self._save()
-            return True
-        return False
-
     # ── Traces ───────────────────────────────────────────────
 
     def insert_trace(self, trace: Trace) -> UUID:
@@ -642,9 +598,9 @@ class LocalRepository:
         self._save()
         return task.id
 
-    # ── Memory v2 (versioned) ────────────────────────────────
+    # ── Memory (versioned) ──────────────────────────────────
 
-    def insert_memory_v2(self, mem: Memory) -> UUID:
+    def insert_memory(self, mem: Memory) -> UUID:
         now = datetime.utcnow()
         mem.created_at = mem.created_at or now
         mem.modified_at = now
@@ -710,7 +666,7 @@ class LocalRepository:
             mem.modified_at = datetime.utcnow()
             self._save()
 
-    def delete_memory_v2(self, memory_id: UUID) -> None:
+    def delete_memory(self, memory_id: UUID) -> None:
         """Deletes memory AND all its versions."""
         self._memories.pop(memory_id, None)
         self._memory_versions.pop(memory_id, None)
@@ -721,7 +677,7 @@ class LocalRepository:
         self._memory_versions[memory_id] = [mv for mv in versions if mv.version != version]
         self._save()
 
-    def list_memories_v2(
+    def list_memories(
         self,
         *,
         prefix: str | None = None,

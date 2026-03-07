@@ -16,8 +16,6 @@ from cli import get_cogent_name
 from brain.db.models import (
     Cron,
     Event,
-    MemoryRecord,
-    MemoryScope,
     Program,
     ProgramType,
     Resource,
@@ -1208,21 +1206,22 @@ def memory() -> None:
 
 
 @memory.command("list")
-@click.option("--scope", type=click.Choice(["cogent", "polis"]), default=None, help="Filter by scope")
 @click.option("--prefix", default=None, help="Filter by name prefix")
+@click.option("--source", default=None, help="Filter by source (cogent, polis)")
 @click.option("--limit", type=int, default=200)
 @click.pass_context
-def memory_list(ctx: click.Context, scope: str | None, prefix: str | None, limit: int) -> None:
+def memory_list(ctx: click.Context, prefix: str | None, source: str | None, limit: int) -> None:
     """List memory entries."""
+    from memory.store import MemoryStore
+
     repo = _repo()
-    mem_scope = MemoryScope(scope) if scope else None
-    records = repo.query_memory(scope=mem_scope, name_prefix=prefix, limit=limit)
+    store = MemoryStore(repo)
+    records = store.list_memories(prefix=prefix, source=source, limit=limit)
     data = [
         {
             "id": str(m.id),
-            "scope": m.scope.value if m.scope else None,
             "name": m.name,
-            "content": m.content[:120] + ("..." if len(m.content) > 120 else ""),
+            "active_version": m.active_version,
             "created_at": str(m.created_at) if m.created_at else None,
         }
         for m in records
@@ -1233,53 +1232,63 @@ def memory_list(ctx: click.Context, scope: str | None, prefix: str | None, limit
 @memory.command("add")
 @click.argument("name")
 @click.argument("content")
-@click.option("--scope", type=click.Choice(["cogent", "polis"]), default="cogent")
-@click.option("--provenance", "provenance_json", default="{}", help="JSON provenance")
+@click.option("--source", default="cogent", help="Source tag (cogent, polis)")
+@click.option("--read-only", is_flag=True, help="Mark as read-only")
 @click.pass_context
-def memory_add(ctx: click.Context, name: str, content: str, scope: str, provenance_json: str) -> None:
-    """Add a memory entry."""
-    mem = MemoryRecord(
-        scope=MemoryScope(scope),
-        name=name,
-        content=content,
-        provenance=json.loads(provenance_json),
-    )
+def memory_add(ctx: click.Context, name: str, content: str, source: str, read_only: bool) -> None:
+    """Add or update a memory entry."""
+    from memory.store import MemoryStore
+
     repo = _repo()
-    mid = repo.insert_memory(mem)
-    _output({"id": str(mid), "name": name, "scope": scope, "status": "added"}, use_json=ctx.obj["json"])
+    store = MemoryStore(repo)
+    result = store.upsert(name, content, source=source, read_only=read_only)
+    if result is None:
+        _output({"name": name, "status": "unchanged"}, use_json=ctx.obj["json"])
+    else:
+        _output({"id": str(result.id), "name": name, "status": "saved"}, use_json=ctx.obj["json"])
 
 
 @memory.command("show")
-@click.argument("memory_id")
+@click.argument("name")
 @click.pass_context
-def memory_show(ctx: click.Context, memory_id: str) -> None:
-    """Show a memory entry."""
+def memory_show(ctx: click.Context, name: str) -> None:
+    """Show a memory entry by name."""
+    from memory.store import MemoryStore
+
     repo = _repo()
-    m = repo.get_memory(UUID(memory_id))
+    store = MemoryStore(repo)
+    m = store.get(name)
     if not m:
-        click.echo(f"Memory '{memory_id}' not found.", err=True)
+        click.echo(f"Memory '{name}' not found.", err=True)
         sys.exit(1)
+    active_mv = m.versions.get(m.active_version)
     _output_single({
         "id": str(m.id),
-        "scope": m.scope.value if m.scope else None,
         "name": m.name,
-        "content": m.content,
-        "provenance": m.provenance,
+        "active_version": m.active_version,
+        "content": active_mv.content if active_mv else "",
+        "source": active_mv.source if active_mv else None,
+        "read_only": active_mv.read_only if active_mv else False,
         "created_at": str(m.created_at) if m.created_at else None,
-        "updated_at": str(m.updated_at) if m.updated_at else None,
+        "modified_at": str(m.modified_at) if m.modified_at else None,
     })
 
 
 @memory.command("delete")
-@click.argument("memory_id")
+@click.argument("name")
 @click.pass_context
-def memory_delete(ctx: click.Context, memory_id: str) -> None:
-    """Delete a memory entry."""
+def memory_delete(ctx: click.Context, name: str) -> None:
+    """Delete a memory entry by name."""
+    from memory.store import MemoryStore
+
     repo = _repo()
-    if not repo.delete_memory(UUID(memory_id)):
-        click.echo(f"Memory '{memory_id}' not found.", err=True)
+    store = MemoryStore(repo)
+    try:
+        store.delete(name)
+    except ValueError:
+        click.echo(f"Memory '{name}' not found.", err=True)
         sys.exit(1)
-    _output({"id": memory_id, "status": "deleted"}, use_json=ctx.obj["json"])
+    _output({"name": name, "status": "deleted"}, use_json=ctx.obj["json"])
 
 
 @memory.command("load")

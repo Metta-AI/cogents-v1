@@ -32,7 +32,7 @@ class TestInsertAndGetMemory:
     def test_insert_and_get_by_name(self, tmp_path):
         repo = _repo(tmp_path)
         mem = _make_memory("/test")
-        mid = repo.insert_memory_v2(mem)
+        mid = repo.insert_memory(mem)
         assert mid == mem.id
 
         found = repo.get_memory_by_name("/test")
@@ -52,7 +52,7 @@ class TestMemoryVersions:
     def test_insert_and_get_version(self, tmp_path):
         repo = _repo(tmp_path)
         mem = _make_memory("/v")
-        repo.insert_memory_v2(mem)
+        repo.insert_memory(mem)
         mv = _make_version(mem.id, 1, content="hello")
         repo.insert_memory_version(mv)
 
@@ -68,7 +68,7 @@ class TestMemoryVersions:
     def test_get_max_version(self, tmp_path):
         repo = _repo(tmp_path)
         mem = _make_memory("/m")
-        repo.insert_memory_v2(mem)
+        repo.insert_memory(mem)
         repo.insert_memory_version(_make_version(mem.id, 1))
         repo.insert_memory_version(_make_version(mem.id, 3))
         repo.insert_memory_version(_make_version(mem.id, 2))
@@ -77,7 +77,7 @@ class TestMemoryVersions:
     def test_list_versions_sorted(self, tmp_path):
         repo = _repo(tmp_path)
         mem = _make_memory("/s")
-        repo.insert_memory_v2(mem)
+        repo.insert_memory(mem)
         repo.insert_memory_version(_make_version(mem.id, 3, content="c"))
         repo.insert_memory_version(_make_version(mem.id, 1, content="a"))
         repo.insert_memory_version(_make_version(mem.id, 2, content="b"))
@@ -93,7 +93,7 @@ class TestUpdateActiveVersion:
     def test_updates_active_version(self, tmp_path):
         repo = _repo(tmp_path)
         mem = _make_memory("/a", active_version=1)
-        repo.insert_memory_v2(mem)
+        repo.insert_memory(mem)
 
         repo.update_active_version(mem.id, 5)
         found = repo.get_memory_by_name("/a")
@@ -108,7 +108,7 @@ class TestUpdateReadOnly:
     def test_sets_read_only(self, tmp_path):
         repo = _repo(tmp_path)
         mem = _make_memory("/ro")
-        repo.insert_memory_v2(mem)
+        repo.insert_memory(mem)
         mv = _make_version(mem.id, 1, read_only=False)
         repo.insert_memory_version(mv)
 
@@ -125,7 +125,7 @@ class TestUpdateMemoryName:
     def test_rename(self, tmp_path):
         repo = _repo(tmp_path)
         mem = _make_memory("/old")
-        repo.insert_memory_v2(mem)
+        repo.insert_memory(mem)
 
         repo.update_memory_name(mem.id, "/new")
         assert repo.get_memory_by_name("/old") is None
@@ -141,11 +141,11 @@ class TestDeleteMemory:
     def test_delete_removes_memory_and_versions(self, tmp_path):
         repo = _repo(tmp_path)
         mem = _make_memory("/del")
-        repo.insert_memory_v2(mem)
+        repo.insert_memory(mem)
         repo.insert_memory_version(_make_version(mem.id, 1))
         repo.insert_memory_version(_make_version(mem.id, 2))
 
-        repo.delete_memory_v2(mem.id)
+        repo.delete_memory(mem.id)
         assert repo.get_memory_by_name("/del") is None
         assert repo.list_memory_versions(mem.id) == []
 
@@ -157,7 +157,7 @@ class TestDeleteMemoryVersion:
     def test_delete_single_version(self, tmp_path):
         repo = _repo(tmp_path)
         mem = _make_memory("/dv")
-        repo.insert_memory_v2(mem)
+        repo.insert_memory(mem)
         repo.insert_memory_version(_make_version(mem.id, 1))
         repo.insert_memory_version(_make_version(mem.id, 2))
 
@@ -174,27 +174,27 @@ class TestListMemories:
         repo = _repo(tmp_path)
         for name in ["/a/x", "/a/y", "/b/z"]:
             m = _make_memory(name)
-            repo.insert_memory_v2(m)
+            repo.insert_memory(m)
             repo.insert_memory_version(_make_version(m.id, 1, source="cogent"))
             repo.update_active_version(m.id, 1)
 
-        result = repo.list_memories_v2(prefix="/a")
+        result = repo.list_memories(prefix="/a")
         assert len(result) == 2
         assert all(m.name.startswith("/a") for m in result)
 
     def test_filter_by_source(self, tmp_path):
         repo = _repo(tmp_path)
         m1 = _make_memory("/s1")
-        repo.insert_memory_v2(m1)
+        repo.insert_memory(m1)
         repo.insert_memory_version(_make_version(m1.id, 1, source="polis"))
         repo.update_active_version(m1.id, 1)
 
         m2 = _make_memory("/s2")
-        repo.insert_memory_v2(m2)
+        repo.insert_memory(m2)
         repo.insert_memory_version(_make_version(m2.id, 1, source="cogent"))
         repo.update_active_version(m2.id, 1)
 
-        result = repo.list_memories_v2(source="cogent")
+        result = repo.list_memories(source="cogent")
         assert len(result) == 1
         assert result[0].name == "/s2"
 
@@ -206,7 +206,7 @@ class TestGetMemoryByNameWithVersions:
     def test_versions_populated(self, tmp_path):
         repo = _repo(tmp_path)
         mem = _make_memory("/vp")
-        repo.insert_memory_v2(mem)
+        repo.insert_memory(mem)
         repo.insert_memory_version(_make_version(mem.id, 1, content="v1"))
         repo.insert_memory_version(_make_version(mem.id, 2, content="v2"))
 
@@ -225,7 +225,7 @@ class TestPersistence:
     def test_data_survives_new_instance(self, tmp_path):
         repo1 = _repo(tmp_path)
         mem = _make_memory("/persist")
-        repo1.insert_memory_v2(mem)
+        repo1.insert_memory(mem)
         repo1.insert_memory_version(_make_version(mem.id, 1, content="saved"))
 
         # Create a brand new repo on the same path
@@ -247,7 +247,7 @@ class TestResolveMemoryKeys:
         # Create /a/init, /a/b/init, /a/b/c
         for name in ["/a/init", "/a/b/init", "/a/b/c"]:
             m = _make_memory(name)
-            repo.insert_memory_v2(m)
+            repo.insert_memory(m)
             repo.insert_memory_version(_make_version(m.id, 1, content=name))
             repo.update_active_version(m.id, 1)
 
@@ -262,7 +262,7 @@ class TestResolveMemoryKeys:
         # /x exists, and /x/child/init exists as a child init
         for name in ["/x", "/x/child/init", "/x/other"]:
             m = _make_memory(name)
-            repo.insert_memory_v2(m)
+            repo.insert_memory(m)
             repo.insert_memory_version(_make_version(m.id, 1, content=name))
             repo.update_active_version(m.id, 1)
 
@@ -277,7 +277,7 @@ class TestResolveMemoryKeys:
         repo = _repo(tmp_path)
         for name in ["/a/b/c", "/a/init", "/a/b/init"]:
             m = _make_memory(name)
-            repo.insert_memory_v2(m)
+            repo.insert_memory(m)
             repo.insert_memory_version(_make_version(m.id, 1, content=name))
             repo.update_active_version(m.id, 1)
 
@@ -291,13 +291,13 @@ class TestResolveMemoryKeys:
         repo = _repo(tmp_path)
         # Insert polis version first, then cogent with same name
         m1 = _make_memory("/shadow")
-        repo.insert_memory_v2(m1)
+        repo.insert_memory(m1)
         repo.insert_memory_version(_make_version(m1.id, 1, source="polis", content="polis"))
         repo.update_active_version(m1.id, 1)
 
         m2 = _make_memory("/shadow")
         m2.id = uuid4()  # different id, same name
-        repo.insert_memory_v2(m2)
+        repo.insert_memory(m2)
         repo.insert_memory_version(_make_version(m2.id, 1, source="cogent", content="cogent"))
         repo.update_active_version(m2.id, 1)
 
