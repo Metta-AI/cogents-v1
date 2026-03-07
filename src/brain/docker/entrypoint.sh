@@ -21,9 +21,10 @@ if [ -n "${EXECUTOR_PAYLOAD:-}" ]; then
     python -m brain.lambdas.executor.ecs_entry 2>&1 | tee /tmp/ecs-entry.log
     EXIT_CODE=${PIPESTATUS[0]}
 else
-    echo "[runner] No EXECUTOR_PAYLOAD — dropping to interactive shell"
-    echo "[runner] Exit this shell to stop the container"
-    bash
+    SHELL_CMD="${SHELL_CMD:-bash}"
+    echo "[runner] No EXECUTOR_PAYLOAD — starting $SHELL_CMD"
+    echo "[runner] Exit to stop the container"
+    $SHELL_CMD
     EXIT_CODE=$?
 fi
 

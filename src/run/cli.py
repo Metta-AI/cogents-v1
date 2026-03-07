@@ -125,6 +125,14 @@ def _launch_shell_task(cfg: dict) -> None:
         taskDefinition=cfg["task_definition"],
         launchType="FARGATE",
         enableExecuteCommand=True,
+        overrides={
+            "containerOverrides": [{
+                "name": "Executor",
+                "environment": [
+                    {"name": "SHELL_CMD", "value": "claude"},
+                ],
+            }],
+        },
         networkConfiguration={
             "awsvpcConfiguration": {
                 "subnets": cfg["subnets"],
@@ -229,6 +237,8 @@ def shell_cmd(ctx: click.Context, run_id: str | None, launch_new: bool):
 
 def _connect(cluster: str, target: dict) -> None:
     """Connect to a task's tmux session via ECS Exec."""
+    import subprocess
+
     from polis.aws import get_polis_session, set_profile
     set_profile("softmax-org")
     session, _ = get_polis_session()
@@ -238,14 +248,13 @@ def _connect(cluster: str, target: dict) -> None:
     task_id = _task_id_from_arn(task_arn)
     click.echo(f"Connecting to {task_id[:12]}...")
 
-    # Set polis credentials for aws CLI
-    os.environ["AWS_ACCESS_KEY_ID"] = creds.access_key
-    os.environ["AWS_SECRET_ACCESS_KEY"] = creds.secret_key
+    env = os.environ.copy()
+    env["AWS_ACCESS_KEY_ID"] = creds.access_key
+    env["AWS_SECRET_ACCESS_KEY"] = creds.secret_key
     if creds.token:
-        os.environ["AWS_SESSION_TOKEN"] = creds.token
-    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-    # Remove profile to avoid conflicts
-    os.environ.pop("AWS_PROFILE", None)
+        env["AWS_SESSION_TOKEN"] = creds.token
+    env["AWS_DEFAULT_REGION"] = "us-east-1"
+    env.pop("AWS_PROFILE", None)
 
     cmd = [
         "aws", "ecs", "execute-command",
@@ -255,4 +264,5 @@ def _connect(cluster: str, target: dict) -> None:
         "--interactive",
         "--command", "/bin/bash -c 'tmux attach -t claude 2>/dev/null || bash'",
     ]
-    os.execvp("aws", cmd)
+    result = subprocess.run(cmd, env=env)
+    raise SystemExit(result.returncode)
