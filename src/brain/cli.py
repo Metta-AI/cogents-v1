@@ -407,6 +407,3 @@ def build_cmd(ctx: click.Context, profile: str):
 from brain.update_cli import update  # noqa: E402
 
 brain.add_command(update)
-
-# Memory create command (invoked by brain create)
-from memory.cli import create_cmd as _memory_create  # noqa: E402
