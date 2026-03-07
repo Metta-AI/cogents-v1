@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from brain.db.models import Cron, MemoryRecord, MemoryScope, Trigger, TriggerConfig
+from brain.db.models import Cron, Trigger, TriggerConfig
 from brain.db.repository import Repository
 
 
@@ -109,13 +109,11 @@ def sync_bootstrap(path: Path, repo: Repository) -> dict[str, int]:
     # Bootstrap memory
     for kwargs in _extract_list(source, "memory", "CogentMemory"):
         cfg = CogentMemory(**kwargs)
-        existing = repo.get_memories_by_names([cfg.name])
+        from memory.store import MemoryStore
+        mem_store = MemoryStore(repo)
+        existing = mem_store.get(cfg.name)
         if not existing:
-            repo.insert_memory(MemoryRecord(
-                scope=MemoryScope.COGENT,
-                name=cfg.name,
-                content=cfg.content,
-            ))
+            mem_store.create(cfg.name, cfg.content, source="cogent")
         counts["memory"] += 1
 
     return counts

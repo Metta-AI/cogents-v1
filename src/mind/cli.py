@@ -270,19 +270,25 @@ def mind_update(ctx: click.Context, egg_dir: str, force: bool) -> None:
     # 4. Memories
     memories_dir = egg / "memories"
     if memories_dir.is_dir():
-        memories = load_memories_from_dir(memories_dir)
-        existing = {m.name: m for m in repo.query_memory(limit=10000)}
-        added = 0
-        for mem in memories:
-            if mem.name in existing:
-                if force:
-                    repo.delete_memory(existing[mem.name].id)
-                    repo.insert_memory(mem)
-                    added += 1
+        from memory.store import MemoryStore
+        mem_store = MemoryStore(repo)
+        loaded = load_memories_from_dir(memories_dir)
+        created = updated = skipped = unchanged = 0
+        for lm in loaded:
+            existing = mem_store.get(lm.name)
+            if not existing:
+                mem_store.create(lm.name, lm.content, source="polis", read_only=True)
+                created += 1
             else:
-                repo.insert_memory(mem)
-                added += 1
-        click.echo(f"Memories: {added} synced")
+                active = existing.versions.get(existing.active_version)
+                if active and active.source.startswith("user:"):
+                    skipped += 1
+                elif active and active.content == lm.content:
+                    unchanged += 1
+                else:
+                    mem_store.new_version(lm.name, lm.content, source="polis", read_only=True)
+                    updated += 1
+        click.echo(f"Memories: {created} created, {updated} updated, {skipped} skipped (user override), {unchanged} unchanged")
 
     # 5. Bootstrap (cron, triggers, bootstrap memory)
     bootstrap_file = egg / "bootstrap.py"
@@ -1283,28 +1289,33 @@ def memory_delete(ctx: click.Context, memory_id: str) -> None:
 def memory_load(ctx: click.Context, memories_dir: str, force: bool) -> None:
     """Load memory entries from a directory of .md and .yaml files."""
     from mind.memory_loader import load_memories_from_dir
+    from memory.store import MemoryStore
 
     repo = _repo()
-    memories = load_memories_from_dir(Path(memories_dir))
+    mem_store = MemoryStore(repo)
+    loaded = load_memories_from_dir(Path(memories_dir))
 
-    existing = {m.name: m for m in repo.query_memory(limit=10000)}
-    added = 0
-    skipped = 0
-    replaced = 0
+    created = updated = skipped = unchanged = 0
 
-    for mem in memories:
-        if mem.name in existing:
-            if force:
-                repo.delete_memory(existing[mem.name].id)
-                repo.insert_memory(mem)
-                replaced += 1
-            else:
-                skipped += 1
+    for lm in loaded:
+        existing = mem_store.get(lm.name)
+        if not existing:
+            mem_store.create(lm.name, lm.content, source="polis", read_only=True)
+            created += 1
         else:
-            repo.insert_memory(mem)
-            added += 1
+            active = existing.versions.get(existing.active_version)
+            if active and active.source.startswith("user:"):
+                skipped += 1
+            elif active and active.content == lm.content:
+                unchanged += 1
+            else:
+                if force:
+                    mem_store.new_version(lm.name, lm.content, source="polis", read_only=True)
+                    updated += 1
+                else:
+                    skipped += 1
 
     _output(
-        {"added": added, "replaced": replaced, "skipped": skipped, "total": len(memories)},
+        {"created": created, "updated": updated, "skipped": skipped, "unchanged": unchanged, "total": len(loaded)},
         use_json=ctx.obj["json"],
     )
