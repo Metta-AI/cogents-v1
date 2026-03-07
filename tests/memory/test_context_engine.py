@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from brain.db.models import MemoryRecord, MemoryScope, Program, ProgramType
+from brain.db.models import Memory, MemoryVersion, Program, ProgramType
 from memory.context_engine import CHARS_PER_TOKEN, ContextEngine
 
 
@@ -29,8 +29,12 @@ def _program(content: str = "", memory_keys: list[str] | None = None) -> Program
     )
 
 
-def _rec(name: str, content: str = "") -> MemoryRecord:
-    return MemoryRecord(scope=MemoryScope.COGENT, name=name, content=content or f"content of {name}")
+def _rec(name: str, content: str = "") -> Memory:
+    """Build a Memory object with a single active version."""
+    mem = Memory(name=name, active_version=1)
+    mv = MemoryVersion(memory_id=mem.id, version=1, content=content or f"content of {name}")
+    mem.versions[1] = mv
+    return mem
 
 
 class TestProgramContentOnly:
