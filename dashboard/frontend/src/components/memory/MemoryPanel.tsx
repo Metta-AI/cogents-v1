@@ -139,102 +139,77 @@ function VersionPanel({ item, cogentName, canMutate, onRefresh, onClose }: Versi
         <Badge variant={item.read_only ? "warning" : "success"}>
           {item.read_only ? "read-only" : "writable"}
         </Badge>
-        <span className="text-[10px] text-[var(--text-muted)] ml-auto">
-          {versions.length} version{versions.length !== 1 ? "s" : ""}
-        </span>
       </div>
 
-      <div className="flex flex-1 min-h-0">
-        {/* Version list (left sidebar within detail) */}
-        <div
-          className="flex-shrink-0 overflow-y-auto border-r"
-          style={{ width: "180px", background: "var(--bg-surface)", borderColor: "var(--border)" }}
-        >
-          {versions.map((v) => {
-            const isActive = v.version === item.active_version;
-            const isSelected = v.version === selectedVersion;
-            return (
-              <div
-                key={v.version}
-                onClick={() => setSelectedVersion(v.version)}
-                className="px-3 py-2 cursor-pointer transition-colors border-b"
-                style={{
-                  background: isSelected ? "var(--bg-hover)" : "transparent",
-                  borderColor: "var(--border)",
-                  borderLeft: isSelected ? "2px solid var(--accent)" : "2px solid transparent",
-                }}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className="text-[12px] font-mono font-medium"
-                    style={{ color: isSelected ? "var(--accent)" : "var(--text-primary)" }}
-                  >
-                    v{v.version}
-                  </span>
-                  {isActive && (
-                    <span
-                      className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
-                      style={{ background: "var(--accent)", color: "var(--bg-deep)" }}
-                    >
-                      active
-                    </span>
-                  )}
-                  {v.read_only && (
-                    <span className="text-[9px] text-[var(--text-muted)]">RO</span>
-                  )}
-                </div>
-                <div className="text-[10px] text-[var(--text-muted)] mt-0.5">
-                  {v.source}
-                </div>
-                {v.created_at && (
-                  <div className="text-[9px] text-[var(--text-muted)] mt-0.5">
-                    {fmtTimestamp(v.created_at)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Version content (right) */}
-        <div className="flex-1 overflow-y-auto p-4" style={{ background: "var(--bg-base)" }}>
-          {currentVersion && (
-            <div>
-              {/* Version metadata bar */}
-              <div className="flex items-center gap-2 mb-3 flex-wrap">
-                <span className="text-[12px] font-mono font-medium text-[var(--text-primary)]">
-                  Version {currentVersion.version}
+      {/* Version selector bar */}
+      <div
+        className="px-4 py-1.5 border-b flex items-center gap-1.5 overflow-x-auto flex-shrink-0"
+        style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
+      >
+        {versions.map((v) => {
+          const isActive = v.version === item.active_version;
+          const isSelected = v.version === selectedVersion;
+          return (
+            <button
+              key={v.version}
+              onClick={() => setSelectedVersion(v.version)}
+              className="flex items-center gap-1 px-2 py-1 rounded border cursor-pointer transition-colors text-[11px] font-mono flex-shrink-0"
+              style={{
+                background: isSelected ? "var(--bg-hover)" : "transparent",
+                borderColor: isSelected ? "var(--accent)" : "var(--border)",
+                color: isSelected ? "var(--accent)" : "var(--text-muted)",
+                fontWeight: isSelected ? 600 : 400,
+              }}
+            >
+              v{v.version}
+              {isActive && (
+                <span
+                  className="text-[8px] px-1 py-0 rounded-full font-semibold"
+                  style={{ background: "var(--accent)", color: "var(--bg-deep)" }}
+                >
+                  active
                 </span>
-                <Badge variant="neutral">{currentVersion.source}</Badge>
-                {currentVersion.read_only && <Badge variant="warning">read-only</Badge>}
-                {currentVersion.version === item.active_version ? (
-                  <Badge variant="success">active</Badge>
-                ) : canMutate ? (
-                  <button
-                    onClick={() => handleActivate(currentVersion.version)}
-                    disabled={activating}
-                    className="text-[10px] px-2 py-0.5 rounded border cursor-pointer transition-colors disabled:opacity-40"
-                    style={{
-                      background: "transparent",
-                      borderColor: "var(--accent)",
-                      color: "var(--accent)",
-                    }}
-                  >
-                    {activating ? "..." : "Make Active"}
-                  </button>
-                ) : null}
-                {currentVersion.created_at && (
-                  <span className="text-[10px] text-[var(--text-muted)] ml-auto">
-                    {fmtTimestamp(currentVersion.created_at)}
-                  </span>
-                )}
-              </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-              {/* Version content */}
-              <MemoryContent content={currentVersion.content} />
+      {/* Version content */}
+      <div className="flex-1 overflow-y-auto p-4" style={{ background: "var(--bg-base)" }}>
+        {currentVersion && (
+          <div>
+            {/* Version metadata bar */}
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <Badge variant="neutral">{currentVersion.source}</Badge>
+              {currentVersion.read_only && <Badge variant="warning">read-only</Badge>}
+              {currentVersion.version === item.active_version ? (
+                <Badge variant="success">active</Badge>
+              ) : canMutate ? (
+                <button
+                  onClick={() => handleActivate(currentVersion.version)}
+                  disabled={activating}
+                  className="text-[10px] px-2 py-0.5 rounded border cursor-pointer transition-colors disabled:opacity-40"
+                  style={{
+                    background: "transparent",
+                    borderColor: "var(--accent)",
+                    color: "var(--accent)",
+                  }}
+                >
+                  {activating ? "..." : "Make Active"}
+                </button>
+              ) : null}
+              {currentVersion.created_at && (
+                <span className="text-[10px] text-[var(--text-muted)] ml-auto">
+                  {fmtTimestamp(currentVersion.created_at)}
+                </span>
+              )}
             </div>
-          )}
-        </div>
+
+            {/* Version content */}
+            <MemoryContent content={currentVersion.content} />
+          </div>
+        )}
       </div>
     </div>
   );

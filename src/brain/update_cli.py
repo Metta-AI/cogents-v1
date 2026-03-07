@@ -406,7 +406,7 @@ def update_dashboard(ctx: click.Context, docker: bool, skip_health: bool):
 
     with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
         tarball_path = tmp.name
-        with tarfile.open(tmp, "w:gz") as tar:
+        with tarfile.open(tarball_path, "w:gz") as tar:
             # Add standalone output (server.js, node_modules, etc.)
             for entry in os.listdir(standalone_dir):
                 tar.add(os.path.join(standalone_dir, entry), arcname=entry)
