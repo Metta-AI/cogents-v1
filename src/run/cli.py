@@ -144,20 +144,48 @@ def _launch_shell_task(cfg: dict) -> None:
     click.echo("Shell task launched.")
 
 
-def _wait_for_task(ecs_client, cluster: str, family: str = "", timeout: int = 120) -> dict | None:
-    """Poll for a new RUNNING task with SSM agent ready."""
-    click.echo("Waiting for ECS task to start...")
+def _wait_for_task(ecs_client, cluster: str, family: str = "", timeout: int = 180) -> dict | None:
+    """Poll for a new task with SSM agent ready, showing inline status."""
+    last_status = ""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        tasks = _list_running_tasks(ecs_client, cluster, family)
-        for task in tasks:
-            # Check if SSM managed agent is running (needed for ECS Exec)
-            for container in task.get("containers", []):
-                for agent in container.get("managedAgents", []):
-                    if agent.get("name") == "ExecuteCommandAgent" and agent.get("lastStatus") == "RUNNING":
-                        return task
-        time.sleep(5)
-        click.echo("  ...")
+        # Check all tasks (RUNNING and not-yet-running)
+        all_arns = []
+        for desired in ("RUNNING", "STOPPED"):
+            kwargs = {"cluster": cluster, "desiredStatus": desired}
+            if family:
+                kwargs["family"] = family
+            arns = ecs_client.list_tasks(**kwargs).get("taskArns", [])
+            all_arns.extend(arns)
+
+        if all_arns:
+            desc = ecs_client.describe_tasks(cluster=cluster, tasks=all_arns[-10:])
+            for task in desc.get("tasks", []):
+                status = task.get("lastStatus", "UNKNOWN")
+                # SSM agent ready — good to connect
+                for container in task.get("containers", []):
+                    for agent in container.get("managedAgents", []):
+                        if agent.get("name") == "ExecuteCommandAgent" and agent.get("lastStatus") == "RUNNING":
+                            click.echo("\r\033[K" + "Ready.", nl=True)
+                            return task
+                # Show progress inline
+                if status != last_status:
+                    label = {
+                        "PROVISIONING": "Provisioning task...",
+                        "PENDING": "Waiting for container...",
+                        "ACTIVATING": "Starting container...",
+                        "RUNNING": "Waiting for SSM agent...",
+                        "DEACTIVATING": "Task stopping...",
+                        "STOPPED": "Task stopped unexpectedly.",
+                    }.get(status, f"Status: {status}")
+                    click.echo("\r\033[K" + label, nl=False)
+                    last_status = status
+        elif not last_status:
+            click.echo("\r\033[K" + "Waiting for task to be scheduled...", nl=False)
+            last_status = "NONE"
+
+        time.sleep(3)
+    click.echo()
     return None
 
 
