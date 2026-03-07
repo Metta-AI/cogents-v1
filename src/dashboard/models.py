@@ -107,6 +107,10 @@ class Trigger(BaseModel):
     fired_5m: int = 0
     fired_1h: int = 0
     fired_24h: int = 0
+    max_events: int = 0
+    throttle_window_seconds: int = 60
+    throttle_rejected: int = 0
+    throttle_active: bool = False
 
 
 class TriggersResponse(BaseModel):
@@ -121,12 +125,16 @@ class TriggerCreate(BaseModel):
     priority: int = 10
     enabled: bool = True
     metadata: dict[str, Any] = {}
+    max_events: int = 0
+    throttle_window_seconds: int = 60
 
 
 class TriggerUpdate(BaseModel):
     program_name: str | None = None
     event_pattern: str | None = None
     priority: int | None = None
+    max_events: int | None = None
+    throttle_window_seconds: int | None = None
 
 
 class ToggleRequest(BaseModel):

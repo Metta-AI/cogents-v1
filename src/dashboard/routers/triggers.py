@@ -44,6 +44,10 @@ def list_triggers(name: str) -> TriggersResponse:
                 fired_5m=len(prog_runs),
                 fired_1h=len(prog_runs),
                 fired_24h=len(prog_runs),
+                max_events=t.config.max_events,
+                throttle_window_seconds=t.config.throttle_window_seconds,
+                throttle_rejected=t.throttle_rejected,
+                throttle_active=t.throttle_active,
             )
         )
 
@@ -52,7 +56,7 @@ def list_triggers(name: str) -> TriggersResponse:
 
 @router.post("/triggers", response_model=Trigger)
 def create_trigger(name: str, body: TriggerCreate) -> Trigger:
-    from brain.db.models import Trigger as DbTrigger
+    from brain.db.models import Trigger as DbTrigger, TriggerConfig
 
     repo = get_repo()
     db_trigger = DbTrigger(
@@ -60,6 +64,10 @@ def create_trigger(name: str, body: TriggerCreate) -> Trigger:
         event_pattern=body.event_pattern,
         priority=body.priority,
         enabled=body.enabled,
+        config=TriggerConfig(
+            max_events=body.max_events,
+            throttle_window_seconds=body.throttle_window_seconds,
+        ),
     )
     repo.insert_trigger(db_trigger)
     return Trigger(
@@ -70,12 +78,14 @@ def create_trigger(name: str, body: TriggerCreate) -> Trigger:
         priority=db_trigger.priority,
         enabled=db_trigger.enabled,
         created_at=str(db_trigger.created_at) if db_trigger.created_at else None,
+        max_events=body.max_events,
+        throttle_window_seconds=body.throttle_window_seconds,
     )
 
 
 @router.put("/triggers/{trigger_id}", response_model=Trigger)
 def update_trigger(name: str, trigger_id: str, body: TriggerUpdate) -> Trigger:
-    from brain.db.models import Trigger as DbTrigger
+    from brain.db.models import Trigger as DbTrigger, TriggerConfig
 
     repo = get_repo()
     tid = UUID(trigger_id)
@@ -87,6 +97,12 @@ def update_trigger(name: str, trigger_id: str, body: TriggerUpdate) -> Trigger:
     event_pattern = body.event_pattern if body.event_pattern is not None else existing.event_pattern
     priority = body.priority if body.priority is not None else existing.priority
 
+    config = existing.config
+    if body.max_events is not None:
+        config.max_events = body.max_events
+    if body.throttle_window_seconds is not None:
+        config.throttle_window_seconds = body.throttle_window_seconds
+
     repo.delete_trigger(tid)
     new_trigger = DbTrigger(
         id=tid,
@@ -95,6 +111,7 @@ def update_trigger(name: str, trigger_id: str, body: TriggerUpdate) -> Trigger:
         priority=priority,
         enabled=existing.enabled,
         created_at=existing.created_at,
+        config=config,
     )
     repo.insert_trigger(new_trigger)
     return Trigger(
@@ -105,6 +122,10 @@ def update_trigger(name: str, trigger_id: str, body: TriggerUpdate) -> Trigger:
         priority=new_trigger.priority,
         enabled=new_trigger.enabled,
         created_at=str(new_trigger.created_at) if new_trigger.created_at else None,
+        max_events=new_trigger.config.max_events,
+        throttle_window_seconds=new_trigger.config.throttle_window_seconds,
+        throttle_rejected=existing.throttle_rejected,
+        throttle_active=existing.throttle_active,
     )
 
 
