@@ -173,6 +173,7 @@ class BrainStack(Stack):
             "EVENT_BUS_NAME": self.event_bus.event_bus_name,
             "SESSIONS_BUCKET": self.storage.bucket.bucket_name,
             "DASHBOARD_ASSETS_S3": f"s3://{self.storage.bucket.bucket_name}/dashboard/frontend.tar.gz",
+            "DASHBOARD_DOCKER_VERSION": (Path(__file__).resolve().parent.parent.parent.parent / "dashboard" / "DOCKER_VERSION").read_text().strip(),
         }
 
         task_def.add_container(

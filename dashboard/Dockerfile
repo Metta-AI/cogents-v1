@@ -27,6 +27,9 @@ RUN pip install --no-cache-dir .
 COPY dashboard/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
+# Bake the version into the image for auto-rebuild detection
+COPY dashboard/DOCKER_VERSION /app/DOCKER_VERSION
+
 ENV PORT=5174
 ENV HOSTNAME=0.0.0.0
 

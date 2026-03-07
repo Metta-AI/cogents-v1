@@ -291,8 +291,28 @@ def _restart_ecs_service(ecs_client, service_arn: str, skip_health: bool, t0: fl
         click.echo(f"  Dashboard deployment initiated. ({time.monotonic() - t0:.1f}s)")
 
 
+def _read_docker_version(project_root: str) -> str:
+    """Read the dashboard Docker version from DOCKER_VERSION file."""
+    version_file = os.path.join(project_root, "dashboard", "DOCKER_VERSION")
+    if os.path.exists(version_file):
+        return open(version_file).read().strip()
+    return "0"
+
+
+def _get_deployed_docker_version(ecs_client, service_arn: str) -> str:
+    """Read the DOCKER_VERSION label from the currently deployed container."""
+    svc_desc = ecs_client.describe_services(cluster="cogent-polis", services=[service_arn])["services"][0]
+    task_def_arn = svc_desc["taskDefinition"]
+    task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)["taskDefinition"]
+    for c in task_def.get("containerDefinitions", []):
+        for env in c.get("environment", []):
+            if env["name"] == "DASHBOARD_DOCKER_VERSION":
+                return env["value"]
+    return "0"
+
+
 @update.command("dashboard")
-@click.option("--docker", is_flag=True, help="Rebuild and push Docker image (slow, only needed for backend/infra changes)")
+@click.option("--docker", is_flag=True, help="Force rebuild and push Docker image")
 @click.option("--skip-health", is_flag=True, help="Skip waiting for service stability")
 @click.pass_context
 def update_dashboard(ctx: click.Context, docker: bool, skip_health: bool):
@@ -300,7 +320,8 @@ def update_dashboard(ctx: click.Context, docker: bool, skip_health: bool):
 
     \b
     Default: build Next.js → tar.gz → S3 → restart ECS (~30s).
-    --docker: rebuild Docker image + push ECR + update task def (~5min).
+    Auto-detects when DOCKER_VERSION changes and rebuilds image.
+    --docker: force rebuild Docker image + push ECR + update task def.
     """
     import subprocess
     import tarfile
@@ -314,6 +335,16 @@ def update_dashboard(ctx: click.Context, docker: bool, skip_health: bool):
 
     click.echo(f"Updating dashboard for cogent-{name}...")
     session = _get_polis_admin_session()
+
+    # Auto-detect if Docker rebuild is needed
+    if not docker:
+        local_version = _read_docker_version(project_root)
+        ecs_client = session.client("ecs", region_name=DEFAULT_REGION)
+        service_arn = _find_dashboard_service(ecs_client, safe_name)
+        deployed_version = _get_deployed_docker_version(ecs_client, service_arn)
+        if local_version != deployed_version:
+            click.echo(f"  Docker version changed: {deployed_version} → {local_version}")
+            docker = True
 
     if docker:
         _docker_build_push_deploy(ctx, session, name, safe_name, project_root, skip_health, t0)
@@ -439,10 +470,19 @@ def _docker_build_push_deploy(ctx, session, name, safe_name, project_root, skip_
     task_def_arn = svc_desc["taskDefinition"]
     task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)["taskDefinition"]
 
+    local_version = _read_docker_version(project_root)
     containers = task_def["containerDefinitions"]
     for c in containers:
         if c.get("name") == "web":
             c["image"] = remote_tag
+            # Inject DASHBOARD_DOCKER_VERSION so future deploys can detect version
+            env_list = c.setdefault("environment", [])
+            for env in env_list:
+                if env["name"] == "DASHBOARD_DOCKER_VERSION":
+                    env["value"] = local_version
+                    break
+            else:
+                env_list.append({"name": "DASHBOARD_DOCKER_VERSION", "value": local_version})
             break
     else:
         containers[0]["image"] = remote_tag
