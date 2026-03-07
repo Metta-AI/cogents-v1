@@ -144,6 +144,15 @@ export interface CronItem {
   created_at: string | null;
 }
 
+export interface Resource {
+  name: string;
+  resource_type: string;
+  capacity: number;
+  used: number;
+  metadata: Record<string, unknown>;
+  created_at: string | null;
+}
+
 export type TimeRange = "1m" | "10m" | "1h" | "24h" | "1w";
 export type Timezone = "local" | "utc" | "pst";
 
@@ -158,4 +167,5 @@ export interface DashboardData {
   channels: Channel[];
   alerts: Alert[];
   crons: CronItem[];
+  resources: Resource[];
 }

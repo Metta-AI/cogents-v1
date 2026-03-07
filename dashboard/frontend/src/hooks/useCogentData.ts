@@ -33,6 +33,7 @@ export function useCogentData(cogentName: string) {
     channels: [],
     alerts: [],
     crons: [],
+    resources: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +61,7 @@ export function useCogentData(cogentName: string) {
       api.getChannels(cogentName),
       api.getAlerts(cogentName),
       api.getCrons(cogentName),
+      api.getResources(cogentName),
     ]);
     const failCount = results.filter((r) => r.status === "rejected").length;
     if (failCount === results.length) {
@@ -79,6 +81,7 @@ export function useCogentData(cogentName: string) {
         channels: results[7].status === "fulfilled" ? results[7].value : [],
         alerts: results[8].status === "fulfilled" ? results[8].value : [],
         crons: results[9].status === "fulfilled" ? results[9].value : [],
+        resources: results[10].status === "fulfilled" ? results[10].value : [],
       });
     } else {
       setError(null);
@@ -93,6 +96,7 @@ export function useCogentData(cogentName: string) {
         channels: results[7].status === "fulfilled" ? results[7].value : [],
         alerts: results[8].status === "fulfilled" ? results[8].value : [],
         crons: results[9].status === "fulfilled" ? results[9].value : [],
+        resources: results[10].status === "fulfilled" ? results[10].value : [],
       });
     }
     setLoading(false);

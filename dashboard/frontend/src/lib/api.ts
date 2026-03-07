@@ -9,6 +9,7 @@ import type {
   Channel,
   Alert,
   CronItem,
+  Resource,
   TimeRange,
 } from "./types";
 
@@ -107,6 +108,13 @@ export async function deleteMemory(name: string, memoryId: string): Promise<void
     headers: headers(),
   });
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+}
+
+export async function getResources(name: string): Promise<Resource[]> {
+  const r = await fetchJSON<{ resources: Resource[] }>(
+    `/api/cogents/${name}/resources`,
+  );
+  return r.resources;
 }
 
 export async function getTasks(name: string): Promise<Task[]> {

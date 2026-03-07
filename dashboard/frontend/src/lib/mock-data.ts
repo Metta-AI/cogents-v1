@@ -9,6 +9,7 @@ import type {
   Channel,
   Alert,
   CronItem,
+  Resource,
   DashboardData,
 } from "./types";
 
@@ -165,6 +166,18 @@ const crons: CronItem[] = [
   { id: uuid(), cron_expression: "*/15 * * * *", event_pattern: "cron.cost-check", enabled: true, metadata: { description: "Cost monitoring every 15 minutes" }, created_at: ago(10 * D) },
 ];
 
+// ── Resources ────────────────────────────────────────────────────────────────
+
+const resources: Resource[] = [
+  { name: "concurrent-tasks", resource_type: "pool", capacity: 5, used: 3, metadata: { description: "Max concurrent task executions" }, created_at: ago(60 * D) },
+  { name: "review-runner", resource_type: "pool", capacity: 2, used: 1, metadata: { description: "Code review runner slots" }, created_at: ago(30 * D) },
+  { name: "deploy-runner-1", resource_type: "pool", capacity: 1, used: 1, metadata: { description: "Staging deployment runner" }, created_at: ago(30 * D) },
+  { name: "staging-cluster", resource_type: "pool", capacity: 1, used: 1, metadata: { description: "Staging cluster access" }, created_at: ago(45 * D) },
+  { name: "prod-cluster", resource_type: "pool", capacity: 1, used: 0, metadata: { description: "Production cluster access" }, created_at: ago(45 * D) },
+  { name: "daily-api-budget", resource_type: "consumable", capacity: 10, used: 9.42, metadata: { description: "Daily API spend limit ($)" }, created_at: ago(30 * D) },
+  { name: "weekly-token-budget", resource_type: "consumable", capacity: 500000, used: 317000, metadata: { description: "Weekly token allocation" }, created_at: ago(30 * D) },
+];
+
 // ── Export ───────────────────────────────────────────────────────────────────
 
 export const MOCK_DATA: DashboardData = {
@@ -178,4 +191,5 @@ export const MOCK_DATA: DashboardData = {
   channels,
   alerts,
   crons,
+  resources,
 };

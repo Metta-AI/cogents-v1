@@ -115,7 +115,7 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
           <MemoryPanel memory={data.memory} cogentName={cogentName} onRefresh={refresh} />
         )}
         {activeTab === "resources" && (
-          <ResourcesPanel data={data} />
+          <ResourcesPanel resources={data.resources} />
         )}
         {activeTab === "tasks" && (
           <TasksPanel tasks={data.tasks} cogentName={cogentName} onRefresh={refresh} memory={data.memory} programs={data.programs} timeRange={timeRange} />

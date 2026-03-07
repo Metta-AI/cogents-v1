@@ -321,7 +321,16 @@ class CronsResponse(BaseModel):
     crons: list[CronItem]
 
 
+class ResourceItem(BaseModel):
+    name: str
+    resource_type: str = "pool"
+    capacity: float = 1.0
+    used: float = 0.0
+    metadata: dict[str, Any] = {}
+    created_at: str | None = None
+
+
 class ResourcesResponse(BaseModel):
     cogent_name: str
-    active_sessions: int = 0
-    conversations: list[dict[str, Any]] = []
+    count: int = 0
+    resources: list[ResourceItem] = []
