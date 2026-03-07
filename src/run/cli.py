@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import time
 
-import boto3
 import click
 from rich.console import Console
 from rich.table import Table
@@ -21,15 +19,12 @@ def run():
     pass
 
 
-def _get_cluster_name(cogent_name: str) -> str:
-    return f"cogent-{cogent_name.replace('.', '-')}"
-
-
-def _list_running_tasks(ecs_client, cluster: str) -> list[dict]:
+def _list_running_tasks(ecs_client, cluster: str, family: str = "") -> list[dict]:
     """List running ECS tasks with their details."""
-    task_arns = ecs_client.list_tasks(
-        cluster=cluster, desiredStatus="RUNNING"
-    ).get("taskArns", [])
+    kwargs = {"cluster": cluster, "desiredStatus": "RUNNING"}
+    if family:
+        kwargs["family"] = family
+    task_arns = ecs_client.list_tasks(**kwargs).get("taskArns", [])
     if not task_arns:
         return []
     resp = ecs_client.describe_tasks(cluster=cluster, tasks=task_arns)
@@ -67,16 +62,19 @@ def _get_program_name(task: dict) -> str:
 def list_cmd(ctx: click.Context):
     """List running ECS tasks."""
     name = get_cogent_name(ctx)
-    cluster = _get_cluster_name(name)
-    ecs_client = boto3.client("ecs")
+    cfg = _get_ecs_config(name)
+    cluster = cfg["cluster"]
+    ecs_client = cfg["ecs_client"]
+    family = cfg["family"]
 
-    tasks = _list_running_tasks(ecs_client, cluster)
+    tasks = _list_running_tasks(ecs_client, cluster, family)
     if not tasks:
         click.echo("No running tasks.")
         return
 
     console = Console()
-    table = Table(title=f"Running tasks — {cluster}")
+    cluster_name = cluster.rsplit("/", 1)[-1] if "/" in cluster else cluster
+    table = Table(title=f"Running tasks — {cluster_name}")
     table.add_column("Task ID", style="cyan")
     table.add_column("Program")
     table.add_column("Started")
@@ -96,27 +94,54 @@ def list_cmd(ctx: click.Context):
     console.print(table)
 
 
-def _launch_shell_task(name: str) -> None:
-    """Launch a new shell task via mind task create --run."""
+def _get_ecs_config(name: str) -> dict:
+    """Get ECS config from the brain's orchestrator Lambda environment."""
+    from polis.aws import get_polis_session, set_profile
+    set_profile("softmax-org")
+    session, _ = get_polis_session()
+    lambda_client = session.client("lambda")
     safe_name = name.replace(".", "-")
-    cmd = [
-        "cogent", name,
-        "mind", "task", "create", f"shell-{safe_name}",
-        "--program", "hello",
-        "--content", "Interactive shell session",
-        "--runner", "ecs",
-        "--run",
-    ]
-    click.echo("Creating task...")
-    subprocess.run(cmd, check=True)
+    resp = lambda_client.get_function(FunctionName=f"cogent-{safe_name}-orchestrator")
+    env = resp["Configuration"]["Environment"]["Variables"]
+    task_def_arn = env["ECS_TASK_DEFINITION"]
+    # Extract family from ARN: .../cogent-dr-alpha-executor:9 → cogent-dr-alpha-executor
+    family = task_def_arn.rsplit("/", 1)[-1].split(":")[0]
+    return {
+        "cluster": env["ECS_CLUSTER_ARN"],
+        "task_definition": task_def_arn,
+        "family": family,
+        "subnets": [s.strip() for s in env["ECS_SUBNETS"].split(",")],
+        "security_group": env["ECS_SECURITY_GROUP"],
+        "session": session,
+        "ecs_client": session.client("ecs"),
+    }
 
 
-def _wait_for_task(ecs_client, cluster: str, timeout: int = 120) -> dict | None:
+def _launch_shell_task(cfg: dict) -> None:
+    """Launch a bare ECS task (no program) for interactive shell access."""
+    click.echo("Launching shell task...")
+    cfg["ecs_client"].run_task(
+        cluster=cfg["cluster"],
+        taskDefinition=cfg["task_definition"],
+        launchType="FARGATE",
+        enableExecuteCommand=True,
+        networkConfiguration={
+            "awsvpcConfiguration": {
+                "subnets": cfg["subnets"],
+                "securityGroups": [cfg["security_group"]],
+                "assignPublicIp": "ENABLED",
+            }
+        },
+    )
+    click.echo("Shell task launched.")
+
+
+def _wait_for_task(ecs_client, cluster: str, family: str = "", timeout: int = 120) -> dict | None:
     """Poll for a new RUNNING task with SSM agent ready."""
     click.echo("Waiting for ECS task to start...")
     deadline = time.time() + timeout
     while time.time() < deadline:
-        tasks = _list_running_tasks(ecs_client, cluster)
+        tasks = _list_running_tasks(ecs_client, cluster, family)
         for task in tasks:
             # Check if SSM managed agent is running (needed for ECS Exec)
             for container in task.get("containers", []):
@@ -140,23 +165,25 @@ def shell_cmd(ctx: click.Context, run_id: str | None, launch_new: bool):
     Use --new to launch a fresh shell task.
     """
     name = get_cogent_name(ctx)
-    cluster = _get_cluster_name(name)
-    ecs_client = boto3.client("ecs")
+    cfg = _get_ecs_config(name)
+    cluster = cfg["cluster"]
+    ecs_client = cfg["ecs_client"]
+    family = cfg["family"]
 
     if launch_new:
-        _launch_shell_task(name)
-        target = _wait_for_task(ecs_client, cluster)
+        _launch_shell_task(cfg)
+        target = _wait_for_task(ecs_client, cluster, family)
         if not target:
             raise click.ClickException("Timed out waiting for task to start")
         _connect(cluster, target)
         return
 
-    tasks = _list_running_tasks(ecs_client, cluster)
+    tasks = _list_running_tasks(ecs_client, cluster, family)
 
     if not tasks:
         if click.confirm("No running tasks. Launch a new shell?", default=True):
-            _launch_shell_task(name)
-            target = _wait_for_task(ecs_client, cluster)
+            _launch_shell_task(cfg)
+            target = _wait_for_task(ecs_client, cluster, family)
             if not target:
                 raise click.ClickException("Timed out waiting for task to start")
             _connect(cluster, target)
@@ -184,8 +211,8 @@ def shell_cmd(ctx: click.Context, run_id: str | None, launch_new: bool):
 
         choice = click.prompt("Select task", default="0")
         if choice.lower() == "n":
-            _launch_shell_task(name)
-            target = _wait_for_task(ecs_client, cluster)
+            _launch_shell_task(cfg)
+            target = _wait_for_task(ecs_client, cluster, family)
             if not target:
                 raise click.ClickException("Timed out waiting for task to start")
             _connect(cluster, target)
@@ -202,9 +229,23 @@ def shell_cmd(ctx: click.Context, run_id: str | None, launch_new: bool):
 
 def _connect(cluster: str, target: dict) -> None:
     """Connect to a task's tmux session via ECS Exec."""
+    from polis.aws import get_polis_session, set_profile
+    set_profile("softmax-org")
+    session, _ = get_polis_session()
+    creds = session.get_credentials().get_frozen_credentials()
+
     task_arn = target["taskArn"]
     task_id = _task_id_from_arn(task_arn)
     click.echo(f"Connecting to {task_id[:12]}...")
+
+    # Set polis credentials for aws CLI
+    os.environ["AWS_ACCESS_KEY_ID"] = creds.access_key
+    os.environ["AWS_SECRET_ACCESS_KEY"] = creds.secret_key
+    if creds.token:
+        os.environ["AWS_SESSION_TOKEN"] = creds.token
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+    # Remove profile to avoid conflicts
+    os.environ.pop("AWS_PROFILE", None)
 
     cmd = [
         "aws", "ecs", "execute-command",
@@ -212,6 +253,6 @@ def _connect(cluster: str, target: dict) -> None:
         "--task", task_arn,
         "--container", "Executor",
         "--interactive",
-        "--command", "tmux attach -t claude",
+        "--command", "/bin/bash -c 'tmux attach -t claude 2>/dev/null || bash'",
     ]
     os.execvp("aws", cmd)
