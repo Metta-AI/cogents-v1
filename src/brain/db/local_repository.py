@@ -20,8 +20,10 @@ from brain.db.models import (
     ConversationStatus,
     Cron,
     Event,
+    Memory,
     MemoryRecord,
     MemoryScope,
+    MemoryVersion,
     Program,
     ProgramType,
     Resource,
@@ -77,6 +79,10 @@ class LocalRepository:
         self._resources: dict[str, Resource] = {}
         self._resource_usage: list[ResourceUsage] = []
 
+        # Versioned memory (v2)
+        self._memories: dict[UUID, Memory] = {}          # keyed by memory.id
+        self._memory_versions: dict[UUID, list[MemoryVersion]] = {}  # keyed by memory_id
+
         self._load()
 
     # ── Persistence ──────────────────────────────────────────
@@ -116,6 +122,8 @@ class LocalRepository:
         self._traces.clear()
         self._resources.clear()
         self._resource_usage.clear()
+        self._memories.clear()
+        self._memory_versions.clear()
 
         for p in data.get("programs", []):
             prog = Program(**p)
@@ -157,6 +165,14 @@ class LocalRepository:
         for u in data.get("resource_usage", []):
             self._resource_usage.append(ResourceUsage(**u))
 
+        # Versioned memory (v2)
+        for m in data.get("memories_v2", []):
+            mem = Memory(**{k: v for k, v in m.items() if k != "versions"})
+            self._memories[mem.id] = mem
+        for mv in data.get("memory_versions", []):
+            ver = MemoryVersion(**mv)
+            self._memory_versions.setdefault(ver.memory_id, []).append(ver)
+
         logger.info("Loaded local data: %d programs, %d tasks, %d events",
                      len(self._programs), len(self._tasks), len(self._events))
 
@@ -176,6 +192,12 @@ class LocalRepository:
             "traces": [t.model_dump(mode="json") for t in self._traces.values()],
             "resources": [r.model_dump(mode="json") for r in self._resources.values()],
             "resource_usage": [u.model_dump(mode="json") for u in self._resource_usage],
+            "memories_v2": [m.model_dump(mode="json", exclude={"versions"}) for m in self._memories.values()],
+            "memory_versions": [
+                mv.model_dump(mode="json")
+                for versions in self._memory_versions.values()
+                for mv in versions
+            ],
         }
         self._file.write_text(json.dumps(data, indent=2, default=_json_serial))
         self._file_mtime = self._file.stat().st_mtime
@@ -619,3 +641,180 @@ class LocalRepository:
         self._tasks[task.id] = task
         self._save()
         return task.id
+
+    # ── Memory v2 (versioned) ────────────────────────────────
+
+    def insert_memory_v2(self, mem: Memory) -> UUID:
+        now = datetime.utcnow()
+        mem.created_at = mem.created_at or now
+        mem.modified_at = now
+        self._memories[mem.id] = mem
+        self._save()
+        return mem.id
+
+    def get_memory_by_name(self, name: str) -> Memory | None:
+        """Returns Memory with ALL versions populated in versions dict."""
+        self._maybe_reload()
+        for mem in self._memories.values():
+            if mem.name == name:
+                # Populate versions dict
+                mem.versions = {}
+                for mv in self._memory_versions.get(mem.id, []):
+                    mem.versions[mv.version] = mv
+                return mem
+        return None
+
+    def insert_memory_version(self, mv: MemoryVersion) -> None:
+        mv.created_at = mv.created_at or datetime.utcnow()
+        self._memory_versions.setdefault(mv.memory_id, []).append(mv)
+        # Update modified_at on parent memory
+        if mv.memory_id in self._memories:
+            self._memories[mv.memory_id].modified_at = datetime.utcnow()
+        self._save()
+
+    def get_memory_version(self, memory_id: UUID, version: int) -> MemoryVersion | None:
+        for mv in self._memory_versions.get(memory_id, []):
+            if mv.version == version:
+                return mv
+        return None
+
+    def get_max_version(self, memory_id: UUID) -> int:
+        versions = self._memory_versions.get(memory_id, [])
+        if not versions:
+            return 0
+        return max(mv.version for mv in versions)
+
+    def list_memory_versions(self, memory_id: UUID) -> list[MemoryVersion]:
+        versions = list(self._memory_versions.get(memory_id, []))
+        versions.sort(key=lambda mv: mv.version)
+        return versions
+
+    def update_active_version(self, memory_id: UUID, version: int) -> None:
+        mem = self._memories.get(memory_id)
+        if mem:
+            mem.active_version = version
+            mem.modified_at = datetime.utcnow()
+            self._save()
+
+    def update_version_read_only(self, memory_id: UUID, version: int, read_only: bool) -> None:
+        for mv in self._memory_versions.get(memory_id, []):
+            if mv.version == version:
+                mv.read_only = read_only
+                self._save()
+                return
+
+    def update_memory_name(self, memory_id: UUID, new_name: str) -> None:
+        mem = self._memories.get(memory_id)
+        if mem:
+            mem.name = new_name
+            mem.modified_at = datetime.utcnow()
+            self._save()
+
+    def delete_memory_v2(self, memory_id: UUID) -> None:
+        """Deletes memory AND all its versions."""
+        self._memories.pop(memory_id, None)
+        self._memory_versions.pop(memory_id, None)
+        self._save()
+
+    def delete_memory_version(self, memory_id: UUID, version: int) -> None:
+        versions = self._memory_versions.get(memory_id, [])
+        self._memory_versions[memory_id] = [mv for mv in versions if mv.version != version]
+        self._save()
+
+    def list_memories_v2(
+        self,
+        *,
+        prefix: str | None = None,
+        source: str | None = None,
+        limit: int = 200,
+    ) -> list[Memory]:
+        """List memories, optionally filtering by name prefix and active version source.
+
+        Returns Memory objects with active version populated.
+        """
+        self._maybe_reload()
+        results: list[Memory] = []
+        for mem in self._memories.values():
+            if prefix and not mem.name.startswith(prefix):
+                continue
+            # Populate active version
+            active_mv = self.get_memory_version(mem.id, mem.active_version)
+            if source and (active_mv is None or active_mv.source != source):
+                continue
+            mem.versions = {}
+            if active_mv:
+                mem.versions[active_mv.version] = active_mv
+            results.append(mem)
+        results.sort(key=lambda m: m.name)
+        return results[:limit]
+
+    def resolve_memory_keys(self, keys: list[str]) -> list[Memory]:
+        """Resolve memory keys with ancestor/child init expansion.
+
+        For each key:
+        1. Walk up the path collecting ancestor /init names
+        2. Include the key itself
+        3. Look for children matching key/ prefix that end in /init
+
+        If two memories have the same name, keep the one with source != 'polis'.
+        Sort results by path depth (count of '/' in name).
+        """
+        if not keys:
+            return []
+
+        names_to_fetch: set[str] = set()
+        child_prefixes: list[str] = []
+
+        for key in keys:
+            key = key.rstrip("/")
+            parts = key.strip("/").split("/")
+
+            # Ancestor inits: /a/init, /a/b/init, ...
+            for i in range(1, len(parts)):
+                names_to_fetch.add("/" + "/".join(parts[:i]) + "/init")
+
+            # The key itself
+            names_to_fetch.add(key)
+
+            # Child init prefixes
+            child_prefixes.append(key + "/")
+
+        # Collect matching memories by name
+        # If duplicate names, prefer non-polis source
+        records_by_name: dict[str, Memory] = {}
+
+        for mem in self._memories.values():
+            matched = False
+            if mem.name in names_to_fetch:
+                matched = True
+            else:
+                for cp in child_prefixes:
+                    if mem.name.startswith(cp) and mem.name.endswith("/init"):
+                        matched = True
+                        break
+
+            if not matched:
+                continue
+
+            # Populate versions
+            mem_copy = mem.model_copy()
+            mem_copy.versions = {}
+            for mv in self._memory_versions.get(mem.id, []):
+                mem_copy.versions[mv.version] = mv
+
+            existing = records_by_name.get(mem.name)
+            if existing is None:
+                records_by_name[mem.name] = mem_copy
+            else:
+                # Prefer non-polis: check active version source
+                new_active = mem_copy.versions.get(mem_copy.active_version)
+                old_active = existing.versions.get(existing.active_version)
+                new_source = new_active.source if new_active else "cogent"
+                old_source = old_active.source if old_active else "cogent"
+                if old_source == "polis" and new_source != "polis":
+                    records_by_name[mem.name] = mem_copy
+
+        return sorted(
+            records_by_name.values(),
+            key=lambda m: m.name.count("/"),
+        )
