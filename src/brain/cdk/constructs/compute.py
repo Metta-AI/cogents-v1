@@ -161,6 +161,44 @@ class ComputeConstruct(Construct):
             },
         )
 
+        # Sandbox role — minimal permissions for Code Mode execution
+        sandbox_role = iam.Role(
+            self,
+            "SandboxRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[lambda_basic],
+        )
+        for stmt in data_api_statements:
+            sandbox_role.add_to_policy(stmt)
+        sandbox_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["sts:AssumeRole"],
+                resources=[f"arn:aws:iam::*:role/cogent-{safe_name}-tool-*"],
+            )
+        )
+
+        # Sandbox Lambda — executes LLM-generated code in Code Mode
+        self.sandbox = lambda_.Function(
+            self,
+            "Sandbox",
+            function_name=f"cogent-{safe_name}-sandbox",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="brain.lambdas.sandbox.handler.handler",
+            code=lambda_code,
+            memory_size=256,
+            timeout=Duration.seconds(30),
+            role=sandbox_role,
+            environment=env,
+        )
+
+        # Executor needs to invoke the sandbox
+        executor_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=[self.sandbox.function_arn],
+            )
+        )
+
         # Executor Lambda (no VPC — uses only AWS APIs)
         self.executor = lambda_.Function(
             self,
@@ -172,7 +210,10 @@ class ComputeConstruct(Construct):
             memory_size=config.executor_memory_mb,
             timeout=Duration.seconds(config.executor_timeout_s),
             role=executor_role,
-            environment=env,
+            environment={
+                **env,
+                "SANDBOX_FUNCTION_NAME": f"cogent-{safe_name}-sandbox",
+            },
         )
 
         # Dispatcher Lambda — polls proposed events and publishes to EventBridge
@@ -214,6 +255,14 @@ class ComputeConstruct(Construct):
                     "bedrock:InvokeModelWithResponseStream",
                 ],
                 resources=["*"],
+            )
+        )
+
+        # STS AssumeRole for Code Mode tool-specific IAM roles
+        task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["sts:AssumeRole"],
+                resources=[f"arn:aws:iam::*:role/cogent-{safe_name}-tool-*"],
             )
         )
 

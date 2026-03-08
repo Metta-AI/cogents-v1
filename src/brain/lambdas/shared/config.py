@@ -20,6 +20,7 @@ class LambdaConfig:
     ecs_task_definition: str = ""
     ecs_subnets: str = ""
     ecs_security_group: str = ""
+    sandbox_function_name: str = ""
 
 
 _config: LambdaConfig | None = None
@@ -42,5 +43,6 @@ def get_config() -> LambdaConfig:
             ecs_task_definition=os.environ.get("ECS_TASK_DEFINITION", ""),
             ecs_subnets=os.environ.get("ECS_SUBNETS", ""),
             ecs_security_group=os.environ.get("ECS_SECURITY_GROUP", ""),
+            sandbox_function_name=os.environ.get("SANDBOX_FUNCTION_NAME", ""),
         )
     return _config

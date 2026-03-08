@@ -248,6 +248,20 @@ class Cron(BaseModel):
     created_at: datetime | None = None
 
 
+class Tool(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    name: str  # hierarchical, e.g. "mind/task/create"
+    description: str = ""
+    instructions: str = ""  # usage guidance injected into search_tools results
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    handler: str = ""  # Python dotted path, e.g. "channels.gmail.tools:gmail_check"
+    iam_role_arn: str | None = None  # optional IAM role for scoped access
+    enabled: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class ResourceType(str, enum.Enum):
     POOL = "pool"
     CONSUMABLE = "consumable"

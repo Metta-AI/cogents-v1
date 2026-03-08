@@ -82,6 +82,23 @@ CREATE TABLE IF NOT EXISTS cron (
 );
 CREATE INDEX IF NOT EXISTS idx_cron_enabled ON cron (enabled) WHERE enabled = true;
 
+-- Tool definitions (Code Mode)
+CREATE TABLE IF NOT EXISTS tools (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name            TEXT NOT NULL UNIQUE,
+    description     TEXT NOT NULL DEFAULT '',
+    instructions    TEXT NOT NULL DEFAULT '',
+    input_schema    JSONB NOT NULL DEFAULT '{}',
+    handler         TEXT NOT NULL DEFAULT '',
+    iam_role_arn    TEXT,
+    enabled         BOOLEAN NOT NULL DEFAULT true,
+    metadata        JSONB NOT NULL DEFAULT '{}',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_tools_name ON tools (name);
+CREATE INDEX IF NOT EXISTS idx_tools_enabled ON tools (enabled) WHERE enabled = true;
+
 -- ═══════════════════════════════════════════════════════════
 -- WORK
 -- ═══════════════════════════════════════════════════════════
@@ -275,4 +292,4 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 
 -- Insert initial schema version
-INSERT INTO schema_version (version) VALUES (5) ON CONFLICT DO NOTHING;
+INSERT INTO schema_version (version) VALUES (8) ON CONFLICT DO NOTHING;

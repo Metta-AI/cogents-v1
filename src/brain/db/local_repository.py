@@ -33,6 +33,7 @@ from brain.db.models import (
     Task,
     TaskStatus,
     Trace,
+    Tool,
     Trigger,
     TriggerConfig,
 )
@@ -77,6 +78,8 @@ class LocalRepository:
         self._resources: dict[str, Resource] = {}
         self._resource_usage: list[ResourceUsage] = []
 
+        self._tools: dict[str, Tool] = {}
+
         # Versioned memory (v2)
         self._memories: dict[UUID, Memory] = {}          # keyed by memory.id
         self._memory_versions: dict[UUID, list[MemoryVersion]] = {}  # keyed by memory_id
@@ -119,6 +122,7 @@ class LocalRepository:
         self._traces.clear()
         self._resources.clear()
         self._resource_usage.clear()
+        self._tools.clear()
         self._memories.clear()
         self._memory_versions.clear()
 
@@ -158,6 +162,9 @@ class LocalRepository:
             self._resources[res.name] = res
         for u in data.get("resource_usage", []):
             self._resource_usage.append(ResourceUsage(**u))
+        for t in data.get("tools", []):
+            tool = Tool(**t)
+            self._tools[tool.name] = tool
 
         # Versioned memory (v2)
         for m in data.get("memories_v2", []):
@@ -185,6 +192,7 @@ class LocalRepository:
             "traces": [t.model_dump(mode="json") for t in self._traces.values()],
             "resources": [r.model_dump(mode="json") for r in self._resources.values()],
             "resource_usage": [u.model_dump(mode="json") for u in self._resource_usage],
+            "tools": [t.model_dump(mode="json") for t in self._tools.values()],
             "memories_v2": [m.model_dump(mode="json", exclude={"versions"}) for m in self._memories.values()],
             "memory_versions": [
                 mv.model_dump(mode="json")
@@ -636,6 +644,55 @@ class LocalRepository:
         self._tasks[task.id] = task
         self._save()
         return task.id
+
+    # ── Tools ────────────────────────────────────────────────
+
+    def upsert_tool(self, tool: Tool) -> UUID:
+        now = datetime.utcnow()
+        if tool.name in self._tools:
+            existing = self._tools[tool.name]
+            tool.id = existing.id
+            tool.created_at = existing.created_at
+        else:
+            tool.created_at = now
+        tool.updated_at = now
+        self._tools[tool.name] = tool
+        self._save()
+        return tool.id
+
+    def get_tool(self, name: str) -> Tool | None:
+        self._maybe_reload()
+        return self._tools.get(name)
+
+    def get_tools(self, names: list[str]) -> list[Tool]:
+        self._maybe_reload()
+        return [self._tools[n] for n in names if n in self._tools and self._tools[n].enabled]
+
+    def list_tools(self, *, prefix: str | None = None, enabled_only: bool = True) -> list[Tool]:
+        self._maybe_reload()
+        tools = list(self._tools.values())
+        if prefix is not None:
+            tools = [t for t in tools if t.name.startswith(prefix)]
+        if enabled_only:
+            tools = [t for t in tools if t.enabled]
+        tools.sort(key=lambda t: t.name)
+        return tools
+
+    def delete_tool(self, name: str) -> bool:
+        if name in self._tools:
+            del self._tools[name]
+            self._save()
+            return True
+        return False
+
+    def update_tool_enabled(self, name: str, enabled: bool) -> bool:
+        tool = self._tools.get(name)
+        if not tool:
+            return False
+        tool.enabled = enabled
+        tool.updated_at = datetime.utcnow()
+        self._save()
+        return True
 
     # ── Memory (versioned) ──────────────────────────────────
 

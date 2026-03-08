@@ -198,6 +198,25 @@ $$ LANGUAGE plpgsql""",
         "ALTER TABLE triggers ADD COLUMN IF NOT EXISTS throttle_active BOOLEAN NOT NULL DEFAULT false",
         "INSERT INTO schema_version (version) VALUES (7) ON CONFLICT DO NOTHING",
     ],
+    8: [
+        # --- Create tools table for Code Mode ---
+        """CREATE TABLE IF NOT EXISTS tools (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name            TEXT NOT NULL UNIQUE,
+            description     TEXT NOT NULL DEFAULT '',
+            instructions    TEXT NOT NULL DEFAULT '',
+            input_schema    JSONB NOT NULL DEFAULT '{}',
+            handler         TEXT NOT NULL DEFAULT '',
+            iam_role_arn    TEXT,
+            enabled         BOOLEAN NOT NULL DEFAULT true,
+            metadata        JSONB NOT NULL DEFAULT '{}',
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_tools_name ON tools (name)",
+        "CREATE INDEX IF NOT EXISTS idx_tools_enabled ON tools (enabled) WHERE enabled = true",
+        "INSERT INTO schema_version (version) VALUES (8) ON CONFLICT DO NOTHING",
+    ],
 }
 
 
@@ -245,6 +264,7 @@ def reset_schema(
         DROP TABLE IF EXISTS memory_version CASCADE;
         DROP TABLE IF EXISTS memory_v2 CASCADE;
         DROP TABLE IF EXISTS memory_legacy CASCADE;
+        DROP TABLE IF EXISTS tools CASCADE;
         DROP TABLE IF EXISTS resource_usage CASCADE;
         DROP TABLE IF EXISTS resources CASCADE;
         DROP TABLE IF EXISTS traces CASCADE;

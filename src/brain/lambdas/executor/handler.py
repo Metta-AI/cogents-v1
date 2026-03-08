@@ -1,4 +1,4 @@
-"""Executor Lambda handler — runs programs via Bedrock converse API."""
+"""Executor Lambda handler — runs programs via Bedrock converse API with Code Mode."""
 
 from __future__ import annotations
 
@@ -15,8 +15,52 @@ from brain.lambdas.shared.config import get_config
 from brain.lambdas.shared.db import get_repo
 from brain.lambdas.shared.events import emit_run_result, put_event
 from brain.lambdas.shared.logging import setup_logging
+from brain.tools.mind_sandbox import search_tools
 
 logger = setup_logging()
+
+# ── Code Mode: two meta-tools ────────────────────────────────
+
+CODE_MODE_TOOL_CONFIG = {"tools": [
+    {"toolSpec": {
+        "name": "search_tools",
+        "description": (
+            "Search available tools by keyword. Returns tool names, descriptions, "
+            "usage instructions, and input schemas. Use this to discover what tools "
+            "are available before writing code."
+        ),
+        "inputSchema": {"json": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search keyword (e.g. 'gmail', 'memory', 'task')",
+                },
+            },
+            "required": ["query"],
+        }},
+    }},
+    {"toolSpec": {
+        "name": "execute_code",
+        "description": (
+            "Execute Python code with access to declared tools as callable functions. "
+            "Use search_tools first to discover available tools and their schemas. "
+            "Tools are organized as dot-notation namespaces matching their names "
+            "(e.g. mind.task.create, channels.gmail.check). "
+            "Print results to see them. Returns stdout output or error traceback."
+        ),
+        "inputSchema": {"json": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Python code to execute",
+                },
+            },
+            "required": ["code"],
+        }},
+    }},
+]}
 
 
 def handler(event: dict, context) -> dict:
@@ -121,10 +165,47 @@ def handler(event: dict, context) -> dict:
         return {"statusCode": 500, "error": str(e)}
 
 
+def _handle_search_tools(tool_input: dict, tool_names: list[str], repo) -> str:
+    """Handle search_tools call in-process."""
+    query = tool_input.get("query", "")
+    results = search_tools(query, tool_names, repo)
+    return json.dumps(results, indent=2)
+
+
+def _handle_execute_code(tool_input: dict, tool_names: list[str], config) -> str:
+    """Handle execute_code by invoking the sandbox Lambda."""
+    code = tool_input.get("code", "")
+    if not code.strip():
+        return "Error: no code provided"
+
+    lambda_client = boto3.client("lambda", region_name=config.region)
+    payload = {
+        "code": code,
+        "tool_names": tool_names,
+        "cogent_name": config.cogent_name,
+        "region": config.region,
+    }
+
+    response = lambda_client.invoke(
+        FunctionName=config.sandbox_function_name,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload).encode(),
+    )
+
+    resp_payload = json.loads(response["Payload"].read())
+
+    if response.get("FunctionError"):
+        error = resp_payload.get("errorMessage", "Sandbox execution failed")
+        return f"Sandbox error: {error}"
+
+    return resp_payload.get("result", "(no result)")
+
+
 def execute_program(program: Program, event_data: dict, run: Run, config,
                     task_data: dict | None = None) -> Run:
-    """Execute program via Bedrock converse API with tool-use loop."""
+    """Execute program via Bedrock converse API with Code Mode tool loop."""
     bedrock = boto3.client("bedrock-runtime", region_name=config.region)
+    repo = get_repo()
 
     # Merge task overrides into a program copy
     if task_data:
@@ -143,7 +224,6 @@ def execute_program(program: Program, event_data: dict, run: Run, config,
     from memory.context_engine import ContextEngine
     from memory.store import MemoryStore
 
-    repo = get_repo()
     memory_store = MemoryStore(repo)
     context_engine = ContextEngine(memory_store)
 
@@ -159,8 +239,9 @@ def execute_program(program: Program, event_data: dict, run: Run, config,
 
     messages = [{"role": "user", "content": [{"text": user_text}]}]
 
-    # Build tool config from merged program tools
-    tool_config = _build_tool_config(program.tools) if program.tools else None
+    # Code Mode: always use the two meta-tools
+    tool_config = CODE_MODE_TOOL_CONFIG if program.tools else None
+    tool_names = program.tools or []
 
     model_id = program.metadata.get("model_version") or "us.anthropic.claude-sonnet-4-20250514-v1:0"
     run.model_version = model_id
@@ -194,17 +275,25 @@ def execute_program(program: Program, event_data: dict, run: Run, config,
         if stop_reason == "tool_use":
             tool_results = []
             for block in output_message.get("content", []):
-                if "toolUse" in block:
-                    tool_use = block["toolUse"]
-                    result = _execute_tool(tool_use, config)
-                    tool_results.append(
-                        {
-                            "toolResult": {
-                                "toolUseId": tool_use["toolUseId"],
-                                "content": [{"text": result}],
-                            }
-                        }
-                    )
+                if "toolUse" not in block:
+                    continue
+                tool_use = block["toolUse"]
+                tool_name = tool_use.get("name", "")
+                tool_input = tool_use.get("input", {})
+
+                if tool_name == "search_tools":
+                    result = _handle_search_tools(tool_input, tool_names, repo)
+                elif tool_name == "execute_code":
+                    result = _handle_execute_code(tool_input, tool_names, config)
+                else:
+                    result = f"Unknown tool: {tool_name}"
+
+                tool_results.append({
+                    "toolResult": {
+                        "toolUseId": tool_use["toolUseId"],
+                        "content": [{"text": result}],
+                    }
+                })
             messages.append({"role": "user", "content": tool_results})
         else:
             break
@@ -217,132 +306,13 @@ def execute_program(program: Program, event_data: dict, run: Run, config,
     return run
 
 
-TOOL_SCHEMAS: dict[str, dict] = {
-    "memory_get": {
-        "description": "Retrieve a memory value by key name.",
-        "inputSchema": {"json": {
-            "type": "object",
-            "properties": {"key": {"type": "string", "description": "The memory key to retrieve"}},
-            "required": ["key"],
-        }},
-    },
-    "memory_put": {
-        "description": "Store a value in memory under a key name.",
-        "inputSchema": {"json": {
-            "type": "object",
-            "properties": {
-                "key": {"type": "string", "description": "The memory key name"},
-                "value": {"type": "string", "description": "The value to store"},
-            },
-            "required": ["key", "value"],
-        }},
-    },
-    "event_send": {
-        "description": "Send an event to the event bus.",
-        "inputSchema": {"json": {
-            "type": "object",
-            "properties": {
-                "event_type": {"type": "string", "description": "The event type (e.g. 'greeting', 'alert')"},
-                "payload": {"type": "object", "description": "JSON payload for the event", "default": {}},
-            },
-            "required": ["event_type"],
-        }},
-    },
-}
-
-# Register Gmail tools from channels
-from channels.gmail.tools import TOOL_SCHEMAS as _GMAIL_SCHEMAS
-TOOL_SCHEMAS.update(_GMAIL_SCHEMAS)
-
-
-def _build_tool_config(tools: list[str]) -> dict:
-    """Build Bedrock tool config from program tool names."""
-    tool_specs = []
-    for tool_name in tools:
-        safe_name = tool_name.replace(":", "_").replace("-", "_").replace(" ", "_")
-        schema = TOOL_SCHEMAS.get(safe_name)
-        if schema:
-            tool_specs.append({"toolSpec": {"name": safe_name, **schema}})
-        else:
-            # Fallback for unknown tools
-            tool_specs.append({
-                "toolSpec": {
-                    "name": safe_name,
-                    "description": f"Execute command: {tool_name}",
-                    "inputSchema": {"json": {
-                        "type": "object",
-                        "properties": {"args": {"type": "string", "description": f"Arguments for {tool_name}"}},
-                    }},
-                }
-            })
-    return {"tools": tool_specs}
-
-
-def _execute_tool(tool_use: dict, config) -> str:
-    """Execute a tool natively in-process (no subprocess/CLI dependency)."""
-    tool_name = tool_use.get("name", "")
-    tool_input = tool_use.get("input", {})
-
-    repo = get_repo()
-
-    try:
-        if tool_name == "memory_get":
-            key = tool_input.get("key", "").strip()
-            if not key:
-                return "Error: memory get requires a key"
-            results = repo.query_memory(name=key)
-            if results:
-                return f"{results[0].name}: {results[0].content}"
-            return f"Memory '{key}' not found"
-
-        elif tool_name == "memory_put":
-            key = tool_input.get("key", "").strip()
-            value = tool_input.get("value", "")
-            if not key or not value:
-                return "Error: memory put requires key and value"
-            from brain.db.models import MemoryRecord, MemoryScope
-            mem = MemoryRecord(name=key, scope=MemoryScope.COGENT, content=value)
-            repo.insert_memory(mem)
-            return f"Stored memory '{key}'"
-
-        elif tool_name == "event_send":
-            event_type = tool_input.get("event_type", "").strip()
-            if not event_type:
-                return "Error: event send requires event_type"
-            payload = tool_input.get("payload", {})
-            if isinstance(payload, str):
-                try:
-                    payload = json.loads(payload)
-                except json.JSONDecodeError:
-                    payload = {"message": payload}
-            ev = Event(event_type=event_type, source="tool", payload=payload)
-            event_id = repo.append_event(ev)
-            put_event(ev, config.event_bus_name)
-            return f"Event sent: id={event_id} type={event_type}"
-
-        elif tool_name in _GMAIL_SCHEMAS:
-            from channels.gmail.tools import execute_tool as gmail_execute
-            return gmail_execute(tool_name, tool_input, config.cogent_name, config.region)
-
-        else:
-            return f"Unknown tool: {tool_name}"
-
-    except Exception as e:
-        return f"Tool {tool_name} failed: {e}"
-
-
 def execute_python_program(
     program: Program, event_data: dict, run: Run, config,
     task_data: dict | None = None,
 ) -> Run:
-    """Execute a Python program by calling its run(repo, event, config) function.
-
-    The program source is stored in program.content. We compile and exec it,
-    then call the `run` function which returns a list of Event objects to emit.
-    """
+    """Execute a Python program by calling its run(repo, event, config) function."""
     repo = get_repo()
 
-    # Compile and execute the program source to get the run function
     code = compile(program.content, f"<program:{program.name}>", "exec")
     namespace: dict = {}
     exec(code, namespace)  # noqa: S102
@@ -351,17 +321,14 @@ def execute_python_program(
     if not callable(run_fn):
         raise RuntimeError(f"Program {program.name} has no callable run() function")
 
-    # Build config dict for the program
     prog_config = {
         "cogent_name": config.cogent_name,
-        "cogent_id": config.cogent_id,
+        "cogent_id": config.cogent_name,
         "event_bus_name": config.event_bus_name,
     }
 
-    # Call the program's run function
     result_events = run_fn(repo, event_data, prog_config)
 
-    # Emit any events returned by the program
     if result_events:
         for evt in result_events:
             if isinstance(evt, Event):

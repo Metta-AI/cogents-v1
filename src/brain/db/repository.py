@@ -35,6 +35,7 @@ from brain.db.models import (
     Task,
     TaskStatus,
     Trace,
+    Tool,
     Trigger,
     TriggerConfig,
 )
@@ -1750,3 +1751,126 @@ class Repository:
         )
         row = self._first_row(response)
         return int(row["cnt"]) if row else 0
+
+    # ═══════════════════════════════════════════════════════════
+    # TOOLS
+    # ═══════════════════════════════════════════════════════════
+
+    def upsert_tool(self, tool: Tool) -> UUID:
+        """Insert or update a tool by name."""
+        response = self._execute(
+            """INSERT INTO tools
+                   (id, name, description, instructions, input_schema, handler,
+                    iam_role_arn, enabled, metadata)
+               VALUES (:id, :name, :description, :instructions, :input_schema::jsonb,
+                       :handler, :iam_role_arn, :enabled, :metadata::jsonb)
+               ON CONFLICT (name)
+               DO UPDATE SET description = EXCLUDED.description,
+                            instructions = EXCLUDED.instructions,
+                            input_schema = EXCLUDED.input_schema,
+                            handler = EXCLUDED.handler,
+                            iam_role_arn = EXCLUDED.iam_role_arn,
+                            enabled = EXCLUDED.enabled,
+                            metadata = EXCLUDED.metadata,
+                            updated_at = now()
+               RETURNING id, created_at, updated_at""",
+            [
+                self._param("id", tool.id),
+                self._param("name", tool.name),
+                self._param("description", tool.description),
+                self._param("instructions", tool.instructions),
+                self._param("input_schema", tool.input_schema),
+                self._param("handler", tool.handler),
+                self._param("iam_role_arn", tool.iam_role_arn),
+                self._param("enabled", tool.enabled),
+                self._param("metadata", tool.metadata),
+            ],
+        )
+        row = self._first_row(response)
+        if row:
+            tool.created_at = datetime.fromisoformat(row["created_at"])
+            tool.updated_at = datetime.fromisoformat(row["updated_at"])
+            return UUID(row["id"])
+        raise RuntimeError("Failed to upsert tool")
+
+    def get_tool(self, name: str) -> Tool | None:
+        """Get a tool by name."""
+        response = self._execute(
+            "SELECT * FROM tools WHERE name = :name",
+            [self._param("name", name)],
+        )
+        row = self._first_row(response)
+        return self._tool_from_row(row) if row else None
+
+    def get_tools(self, names: list[str]) -> list[Tool]:
+        """Get enabled tools by a list of names."""
+        if not names:
+            return []
+        params: list[dict] = []
+        placeholders: list[str] = []
+        for i, n in enumerate(names):
+            pname = f"n_{i}"
+            params.append(self._param(pname, n))
+            placeholders.append(f":{pname}")
+        in_clause = ", ".join(placeholders)
+        response = self._execute(
+            f"SELECT * FROM tools WHERE name IN ({in_clause}) AND enabled = true",
+            params,
+        )
+        return [self._tool_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def list_tools(self, *, prefix: str | None = None, enabled_only: bool = True) -> list[Tool]:
+        """List tools, optionally filtering by name prefix and enabled status."""
+        clauses: list[str] = []
+        params: list[dict] = []
+        if prefix is not None:
+            clauses.append("name LIKE :prefix")
+            params.append(self._param("prefix", prefix + "%"))
+        if enabled_only:
+            clauses.append("enabled = true")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        response = self._execute(
+            f"SELECT * FROM tools{where} ORDER BY name",
+            params or None,
+        )
+        return [self._tool_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def delete_tool(self, name: str) -> bool:
+        """Delete a tool by name."""
+        response = self._execute(
+            "DELETE FROM tools WHERE name = :name",
+            [self._param("name", name)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def update_tool_enabled(self, name: str, enabled: bool) -> bool:
+        """Enable or disable a tool by name."""
+        response = self._execute(
+            "UPDATE tools SET enabled = :enabled, updated_at = now() WHERE name = :name",
+            [
+                self._param("enabled", enabled),
+                self._param("name", name),
+            ],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def _tool_from_row(self, row: dict) -> Tool:
+        input_schema = row.get("input_schema", {})
+        if isinstance(input_schema, str):
+            input_schema = json.loads(input_schema)
+        metadata = row.get("metadata", {})
+        if isinstance(metadata, str):
+            metadata = json.loads(metadata)
+        return Tool(
+            id=UUID(row["id"]),
+            name=row["name"],
+            description=row.get("description", ""),
+            instructions=row.get("instructions", ""),
+            input_schema=input_schema,
+            handler=row.get("handler", ""),
+            iam_role_arn=row.get("iam_role_arn"),
+            enabled=row.get("enabled", True),
+            metadata=metadata,
+            created_at=datetime.fromisoformat(row["created_at"]) if row.get("created_at") else None,
+            updated_at=datetime.fromisoformat(row["updated_at"]) if row.get("updated_at") else None,
+        )
