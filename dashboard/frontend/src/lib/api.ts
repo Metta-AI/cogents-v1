@@ -129,6 +129,19 @@ export async function updateVersionContent(
   return resp.json();
 }
 
+export async function deleteVersion(
+  name: string,
+  memoryName: string,
+  version: number,
+): Promise<MemoryItem> {
+  const resp = await fetch(
+    `/api/cogents/${name}/memory/${encodeURIComponent(memoryName)}/versions/${version}`,
+    { method: "DELETE", headers: headers() },
+  );
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
 export async function activateVersion(
   name: string,
   memoryName: string,

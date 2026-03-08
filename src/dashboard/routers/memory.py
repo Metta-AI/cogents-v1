@@ -143,6 +143,24 @@ def update_version_content(name: str, memory_name: str, version: int, body: Upda
     return _memory_to_item(updated)
 
 
+@router.delete("/memory/{memory_name:path}/versions/{version}")
+def delete_version_endpoint(name: str, memory_name: str, version: int) -> MemoryItem:
+    """Delete a specific version of a memory."""
+    repo = get_repo()
+    mem = repo.get_memory_by_name(memory_name)
+    if not mem:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    if version not in mem.versions:
+        raise HTTPException(status_code=404, detail=f"Version {version} not found")
+    if version == mem.active_version:
+        raise HTTPException(status_code=400, detail="Cannot delete the active version")
+    if mem.versions[version].read_only:
+        raise HTTPException(status_code=400, detail="Version is read-only")
+    repo.delete_memory_version(mem.id, version)
+    del mem.versions[version]
+    return _memory_to_item(mem)
+
+
 @router.delete("/memory/{memory_name:path}")
 def delete_memory_endpoint(name: str, memory_name: str) -> dict:
     store = _get_store()

@@ -6,7 +6,7 @@ import { Badge } from "@/components/shared/Badge";
 import { HierarchyPanel, findNode, getAllItems, buildTree } from "@/components/shared/HierarchyPanel";
 import { JsonViewer } from "@/components/shared/JsonViewer";
 import { fmtTimestamp } from "@/lib/format";
-import { createMemory, updateMemory, deleteMemory, activateVersion, updateVersionContent } from "@/lib/api";
+import { createMemory, updateMemory, deleteMemory, activateVersion, updateVersionContent, deleteVersion } from "@/lib/api";
 
 interface MemoryPanelProps {
   memory: MemoryItem[];
@@ -103,6 +103,8 @@ function VersionPanel({ item, cogentName, canMutate, onRefresh, onClose }: Versi
   const [saveConfirm, setSaveConfirm] = useState<"update" | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteVersionConfirm, setDeleteVersionConfirm] = useState(false);
+  const [deletingVersion, setDeletingVersion] = useState(false);
 
   const versions = useMemo(
     () => [...(item.versions ?? [])].sort((a, b) => b.version - a.version),
@@ -173,6 +175,20 @@ function VersionPanel({ item, cogentName, canMutate, onRefresh, onClose }: Versi
       setDeleting(false);
     }
   }, [cogentName, item.name, deleting, onRefresh, onClose]);
+
+  const handleDeleteVersion = useCallback(async () => {
+    if (!cogentName || deletingVersion) return;
+    setDeletingVersion(true);
+    try {
+      await deleteVersion(cogentName, item.name, selectedVersion);
+      setDeleteVersionConfirm(false);
+      // Switch to the active version after deleting
+      setSelectedVersion(item.active_version);
+      onRefresh?.();
+    } finally {
+      setDeletingVersion(false);
+    }
+  }, [cogentName, item.name, selectedVersion, item.active_version, deletingVersion, onRefresh]);
 
   return (
     <div className="flex flex-col h-full">
@@ -269,18 +285,35 @@ function VersionPanel({ item, cogentName, canMutate, onRefresh, onClose }: Versi
               {currentVersion.version === item.active_version ? (
                 <Badge variant="success">active</Badge>
               ) : canMutate ? (
-                <button
-                  onClick={() => handleActivate(currentVersion.version)}
-                  disabled={activating}
-                  className="text-[10px] px-2 py-0.5 rounded border cursor-pointer transition-colors disabled:opacity-40"
-                  style={{
-                    background: "transparent",
-                    borderColor: "var(--accent)",
-                    color: "var(--accent)",
-                  }}
-                >
-                  {activating ? "..." : "Make Active"}
-                </button>
+                <>
+                  <button
+                    onClick={() => handleActivate(currentVersion.version)}
+                    disabled={activating}
+                    className="text-[10px] px-2 py-0.5 rounded border cursor-pointer transition-colors disabled:opacity-40"
+                    style={{
+                      background: "transparent",
+                      borderColor: "var(--accent)",
+                      color: "var(--accent)",
+                    }}
+                  >
+                    {activating ? "..." : "Make Active"}
+                  </button>
+                  {deleteVersionConfirm ? (
+                    <span className="flex items-center gap-1 text-[11px]">
+                      <span className="text-[var(--text-muted)]">Delete v{selectedVersion}?</span>
+                      <button onClick={handleDeleteVersion} disabled={deletingVersion} className="text-[var(--error)] border-0 bg-transparent cursor-pointer text-[11px] font-semibold disabled:opacity-40">{deletingVersion ? "..." : "Yes"}</button>
+                      <button onClick={() => setDeleteVersionConfirm(false)} className="text-[var(--text-muted)] border-0 bg-transparent cursor-pointer text-[11px]">No</button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setDeleteVersionConfirm(true)}
+                      className="text-[10px] px-2 py-0.5 rounded border cursor-pointer transition-colors"
+                      style={{ background: "transparent", borderColor: "var(--border)", color: "var(--error)" }}
+                    >
+                      Delete Version
+                    </button>
+                  )}
+                </>
               ) : null}
               {currentVersion.created_at && (
                 <span className="text-[10px] text-[var(--text-muted)] ml-auto">
