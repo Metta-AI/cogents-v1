@@ -18,11 +18,6 @@ const getToolGroup = (t: Tool): string => {
   return parts.slice(0, -1).join("/");
 };
 
-const toolLeafName = (t: Tool): string => {
-  const parts = t.name.split("/");
-  return parts[parts.length - 1] || t.name;
-};
-
 export function ToolsPanel({ tools, cogentName, onRefresh }: ToolsPanelProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -74,6 +69,7 @@ export function ToolsPanel({ tools, cogentName, onRefresh }: ToolsPanelProps) {
     try {
       await deleteTool(cogentName, t.name);
       setConfirmDeleteId(null);
+      setExpandedId(null);
       onRefresh?.();
     } finally {
       setDeletingId(null);
@@ -87,6 +83,8 @@ export function ToolsPanel({ tools, cogentName, onRefresh }: ToolsPanelProps) {
   const btnPrimary = `${btnClass} bg-[var(--accent)] text-white hover:opacity-90`;
   const btnDanger = `${btnClass} bg-red-600 text-white hover:bg-red-700`;
   const btnGhost = `${btnClass} text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]`;
+
+  const expandedTool = expandedId ? displayItems.find((x) => x.id === expandedId) ?? null : null;
 
   return (
     <div className="flex h-full" style={{ minHeight: "calc(100vh - 160px)" }}>
@@ -115,101 +113,75 @@ export function ToolsPanel({ tools, cogentName, onRefresh }: ToolsPanelProps) {
                 <th className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">
                   Description
                 </th>
-                <th className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">
-                  Handler
-                </th>
-                <th className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium text-center">
-                  Status
-                </th>
-                <th className="px-3 py-1.5 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium text-right">
-                  Actions
-                </th>
               </tr>
             </thead>
             <tbody>
               {displayItems.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="text-[var(--text-muted)] text-[13px] py-8 text-center">
+                  <td colSpan={2} className="text-[var(--text-muted)] text-[13px] py-8 text-center">
                     No tools registered
                   </td>
                 </tr>
               )}
-              {displayItems.map((t) => {
-                const isExpanded = expandedId === t.id;
-                const isEditing = editingId === t.id;
-                const isConfirmingDelete = confirmDeleteId === t.id;
-                const isDeleting = deletingId === t.id;
-                const isToggling = togglingId === t.id;
-
-                return (
-                  <tr key={t.id} className="border-b border-[var(--border)] last:border-0 group">
-                    <td className="px-4 py-2 align-top">
-                      <button
-                        className="font-mono text-[var(--text-secondary)] hover:text-[var(--accent)] bg-transparent border-0 cursor-pointer text-left text-[12px]"
-                        onClick={() => setExpandedId(isExpanded ? null : t.id)}
-                      >
-                        <span className="mr-1 text-[10px] text-[var(--text-muted)]">{isExpanded ? "▼" : "▶"}</span>
-                        {toolLeafName(t)}
-                      </button>
-                    </td>
-                    <td className="px-3 py-2 text-[var(--text-muted)] max-w-[250px] truncate align-top">
-                      {t.description || "--"}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-[11px] text-[var(--text-muted)] max-w-[200px] truncate align-top">
-                      {t.handler || "--"}
-                    </td>
-                    <td className="px-3 py-2 text-center align-top">
-                      <button
-                        className="bg-transparent border-0 cursor-pointer"
-                        disabled={isToggling}
-                        onClick={() => handleToggle(t)}
-                        title={t.enabled ? "Click to disable" : "Click to enable"}
-                      >
-                        <Badge variant={t.enabled ? "success" : "neutral"}>
-                          {t.enabled ? "enabled" : "disabled"}
-                        </Badge>
-                      </button>
-                    </td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap align-top">
-                      {isConfirmingDelete ? (
-                        <span className="text-[11px]">
-                          <span className="text-[var(--text-muted)] mr-1">Delete?</span>
-                          <button className={btnDanger} disabled={isDeleting} onClick={() => handleDelete(t)}>
-                            {isDeleting ? "..." : "Yes"}
-                          </button>
-                          <button className={`${btnGhost} ml-1`} onClick={() => setConfirmDeleteId(null)}>
-                            No
-                          </button>
-                        </span>
-                      ) : (
-                        <>
-                          <button className={btnGhost} onClick={() => startEdit(t)}>Edit</button>
-                          <button className={`${btnGhost} ml-1 hover:!text-red-400`} onClick={() => setConfirmDeleteId(t.id)}>
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {displayItems.map((t) => (
+                <tr
+                  key={t.id}
+                  className="border-b border-[var(--border)] last:border-0 cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
+                  style={expandedId === t.id ? { background: "var(--bg-hover)" } : undefined}
+                  onDoubleClick={() => setExpandedId(expandedId === t.id ? null : t.id)}
+                >
+                  <td className="px-4 py-2 align-top">
+                    <span className="font-mono text-[12px] text-[var(--text-secondary)]">
+                      {t.name}
+                    </span>
+                    {!t.enabled && <span className="ml-2"><Badge variant="neutral">disabled</Badge></span>}
+                  </td>
+                  <td className="px-3 py-2 text-[var(--text-muted)] truncate align-top">
+                    {t.description || "--"}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
 
         {/* Expanded detail / edit panel */}
-        {expandedId && (() => {
-          const t = displayItems.find((x) => x.id === expandedId);
-          if (!t) return null;
+        {expandedTool && (() => {
+          const t = expandedTool;
           const isEditing = editingId === t.id;
+          const isConfirmingDelete = confirmDeleteId === t.id;
+          const isDeleting = deletingId === t.id;
+          const isToggling = togglingId === t.id;
 
           return (
             <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-[13px] font-semibold text-[var(--text-primary)] font-mono">{t.name}</span>
-                {!isEditing && (
-                  <button className={btnGhost} onClick={() => startEdit(t)}>Edit</button>
-                )}
+                <div className="flex items-center gap-1">
+                  <button
+                    className={btnGhost}
+                    disabled={isToggling}
+                    onClick={() => handleToggle(t)}
+                  >
+                    {isToggling ? "..." : t.enabled ? "Disable" : "Enable"}
+                  </button>
+                  {!isEditing && (
+                    <button className={btnGhost} onClick={() => startEdit(t)}>Edit</button>
+                  )}
+                  {isConfirmingDelete ? (
+                    <span className="flex items-center gap-1 text-[11px]">
+                      <span className="text-[var(--text-muted)]">Delete?</span>
+                      <button className={btnDanger} disabled={isDeleting} onClick={() => handleDelete(t)}>
+                        {isDeleting ? "..." : "Yes"}
+                      </button>
+                      <button className={btnGhost} onClick={() => setConfirmDeleteId(null)}>No</button>
+                    </span>
+                  ) : (
+                    <button className={`${btnGhost} hover:!text-red-400`} onClick={() => setConfirmDeleteId(t.id)}>
+                      Delete
+                    </button>
+                  )}
+                </div>
               </div>
 
               {isEditing ? (
