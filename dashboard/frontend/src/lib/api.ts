@@ -78,7 +78,7 @@ export async function getMemory(name: string): Promise<MemoryItem[]> {
 
 export async function createMemory(
   name: string,
-  mem: { name: string; content?: string; source?: string; read_only?: boolean },
+  mem: { name: string; content?: string; scope?: string; provenance?: Record<string, string> },
 ): Promise<MemoryItem> {
   const resp = await fetch(`/api/cogents/${name}/memory`, {
     method: "POST",
@@ -91,10 +91,10 @@ export async function createMemory(
 
 export async function updateMemory(
   name: string,
-  memoryName: string,
-  updates: { content?: string; source?: string; read_only?: boolean },
+  memoryId: string,
+  updates: { name?: string; content?: string; scope?: string },
 ): Promise<MemoryItem> {
-  const resp = await fetch(`/api/cogents/${name}/memory/${encodeURIComponent(memoryName)}`, {
+  const resp = await fetch(`/api/cogents/${name}/memory/${encodeURIComponent(memoryId)}`, {
     method: "PUT",
     headers: { ...headers(), "Content-Type": "application/json" },
     body: JSON.stringify(updates),
@@ -103,8 +103,8 @@ export async function updateMemory(
   return resp.json();
 }
 
-export async function deleteMemory(name: string, memoryName: string): Promise<void> {
-  const resp = await fetch(`/api/cogents/${name}/memory/${encodeURIComponent(memoryName)}`, {
+export async function deleteMemory(name: string, memoryId: string): Promise<void> {
+  const resp = await fetch(`/api/cogents/${name}/memory/${encodeURIComponent(memoryId)}`, {
     method: "DELETE",
     headers: headers(),
   });

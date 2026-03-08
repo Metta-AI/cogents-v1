@@ -151,7 +151,7 @@ function VersionPanel({ item, cogentName, canMutate, onRefresh, onClose }: Versi
     if (!cogentName || saving) return;
     setSaving(true);
     try {
-      const updated = await updateMemory(cogentName, item.name, { content: editContent, source: "dashboard" });
+      const updated = await updateMemory(cogentName, item.name, { content: editContent });
       // Activate the new version (latest = highest version number)
       const newVersion = Math.max(...(updated.versions ?? []).map((v) => v.version));
       await activateVersion(cogentName, item.name, newVersion);
@@ -390,13 +390,12 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newContent, setNewContent] = useState("");
-  const [newSource, setNewSource] = useState("cogent");
 
 
   // Compute available sources for the filter
   const sources = useMemo(() => {
     const s = new Set<string>();
-    for (const m of memory) s.add(m.source);
+    for (const m of memory) if (m.source) s.add(m.source);
     return ["all", ...Array.from(s).sort()];
   }, [memory]);
 
@@ -423,14 +422,12 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
     await createMemory(cogentName, {
       name: newName.trim(),
       content: newContent,
-      source: newSource,
     });
     setCreating(false);
     setNewName("");
     setNewContent("");
-    setNewSource("cogent");
     onRefresh?.();
-  }, [cogentName, newName, newContent, newSource, onRefresh]);
+  }, [cogentName, newName, newContent, onRefresh]);
 
 
   const canMutate = !!cogentName && !!onRefresh;
@@ -521,20 +518,6 @@ export function MemoryPanel({ memory, cogentName, onRefresh }: MemoryPanelProps)
               <div className="text-[9px] text-[var(--text-muted)] mt-1">
                 Use / or - to define group
               </div>
-            </div>
-            <div>
-              <label className="block text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-1">
-                Source
-              </label>
-              <select
-                value={newSource}
-                onChange={(e) => setNewSource(e.target.value)}
-                className="w-full px-2 py-1.5 text-[12px] rounded border"
-                style={inputStyle}
-              >
-                <option value="cogent">cogent</option>
-                <option value="polis">polis</option>
-              </select>
             </div>
           </div>
           <div>
