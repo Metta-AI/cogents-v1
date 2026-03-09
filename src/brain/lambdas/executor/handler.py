@@ -34,7 +34,7 @@ CODE_MODE_TOOL_CONFIG = {"tools": [
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search keyword (e.g. 'gmail', 'memory', 'task')",
+                    "description": "Search keyword (e.g. 'memory', 'task', 'event')",
                 },
             },
             "required": ["query"],
@@ -46,7 +46,7 @@ CODE_MODE_TOOL_CONFIG = {"tools": [
             "Execute Python code with access to declared tools as callable functions. "
             "Use search_tools first to discover available tools and their schemas. "
             "Tools are organized as dot-notation namespaces matching their names "
-            "(e.g. mind.task.create, channels.gmail.check). "
+            "(e.g. mind.task.create, channels.discord.send). "
             "Print results to see them. Returns stdout output or error traceback."
         ),
         "inputSchema": {"json": {

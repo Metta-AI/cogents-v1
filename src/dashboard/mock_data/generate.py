@@ -66,12 +66,6 @@ def make_tools() -> list[Tool]:
         Tool(name="mind/event/send", description="Send an event to the event bus.",
              handler="brain.tools.handlers:event_send",
              input_schema={"type": "object", "properties": {"event_type": {"type": "string"}}, "required": ["event_type"]}),
-        Tool(name="channels/gmail/check", description="Check Gmail inbox for messages.",
-             handler="brain.tools.handlers:gmail_check",
-             input_schema={"type": "object", "properties": {"query": {"type": "string"}}}),
-        Tool(name="channels/gmail/send", description="Send an email via Gmail.",
-             handler="brain.tools.handlers:gmail_send",
-             input_schema={"type": "object", "properties": {"to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}}, "required": ["to", "subject", "body"]}),
     ]
 
 
@@ -121,7 +115,6 @@ def make_memory() -> tuple[list[Memory], list[MemoryVersion]]:
 def make_programs(tool_names: list[str], memory_names: list[str]) -> list[Program]:
     """Create programs referencing real tool and memory names."""
     mind_tools = [t for t in tool_names if t.startswith("mind/")]
-    gmail_tools = [t for t in tool_names if t.startswith("channels/gmail")]
 
     defs = [
         ("triage-issue", ProgramType.PROMPT, "Triage incoming GitHub issues, label and assign.",
@@ -129,11 +122,11 @@ def make_programs(tool_names: list[str], memory_names: list[str]) -> list[Progra
         ("do-content", ProgramType.PROMPT, "Execute content creation tasks from the task queue.",
          mind_tools, ["brand-voice", "content-calendar"]),
         ("monitor-alerts", ProgramType.PROMPT, "Monitor system health and escalate alerts.",
-         mind_tools + gmail_tools, ["alert-thresholds"]),
+         mind_tools, ["alert-thresholds"]),
         ("code-review", ProgramType.PYTHON, "Automated code review for pull requests.",
          mind_tools, ["code-standards"]),
         ("email-responder", ProgramType.PROMPT, "Draft email responses for common inquiries.",
-         gmail_tools + mind_tools, ["email-templates", "faq"]),
+         mind_tools, ["email-templates", "faq"]),
         ("data-sync", ProgramType.PYTHON, "Synchronize data between external services.",
          mind_tools, []),
     ]
@@ -163,7 +156,6 @@ def make_tasks(
     """Create tasks referencing valid program names, tool names, and memory keys."""
     prog_map = {p.name: p for p in programs}
     mind_tools = [t for t in tool_names if t.startswith("mind/")]
-    gmail_tools = [t for t in tool_names if t.startswith("channels/gmail")]
 
     defs = [
         ("Review Q1 metrics report", "do-content", TaskStatus.COMPLETED, 10.0,
@@ -177,17 +169,17 @@ def make_tasks(
         ("Deploy staging environment", "data-sync", TaskStatus.COMPLETED, 9.0,
          "Deploy latest build to staging.", mind_tools, ["deployment-notes"]),
         ("Monitor weekend alerts", "monitor-alerts", TaskStatus.RUNNING, 7.0,
-         "Watch for critical alerts over the weekend.", mind_tools + gmail_tools, ["alert-thresholds"]),
+         "Watch for critical alerts over the weekend.", mind_tools, ["alert-thresholds"]),
         ("Review PR #87: auth refactor", "code-review", TaskStatus.COMPLETED, 4.0,
          "Review authentication refactor PR.", mind_tools, ["code-standards"]),
         ("Respond to partner inquiry", "email-responder", TaskStatus.RUNNABLE, 3.0,
-         "Draft response to partnership email.", gmail_tools + mind_tools, ["email-templates"]),
+         "Draft response to partnership email.", mind_tools, ["email-templates"]),
         ("Sync CRM contacts", "data-sync", TaskStatus.DISABLED, 2.0,
          "Synchronize contacts from CRM to local DB.", mind_tools, []),
         ("Triage issue #155", "triage-issue", TaskStatus.RUNNING, 5.0,
          "New feature request needs labeling.", mind_tools, ["issue-triage-rules"]),
         ("Weekly digest email", "email-responder", TaskStatus.COMPLETED, 1.0,
-         "Send weekly project digest.", gmail_tools, ["faq"]),
+         "Send weekly project digest.", mind_tools, ["faq"]),
         ("Code review PR #92", "code-review", TaskStatus.RUNNABLE, 6.0,
          "Review dashboard component changes.", mind_tools, ["code-standards"]),
     ]

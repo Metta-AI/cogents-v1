@@ -37,9 +37,9 @@ def _import_handler(handler_path: str) -> callable:
 def _build_namespace(tools_map: dict[str, callable]) -> dict[str, types.SimpleNamespace]:
     """Build nested SimpleNamespace tree from slash-separated tool names.
 
-    Given {"mind/task/create": fn, "channels/gmail/check": fn2} returns:
+    Given {"mind/task/create": fn, "channels/discord/send": fn2} returns:
         {"mind": SimpleNamespace(task=SimpleNamespace(create=fn)),
-         "channels": SimpleNamespace(gmail=SimpleNamespace(check=fn2))}
+         "channels": SimpleNamespace(discord=SimpleNamespace(send=fn2))}
     """
     root: dict[str, Any] = {}
 

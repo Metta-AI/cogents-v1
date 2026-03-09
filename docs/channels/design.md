@@ -5,7 +5,7 @@ Channels are pure IO for the agent brain — eyes, ears, hands. Each channel kno
 ## Channel Modes
 
 - **Live** — persistent connection, pushes events via callback (Discord)
-- **Poll** — periodic check, returns new events (Gmail, Asana, Calendar)
+- **Poll** — periodic check, returns new events (Asana)
 - **On-demand** — receives external pushes via HTTP endpoint (GitHub)
 
 ## Package Structure
@@ -26,20 +26,11 @@ src/channels/
         webhook.py       # On-demand: HMAC-verified webhook receiver
         sender.py        # Comment on issues/PRs
         guide.md
-    gmail/
-        __init__.py
-        poller.py        # Poll: is:inbox is:unread via service account
-        sender.py        # Send email
-        guide.md
     asana/
         __init__.py
         poller.py        # Poll: task assignments + comments
         sender.py        # Create tasks/comments
         guide.md
-    calendar/
-        __init__.py
-        poller.py        # Poll: upcoming events in lookahead window
-        guide.md         # Shares Google service account with Gmail
 ```
 
 ## Base Abstractions
@@ -79,13 +70,11 @@ Live channels receive an `on_event` callback at construction and push events thr
 |----------|-----------|------------------------------------------|------------------------|
 | Discord  | live      | Gateway: DMs, mentions, channel messages | Post to channel/DM     |
 | GitHub   | on-demand | Webhooks with HMAC-SHA256 verification   | Comment on issues/PRs  |
-| Gmail    | poll      | `is:inbox is:unread` via service account | Send email             |
 | Asana    | poll      | Task assignments + new comments          | Create tasks/comments  |
-| Calendar | poll      | Upcoming events in lookahead window      | None                   |
 
 ## Token Management
 
-`access.py` provides `get_channel_token()` and `get_channel_secret()` — fetches from AWS Secrets Manager, falls back to environment variables. Calendar shares the Gmail service account credential (same Google service account, extended with calendar API scopes).
+`access.py` provides `get_channel_token()` and `get_channel_secret()` — fetches from AWS Secrets Manager, falls back to environment variables.
 
 ## CLI
 
@@ -101,12 +90,11 @@ Live channels receive an `on_event` callback at construction and push events thr
 Channel credential types:
 - `static` — Discord (bot token), Asana (PAT)
 - `github_app` — GitHub App with JWT auto-rotation
-- `service_account` — Gmail + Calendar (Google service account with domain-wide delegation)
 
 ## Deployment
 
 - **Discord** — long-running ECS task (persistent Gateway connection)
-- **Gmail, Asana, Calendar** — Lambda pollers triggered by EventBridge schedule
+- **Asana** — Lambda poller triggered by EventBridge schedule
 - **GitHub** — Lambda behind API Gateway receiving webhooks
 
 Lambda handlers are thin wrappers: instantiate channel, call `poll()`, publish `InboundEvent`s to EventBridge.

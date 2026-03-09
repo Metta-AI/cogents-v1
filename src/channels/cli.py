@@ -12,9 +12,7 @@ import click
 CHANNEL_TYPES = {
     "discord": "static",
     "github": "github_app",
-    "gmail": "service_account",
     "asana": "static",
-    "calendar": "service_account",
 }
 
 
@@ -29,7 +27,7 @@ def _load_guide(channel_name: str) -> str | None:
 
 @click.group()
 def channels():
-    """Manage cogent channels (GitHub, Discord, Gmail, Asana, Calendar)."""
+    """Manage cogent channels (GitHub, Discord, Asana)."""
     pass
 
 
@@ -151,7 +149,7 @@ def status(cogent_name: str):
             val = sm.get_secret_value(SecretId=s["Name"])
             data = json.loads(val["SecretString"])
             secret_type = data.get("type", "unknown")
-            has_token = bool(data.get("access_token") or data.get("service_account_key"))
+            has_token = bool(data.get("access_token") or data.get("bot_token"))
             status_str = "ready" if has_token else "missing"
         except Exception:
             secret_type = "?"

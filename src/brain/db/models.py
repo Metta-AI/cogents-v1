@@ -246,7 +246,7 @@ class Tool(BaseModel):
     description: str = ""
     instructions: str = ""  # usage guidance injected into search_tools results
     input_schema: dict[str, Any] = Field(default_factory=dict)
-    handler: str = ""  # Python dotted path, e.g. "channels.gmail.tools:gmail_check"
+    handler: str = ""  # Python dotted path, e.g. "brain.tools.handlers:memory_get"
     iam_role_arn: str | None = None  # optional IAM role for scoped access
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)

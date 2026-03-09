@@ -32,7 +32,7 @@ def _build_lambda_package() -> str:
         raise RuntimeError("uv not found on PATH; needed to bundle Lambda dependencies")
     subprocess.check_call(
         [uv, "pip", "install",
-         "pydantic", "google-api-python-client", "google-auth",
+         "pydantic",
          "--target", build_dir, "--quiet",
          "--python-platform", "linux", "--python-version", "3.12"],
     )

@@ -10,7 +10,7 @@ src/
   brain/        # LLM reasoning engine
   mind/         # Agent personality and goals
   memory/       # Persistent memory (PostgreSQL)
-  channels/     # External integrations (Discord, GitHub, Gmail, Asana, Calendar)
+  channels/     # External integrations (Discord, GitHub, Asana)
   cli/          # Main cogent CLI
   polis/        # Shared infrastructure hub (see docs/polis/)
 docs/

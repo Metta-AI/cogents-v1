@@ -97,7 +97,6 @@ def _package_lambda_code() -> bytes:
     deps_dir = tempfile.mkdtemp(prefix="lambda-deps-")
     lambda_deps = [
         "pydantic", "pydantic-settings", "pydantic-core", "annotated-types",
-        "google-api-python-client", "google-auth",
     ]
     subprocess.check_call(
         [
