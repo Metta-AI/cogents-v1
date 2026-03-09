@@ -74,11 +74,10 @@ cogent dr.alpha cogos image list                     # list available images
 
 1. Run migration (`001_create_tables.sql`)
 2. If `--clean`: truncate all cogos tables
-3. Upsert resources (first — capabilities may reference them)
-4. Upsert capabilities by name
-5. Upsert files via FileStore (creates if new, new version if changed, skips if unchanged)
-6. Upsert processes by name, bind capabilities, create handlers
-7. Upsert cron rules
+3. Upsert capabilities by name
+4. Upsert files via FileStore (creates if new, new version if changed, skips if unchanged)
+5. Upsert processes by name, bind capabilities, create handlers
+6. Resources and cron rules are loaded into the spec but not yet applied (no repo methods exist for these tables)
 
 Replaces the current `cogos bootstrap` command entirely.
 

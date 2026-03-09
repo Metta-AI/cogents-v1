@@ -230,6 +230,12 @@ class LocalRepository:
     # ── Handlers ─────────────────────────────────────────────
 
     def create_handler(self, h: Handler) -> UUID:
+        # Upsert by (process, event_pattern) to match RDS ON CONFLICT behavior
+        for existing in self._handlers.values():
+            if existing.process == h.process and existing.event_pattern == h.event_pattern:
+                existing.enabled = h.enabled
+                self._save()
+                return existing.id
         h.created_at = datetime.utcnow()
         self._handlers[h.id] = h
         self._save()

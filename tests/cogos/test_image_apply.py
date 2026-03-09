@@ -65,3 +65,5 @@ def test_apply_upsert_is_idempotent(tmp_path):
 
     assert len(repo.list_capabilities()) == 1
     assert len(repo.list_processes()) == 1
+    handlers = repo.list_handlers(process_id=repo.list_processes()[0].id)
+    assert len(handlers) == 1
