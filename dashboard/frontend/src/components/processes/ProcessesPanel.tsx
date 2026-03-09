@@ -264,14 +264,15 @@ function ProcessDetail({ process, cogentName, onClose, onRefresh }: ProcessDetai
         </button>
       </div>
 
-      {/* Body: content + runs side by side */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Content pane */}
-        <div className="w-1/3 overflow-y-auto p-3 border-r flex-shrink-0" style={{ borderColor: "var(--border)", background: "var(--bg-base)" }}>
-          <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-1.5">Content</div>
-          {editing ? (
-            <div className="space-y-2">
-              <div>
+      {/* Content row */}
+      <div
+        className="px-4 py-2 border-b flex-shrink-0"
+        style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
+      >
+        {editing ? (
+          <div className="space-y-2">
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
                 <label className="block text-[10px] text-[var(--text-muted)] mb-0.5">Name</label>
                 <input
                   value={editName}
@@ -289,81 +290,80 @@ function ProcessDetail({ process, cogentName, onClose, onRefresh }: ProcessDetai
                   style={inputStyle}
                 />
               </div>
-              <div>
-                <label className="block text-[10px] text-[var(--text-muted)] mb-0.5">Content</label>
-                <textarea
-                  value={editContent}
-                  onChange={(e) => setEditContent(e.target.value)}
-                  rows={8}
-                  className="w-full px-2 py-1.5 text-[12px] rounded border font-mono resize-y"
-                  style={inputStyle}
-                />
-              </div>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="text-[10px] px-2 py-0.5 rounded border-0 cursor-pointer disabled:opacity-40"
-                  style={{ background: "var(--accent)", color: "white" }}
-                >
-                  {saving ? "Saving..." : "Save"}
-                </button>
-                <button
-                  onClick={() => setEditing(false)}
-                  className="text-[10px] px-2 py-0.5 rounded border cursor-pointer"
-                  style={btnStyle}
-                >
-                  Cancel
-                </button>
-              </div>
             </div>
-          ) : (
-            <pre className="text-[12px] text-[var(--text-secondary)] font-mono whitespace-pre-wrap break-all m-0">
+            <div>
+              <label className="block text-[10px] text-[var(--text-muted)] mb-0.5">Content</label>
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                rows={3}
+                className="w-full px-2 py-1.5 text-[12px] rounded border font-mono resize-y"
+                style={inputStyle}
+              />
+            </div>
+            <div className="flex gap-1.5">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="text-[10px] px-2 py-0.5 rounded border-0 cursor-pointer disabled:opacity-40"
+                style={{ background: "var(--accent)", color: "white" }}
+              >
+                {saving ? "Saving..." : "Save"}
+              </button>
+              <button
+                onClick={() => setEditing(false)}
+                className="text-[10px] px-2 py-0.5 rounded border cursor-pointer"
+                style={btnStyle}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2">
+            <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide flex-shrink-0 pt-0.5">Content</span>
+            <pre className="text-[12px] text-[var(--text-secondary)] font-mono whitespace-pre-wrap break-all m-0 flex-1">
               {content || process.content || "(empty)"}
             </pre>
-          )}
-        </div>
-
-        {/* Runs pane */}
-        <div className="flex-1 overflow-y-auto p-3" style={{ background: "var(--bg-base)" }}>
-          <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-1.5">
-            Recent Runs {!loading && <span>({runs.length})</span>}
           </div>
-          {loading ? (
-            <div className="text-[var(--text-muted)] text-[12px]">Loading...</div>
-          ) : runs.length === 0 ? (
-            <div className="text-[var(--text-muted)] text-[12px]">No runs</div>
-          ) : (
-            <table className="w-full text-left text-[12px]">
-              <thead>
-                <tr className="border-b" style={{ borderColor: "var(--border)" }}>
-                  <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Status</th>
-                  <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Duration</th>
-                  <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Tokens</th>
-                  <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Cost</th>
-                  <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Started</th>
-                  <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Error</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((r) => (
-                  <tr key={r.id} className="border-b" style={{ borderColor: "var(--border)" }}>
-                    <td className="px-2 py-1">
-                      <Badge variant={RUN_STATUS_VARIANT[r.status] || "neutral"}>{r.status}</Badge>
-                    </td>
-                    <td className="px-2 py-1 text-[var(--text-secondary)] tabular-nums font-mono">{fmtDuration(r.duration_ms)}</td>
-                    <td className="px-2 py-1 text-[var(--text-secondary)] tabular-nums font-mono">{r.tokens_in + r.tokens_out}</td>
-                    <td className="px-2 py-1 text-[var(--text-secondary)] tabular-nums font-mono">${r.cost_usd.toFixed(4)}</td>
-                    <td className="px-2 py-1 text-[var(--text-muted)]">{fmtTimestamp(r.created_at)}</td>
-                    <td className="px-2 py-1 text-[var(--error)] text-[11px] truncate max-w-[200px]" title={r.error || undefined}>
-                      {r.error || ""}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+        )}
+      </div>
+
+      {/* Runs table */}
+      <div className="flex-1 overflow-y-auto p-3" style={{ background: "var(--bg-base)" }}>
+        <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-1.5">
+          Recent Runs {!loading && <span>({runs.length})</span>}
         </div>
+        {loading ? (
+          <div className="text-[var(--text-muted)] text-[12px]">Loading...</div>
+        ) : runs.length === 0 ? (
+          <div className="text-[var(--text-muted)] text-[12px]">No runs</div>
+        ) : (
+          <table className="w-full text-left text-[12px]">
+            <thead>
+              <tr className="border-b" style={{ borderColor: "var(--border)" }}>
+                <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Status</th>
+                <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Started</th>
+                <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Finished</th>
+                <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Duration</th>
+                <th className="px-2 py-1 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Tokens</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map((r) => (
+                <tr key={r.id} className="border-b" style={{ borderColor: "var(--border)" }}>
+                  <td className="px-2 py-1">
+                    <Badge variant={RUN_STATUS_VARIANT[r.status] || "neutral"}>{r.status}</Badge>
+                  </td>
+                  <td className="px-2 py-1 text-[var(--text-muted)] text-[11px]">{fmtTimestamp(r.created_at)}</td>
+                  <td className="px-2 py-1 text-[var(--text-muted)] text-[11px]">{fmtTimestamp(r.completed_at)}</td>
+                  <td className="px-2 py-1 text-[var(--text-secondary)] tabular-nums font-mono">{fmtDuration(r.duration_ms)}</td>
+                  <td className="px-2 py-1 text-[var(--text-secondary)] tabular-nums font-mono">{r.tokens_in + r.tokens_out}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
