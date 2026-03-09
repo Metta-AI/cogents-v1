@@ -10,10 +10,19 @@ import logging
 import os
 
 from brain.db.repository import Repository
+from cogos.db.repository import Repository as CogosRepository
 
 logger = logging.getLogger(__name__)
 
 _repo: Repository | None = None
+_cogos_repo: CogosRepository | None = None
+
+
+def get_cogos_repo() -> CogosRepository:
+    global _cogos_repo
+    if _cogos_repo is None:
+        _cogos_repo = CogosRepository.create()
+    return _cogos_repo
 
 
 def get_repo() -> Repository:

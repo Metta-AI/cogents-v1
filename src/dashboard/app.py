@@ -45,6 +45,14 @@ def create_app() -> FastAPI:
         tasks,
         tools,
         triggers,
+        # CogOS routers
+        processes,
+        handlers as handlers_router,
+        files as files_router,
+        capabilities as capabilities_router,
+        runs,
+        cogos_events,
+        cogos_status,
     )
 
     app.include_router(status.router, prefix="/api/cogents/{name}")
@@ -59,6 +67,15 @@ def create_app() -> FastAPI:
     app.include_router(tools.router, prefix="/api/cogents/{name}")
     app.include_router(memory.router, prefix="/api/cogents/{name}")
     app.include_router(cron.router, prefix="/api/cogents/{name}")
+
+    # CogOS routers
+    app.include_router(processes.router, prefix="/api/cogents/{name}")
+    app.include_router(handlers_router.router, prefix="/api/cogents/{name}")
+    app.include_router(files_router.router, prefix="/api/cogents/{name}")
+    app.include_router(capabilities_router.router, prefix="/api/cogents/{name}")
+    app.include_router(runs.router, prefix="/api/cogents/{name}")
+    app.include_router(cogos_events.router, prefix="/api/cogents/{name}")
+    app.include_router(cogos_status.router, prefix="/api/cogents/{name}")
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):

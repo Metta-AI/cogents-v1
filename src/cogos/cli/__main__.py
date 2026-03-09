@@ -1,0 +1,1017 @@
+"""CogOS CLI — management interface for processes, files, capabilities, events."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+from uuid import UUID
+
+import click
+
+
+_bedrock_session = None
+
+
+def _ensure_db_env(cogent_name: str) -> None:
+    """Set DB env vars from CloudFormation stack outputs in the polis account."""
+    if os.environ.get("USE_LOCAL_DB") == "1":
+        return
+
+    # Freeze original credentials before switching to polis
+    global _bedrock_session
+    import boto3
+    orig = boto3.Session()
+    creds = orig.get_credentials()
+    if creds:
+        frozen = creds.get_frozen_credentials()
+        _bedrock_session = boto3.Session(
+            aws_access_key_id=frozen.access_key,
+            aws_secret_access_key=frozen.secret_key,
+            aws_session_token=frozen.token,
+        )
+
+    from polis.aws import get_polis_session, set_profile
+
+    safe_name = cogent_name.replace(".", "-")
+    stack_name = f"cogent-{safe_name}-brain"
+
+    try:
+        set_profile("softmax-org")
+        session, _ = get_polis_session()
+    except Exception:
+        return
+
+    cf = session.client("cloudformation", region_name="us-east-1")
+
+    try:
+        resp = cf.describe_stacks(StackName=stack_name)
+    except Exception:
+        return
+    outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
+
+    if "ClusterArn" in outputs:
+        os.environ.setdefault("DB_RESOURCE_ARN", outputs["ClusterArn"])
+        os.environ.setdefault("DB_CLUSTER_ARN", outputs["ClusterArn"])
+    if "SecretArn" in outputs:
+        os.environ.setdefault("DB_SECRET_ARN", outputs["SecretArn"])
+    else:
+        resources = cf.list_stack_resources(StackName=stack_name)
+        for r in resources.get("StackResourceSummaries", []):
+            if "Secret" in r["LogicalResourceId"] and "Attachment" not in r["LogicalResourceId"]:
+                if r["PhysicalResourceId"].startswith("arn:aws:secretsmanager:"):
+                    os.environ.setdefault("DB_SECRET_ARN", r["PhysicalResourceId"])
+                    break
+    os.environ.setdefault("DB_NAME", "cogent")
+
+    creds = session.get_credentials().get_frozen_credentials()
+    os.environ["AWS_ACCESS_KEY_ID"] = creds.access_key
+    os.environ["AWS_SECRET_ACCESS_KEY"] = creds.secret_key
+    if creds.token:
+        os.environ["AWS_SESSION_TOKEN"] = creds.token
+    os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
+
+
+def _repo():
+    from cogos.db.repository import Repository
+    return Repository.create()
+
+
+def _bedrock_client():
+    """Get a Bedrock client using original (non-polis) AWS credentials."""
+    if _bedrock_session:
+        return _bedrock_session.client("bedrock-runtime", region_name="us-east-1")
+    import boto3
+    return boto3.client("bedrock-runtime", region_name="us-east-1")
+
+
+def _output(data, *, use_json: bool = False) -> None:
+    if use_json:
+        click.echo(json.dumps(data, indent=2, default=str))
+        return
+    if isinstance(data, list):
+        for item in data:
+            _output_single(item)
+            click.echo()
+    else:
+        _output_single(data)
+
+
+def _output_single(data: dict) -> None:
+    for key, value in data.items():
+        if isinstance(value, (dict, list)):
+            click.echo(f"  {key}: {json.dumps(value, default=str)}")
+        else:
+            click.echo(f"  {key}: {value}")
+
+
+@click.group()
+@click.option("--cogent", "-c", envvar="COGENT_ID", default="dr.alpha",
+              help="Cogent name (default: dr.alpha)")
+@click.pass_context
+def cogos(ctx: click.Context, cogent: str):
+    """CogOS — management CLI for processes, files, capabilities, and events."""
+    ctx.ensure_object(dict)
+    ctx.obj["cogent_name"] = cogent
+    _ensure_db_env(cogent)
+
+
+# ═══════════════════════════════════════════════════════════
+# BOOTSTRAP
+# ═══════════════════════════════════════════════════════════
+
+@cogos.command()
+@click.pass_context
+def bootstrap(ctx: click.Context):
+    """Initialize CogOS tables and built-in records."""
+    repo = _repo()
+
+    # Run migration
+    migration = Path(__file__).parent.parent / "db" / "migrations" / "001_create_tables.sql"
+    if migration.exists():
+        sql = migration.read_text()
+        # Split on semicolons and execute each statement
+        for stmt in sql.split(";"):
+            stmt = stmt.strip()
+            if stmt and not stmt.startswith("--"):
+                try:
+                    repo.execute(stmt)
+                except Exception as e:
+                    if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                        pass
+                    else:
+                        click.echo(f"  Warning: {e}")
+        click.echo("Migration applied.")
+    else:
+        click.echo(f"Migration file not found: {migration}")
+        return
+
+    # Register built-in capabilities
+    from cogos.db.models import Capability
+    try:
+        from cogos.capabilities import BUILTIN_CAPABILITIES
+    except (ImportError, AttributeError):
+        BUILTIN_CAPABILITIES = []
+
+    # Fallback: define essential built-in capabilities if the module doesn't provide them
+    if not BUILTIN_CAPABILITIES:
+        BUILTIN_CAPABILITIES = [
+            {
+                "name": "files/read",
+                "description": "Read a file by key",
+                "handler": "cogos.capabilities.files:read",
+                "input_schema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]},
+            },
+            {
+                "name": "files/write",
+                "description": "Write content to a file",
+                "handler": "cogos.capabilities.files:write",
+                "input_schema": {"type": "object", "properties": {"key": {"type": "string"}, "content": {"type": "string"}}, "required": ["key", "content"]},
+            },
+            {
+                "name": "files/search",
+                "description": "Search files by query",
+                "handler": "cogos.capabilities.files:search",
+                "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+            },
+            {
+                "name": "procs/list",
+                "description": "List all processes",
+                "handler": "cogos.capabilities.procs:list_processes",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "procs/get",
+                "description": "Get a process by name",
+                "handler": "cogos.capabilities.procs:get_process",
+                "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+            },
+            {
+                "name": "procs/spawn",
+                "description": "Spawn a child process",
+                "handler": "cogos.capabilities.procs:spawn",
+                "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "mode": {"type": "string"}, "content": {"type": "string"}}, "required": ["name"]},
+            },
+            {
+                "name": "events/emit",
+                "description": "Emit an event",
+                "handler": "cogos.capabilities.events:emit",
+                "input_schema": {"type": "object", "properties": {"event_type": {"type": "string"}, "payload": {"type": "object"}}, "required": ["event_type"]},
+            },
+            {
+                "name": "events/query",
+                "description": "Query events",
+                "handler": "cogos.capabilities.events:query",
+                "input_schema": {"type": "object", "properties": {"event_type": {"type": "string"}, "limit": {"type": "integer"}}},
+            },
+            {
+                "name": "events/listen",
+                "description": "Open an event socket for in-process delivery",
+                "handler": "cogos.capabilities.events:listen",
+                "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]},
+            },
+            {
+                "name": "resources/check",
+                "description": "Check resource availability",
+                "handler": "cogos.capabilities.resources:check",
+                "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+            },
+            {
+                "name": "scheduler/match_events",
+                "description": "Match pending events to handlers",
+                "handler": "cogos.capabilities.scheduler:match_events",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "scheduler/select_processes",
+                "description": "Softmax sample from runnable processes",
+                "handler": "cogos.capabilities.scheduler:select_processes",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "scheduler/dispatch_process",
+                "description": "Send a process to the executor",
+                "handler": "cogos.capabilities.scheduler:dispatch_process",
+                "input_schema": {"type": "object", "properties": {"process_id": {"type": "string"}}, "required": ["process_id"]},
+            },
+            {
+                "name": "scheduler/kill_process",
+                "description": "Force-terminate a running process",
+                "handler": "cogos.capabilities.scheduler:kill_process",
+                "input_schema": {"type": "object", "properties": {"process_id": {"type": "string"}}, "required": ["process_id"]},
+            },
+            {
+                "name": "scheduler/suspend_process",
+                "description": "Snapshot and suspend a running process",
+                "handler": "cogos.capabilities.scheduler:suspend_process",
+                "input_schema": {"type": "object", "properties": {"process_id": {"type": "string"}}, "required": ["process_id"]},
+            },
+            {
+                "name": "scheduler/resume_process",
+                "description": "Resume a suspended process from snapshot",
+                "handler": "cogos.capabilities.scheduler:resume_process",
+                "input_schema": {"type": "object", "properties": {"process_id": {"type": "string"}}, "required": ["process_id"]},
+            },
+            {
+                "name": "scheduler/check_resources",
+                "description": "Query resource availability for scheduling",
+                "handler": "cogos.capabilities.scheduler:check_resources",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "scheduler/unblock_processes",
+                "description": "Move BLOCKED processes to RUNNABLE where possible",
+                "handler": "cogos.capabilities.scheduler:unblock_processes",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+        ]
+
+    cap_count = 0
+    for cap_dict in BUILTIN_CAPABILITIES:
+        cap = Capability(**cap_dict) if isinstance(cap_dict, dict) else cap_dict
+        try:
+            repo.upsert_capability(cap)
+            cap_count += 1
+        except Exception as e:
+            click.echo(f"  Warning: capability {getattr(cap, 'name', '?')}: {e}")
+    click.echo(f"Registered {cap_count} built-in capabilities.")
+
+    # Create scheduler prompt file
+    from cogos.files.store import FileStore
+    from cogos.db.models import (
+        Process, ProcessMode, ProcessStatus,
+        Handler as HandlerModel, ProcessCapability as PCModel,
+        Cron,
+    )
+
+    fs = FileStore(repo)
+    scheduler_prompt = (
+        "You are the CogOS scheduler. On each tick:\n"
+        "1. Call match_events() to wake sleeping processes\n"
+        "2. Call unblock_processes() to check blocked processes\n"
+        "3. Call select_processes() to pick what to run\n"
+        "4. Call dispatch_process() for each selected process\n"
+    )
+    fs.upsert("cogos/scheduler", scheduler_prompt, source="system")
+    click.echo("Scheduler prompt file created.")
+
+    # Create scheduler process
+    scheduler_file = repo.get_file_by_key("cogos/scheduler")
+    scheduler_code_id = scheduler_file.id if scheduler_file else None
+
+    scheduler_proc = Process(
+        name="scheduler",
+        mode=ProcessMode.DAEMON,
+        content="CogOS scheduler daemon",
+        code=scheduler_code_id,
+        runner="lambda",
+        priority=100.0,
+        status=ProcessStatus.WAITING,
+    )
+    scheduler_pid = repo.upsert_process(scheduler_proc)
+    click.echo(f"Scheduler process created: {scheduler_pid}")
+
+    # Bind scheduler capabilities
+    scheduler_caps = [
+        "scheduler/match_events", "scheduler/select_processes",
+        "scheduler/dispatch_process", "scheduler/kill_process",
+        "scheduler/suspend_process", "scheduler/resume_process",
+        "scheduler/check_resources", "scheduler/unblock_processes",
+    ]
+    for cap_name in scheduler_caps:
+        cap = repo.get_capability_by_name(cap_name)
+        if cap:
+            pc = PCModel(process=scheduler_pid, capability=cap.id)
+            try:
+                repo.create_process_capability(pc)
+            except Exception:
+                pass  # Already bound
+
+    # Create scheduler:tick handler
+    h = HandlerModel(process=scheduler_pid, event_pattern="scheduler:tick", enabled=True)
+    repo.create_handler(h)
+    click.echo("Scheduler handler (scheduler:tick) created.")
+
+    # Create default scheduler:tick cron entry
+    cron = Cron(expression="* * * * *", event_type="scheduler:tick", enabled=True)
+    try:
+        repo.execute(
+            """INSERT INTO cron (id, cron_expression, event_pattern, metadata, enabled)
+               VALUES (:id, :expression, :event_pattern, :metadata::jsonb, :enabled)
+               ON CONFLICT (id) DO UPDATE SET
+                   cron_expression = EXCLUDED.cron_expression, enabled = EXCLUDED.enabled""",
+            {
+                "id": cron.id,
+                "expression": cron.expression,
+                "event_pattern": cron.event_type,
+                "metadata": {},
+                "enabled": cron.enabled,
+            },
+        )
+        click.echo("Cron entry (scheduler:tick every minute) created.")
+    except Exception as e:
+        click.echo(f"  Warning: cron entry: {e}")
+
+    click.echo("Bootstrap complete.")
+
+
+# ═══════════════════════════════════════════════════════════
+# PROCESS commands
+# ═══════════════════════════════════════════════════════════
+
+@cogos.group()
+def process():
+    """Manage processes."""
+
+
+@process.command("list")
+@click.option("--json", "use_json", is_flag=True)
+def process_list(use_json: bool):
+    """List all processes."""
+    repo = _repo()
+    procs = repo.list_processes()
+    data = [
+        {"name": p.name, "mode": p.mode.value, "status": p.status.value,
+         "priority": p.priority, "id": str(p.id)}
+        for p in procs
+    ]
+    _output(data, use_json=use_json)
+
+
+@process.command("get")
+@click.argument("name")
+@click.option("--json", "use_json", is_flag=True)
+def process_get(name: str, use_json: bool):
+    """Show a process by name."""
+    repo = _repo()
+    p = repo.get_process_by_name(name)
+    if not p:
+        click.echo(f"Process not found: {name}")
+        return
+    data = p.model_dump(mode="json")
+    _output(data, use_json=use_json)
+
+
+@process.command("create")
+@click.argument("name")
+@click.option("--mode", type=click.Choice(["daemon", "one_shot"]), default="one_shot")
+@click.option("--content", default="")
+@click.option("--code-key", default=None, help="File key for prompt template")
+@click.option("--runner", type=click.Choice(["lambda", "ecs"]), default="lambda")
+@click.option("--model", default=None)
+@click.option("--priority", type=float, default=0.0)
+def process_create(name: str, mode: str, content: str, code_key: str | None,
+                   runner: str, model: str | None, priority: float):
+    """Create a new process."""
+    from cogos.db.models import Process, ProcessMode, ProcessStatus
+    repo = _repo()
+
+    code_id = None
+    if code_key:
+        f = repo.get_file_by_key(code_key)
+        if f:
+            code_id = f.id
+        else:
+            click.echo(f"Warning: file '{code_key}' not found, creating without code FK.")
+
+    p = Process(
+        name=name,
+        mode=ProcessMode(mode),
+        content=content,
+        code=code_id,
+        runner=runner,
+        model=model,
+        priority=priority,
+        status=ProcessStatus.RUNNABLE,
+    )
+    pid = repo.upsert_process(p)
+    click.echo(f"Process created: {name} ({pid})")
+
+
+@process.command("run")
+@click.argument("name")
+@click.option("--local", is_flag=True, help="Run locally via Bedrock (no Lambda)")
+def process_run(name: str, local: bool):
+    """Trigger a process to run."""
+    repo = _repo()
+    p = repo.get_process_by_name(name)
+    if not p:
+        click.echo(f"Process not found: {name}")
+        return
+
+    if local:
+        from cogos.executor.handler import execute_process, get_config, Run, RunStatus
+        from cogos.db.models import Event, ProcessStatus
+        import time
+
+        config = get_config()
+
+        # Mark as running
+        repo.update_process_status(p.id, ProcessStatus.RUNNING)
+
+        run = Run(process=p.id, status=RunStatus.RUNNING)
+        run_id = repo.create_run(run)
+        click.echo(f"Starting local run {run_id} for {name}...")
+
+        start = time.time()
+        bedrock = _bedrock_client()
+        try:
+            run = execute_process(p, {}, run, config, repo, bedrock_client=bedrock)
+            duration_ms = int((time.time() - start) * 1000)
+            repo.complete_run(
+                run.id, status=RunStatus.COMPLETED,
+                tokens_in=run.tokens_in, tokens_out=run.tokens_out,
+                cost_usd=run.cost_usd, duration_ms=duration_ms,
+                result=run.result, scope_log=run.scope_log,
+            )
+
+            # Emit completion event
+            repo.append_event(Event(
+                event_type=f"process:completed:{name}",
+                source=name,
+                payload={"run_id": str(run.id), "duration_ms": duration_ms},
+            ))
+
+            # Transition process state
+            if p.mode.value == "daemon":
+                repo.update_process_status(p.id, ProcessStatus.WAITING)
+            else:
+                repo.update_process_status(p.id, ProcessStatus.COMPLETED)
+
+            click.echo(f"Run completed in {duration_ms}ms")
+            click.echo(f"  Tokens: {run.tokens_in} in, {run.tokens_out} out")
+        except Exception as e:
+            duration_ms = int((time.time() - start) * 1000)
+            repo.complete_run(
+                run.id, status=RunStatus.FAILED,
+                duration_ms=duration_ms, error=str(e)[:4000],
+            )
+
+            # Emit failure event
+            repo.append_event(Event(
+                event_type=f"process:failed:{name}",
+                source=name,
+                payload={"run_id": str(run.id), "error": str(e)[:1000]},
+            ))
+
+            # Retry or disable
+            if p.retry_count < p.max_retries:
+                repo.increment_retry(p.id)
+                repo.update_process_status(p.id, ProcessStatus.RUNNABLE)
+            else:
+                repo.update_process_status(p.id, ProcessStatus.DISABLED)
+
+            click.echo(f"Run failed in {duration_ms}ms: {e}")
+    else:
+        # Mark as runnable for scheduler to pick up
+        from cogos.db.models import ProcessStatus
+        repo.update_process_status(p.id, ProcessStatus.RUNNABLE)
+        click.echo(f"Process {name} marked RUNNABLE")
+
+
+@process.command("disable")
+@click.argument("name")
+def process_disable(name: str):
+    """Disable a process."""
+    from cogos.db.models import ProcessStatus
+    repo = _repo()
+    p = repo.get_process_by_name(name)
+    if not p:
+        click.echo(f"Process not found: {name}")
+        return
+    repo.update_process_status(p.id, ProcessStatus.DISABLED)
+    click.echo(f"Process {name} disabled.")
+
+
+@process.command("load")
+@click.argument("file_path", type=click.Path(exists=True))
+def process_load(file_path: str):
+    """Load process definitions from a YAML or JSON file.
+
+    Each entry should have: name, mode, content, code_key, runner, model,
+    priority, capabilities (list of capability names), handlers (list of
+    event patterns).
+    """
+    from cogos.db.models import (
+        Process as ProcessModel, ProcessMode, ProcessStatus,
+        Handler as HandlerModel, ProcessCapability,
+    )
+
+    fp = Path(file_path).resolve()
+    ext = fp.suffix.lower()
+
+    if ext in (".yaml", ".yml"):
+        try:
+            import yaml
+        except ImportError:
+            click.echo("PyYAML is required for YAML files. Install with: pip install pyyaml")
+            return
+        entries = yaml.safe_load(fp.read_text(encoding="utf-8"))
+    elif ext == ".json":
+        entries = json.loads(fp.read_text(encoding="utf-8"))
+    else:
+        click.echo(f"Unsupported file format: {ext} (use .yaml, .yml, or .json)")
+        return
+
+    if not isinstance(entries, list):
+        click.echo("File must contain a list of process definitions.")
+        return
+
+    repo = _repo()
+    count = 0
+
+    for entry in entries:
+        name = entry.get("name")
+        if not name:
+            click.echo("  Skipping entry without name")
+            continue
+
+        # Resolve code_key -> code FK
+        code_id = None
+        code_key = entry.get("code_key")
+        if code_key:
+            f = repo.get_file_by_key(code_key)
+            if f:
+                code_id = f.id
+            else:
+                click.echo(f"  Warning: file '{code_key}' not found for process '{name}'")
+
+        mode = ProcessMode(entry.get("mode", "one_shot"))
+        p = ProcessModel(
+            name=name,
+            mode=mode,
+            content=entry.get("content", ""),
+            code=code_id,
+            runner=entry.get("runner", "lambda"),
+            model=entry.get("model"),
+            priority=float(entry.get("priority", 0.0)),
+            status=ProcessStatus.WAITING if mode == ProcessMode.DAEMON else ProcessStatus.RUNNABLE,
+        )
+        pid = repo.upsert_process(p)
+        click.echo(f"  Process upserted: {name} ({pid})")
+
+        # Bind capabilities
+        for cap_name in entry.get("capabilities", []):
+            cap = repo.get_capability_by_name(cap_name)
+            if not cap:
+                click.echo(f"    Warning: capability '{cap_name}' not found")
+                continue
+            pc = ProcessCapability(process=pid, capability=cap.id)
+            repo.create_process_capability(pc)
+            click.echo(f"    Bound capability: {cap_name}")
+
+        # Create handlers
+        for pattern in entry.get("handlers", []):
+            h = HandlerModel(process=pid, event_pattern=pattern, enabled=True)
+            repo.create_handler(h)
+            click.echo(f"    Handler added: {pattern}")
+
+        count += 1
+
+    click.echo(f"Loaded {count} processes from {fp}")
+
+
+# ═══════════════════════════════════════════════════════════
+# HANDLER commands
+# ═══════════════════════════════════════════════════════════
+
+@cogos.group()
+def handler():
+    """Manage event handlers."""
+
+
+@handler.command("list")
+@click.option("--process", "process_name", default=None, help="Filter by process name")
+@click.option("--json", "use_json", is_flag=True)
+def handler_list(process_name: str | None, use_json: bool):
+    """List handlers."""
+    repo = _repo()
+    pid = None
+    if process_name:
+        p = repo.get_process_by_name(process_name)
+        if not p:
+            click.echo(f"Process not found: {process_name}")
+            return
+        pid = p.id
+    handlers = repo.list_handlers(process_id=pid)
+    # Resolve process names for display
+    proc_cache: dict[str, str] = {}
+    data = []
+    for h in handlers:
+        pkey = str(h.process)
+        if pkey not in proc_cache:
+            proc = repo.get_process(h.process)
+            proc_cache[pkey] = proc.name if proc else pkey
+        data.append({
+            "id": str(h.id),
+            "process": proc_cache[pkey],
+            "event_pattern": h.event_pattern,
+            "enabled": h.enabled,
+        })
+    _output(data, use_json=use_json)
+
+
+@handler.command("add")
+@click.argument("process_name")
+@click.argument("event_pattern")
+def handler_add(process_name: str, event_pattern: str):
+    """Add a handler binding a process to an event pattern."""
+    from cogos.db.models import Handler as HandlerModel
+    repo = _repo()
+    p = repo.get_process_by_name(process_name)
+    if not p:
+        click.echo(f"Process not found: {process_name}")
+        return
+    h = HandlerModel(process=p.id, event_pattern=event_pattern, enabled=True)
+    hid = repo.create_handler(h)
+    click.echo(f"Handler created: {event_pattern} -> {process_name} ({hid})")
+
+
+@handler.command("remove")
+@click.argument("handler_id")
+def handler_remove(handler_id: str):
+    """Remove a handler by ID."""
+    repo = _repo()
+    ok = repo.delete_handler(UUID(handler_id))
+    if ok:
+        click.echo(f"Handler removed: {handler_id}")
+    else:
+        click.echo(f"Handler not found: {handler_id}")
+
+
+@handler.command("enable")
+@click.argument("handler_id")
+def handler_enable(handler_id: str):
+    """Enable a handler."""
+    repo = _repo()
+    hid = UUID(handler_id)
+    repo.execute(
+        "UPDATE cogos_handler SET enabled = TRUE WHERE id = :id",
+        {"id": hid},
+    )
+    click.echo(f"Handler {handler_id} enabled.")
+
+
+@handler.command("disable")
+@click.argument("handler_id")
+def handler_disable(handler_id: str):
+    """Disable a handler."""
+    repo = _repo()
+    hid = UUID(handler_id)
+    repo.execute(
+        "UPDATE cogos_handler SET enabled = FALSE WHERE id = :id",
+        {"id": hid},
+    )
+    click.echo(f"Handler {handler_id} disabled.")
+
+
+# ═══════════════════════════════════════════════════════════
+# FILE commands
+# ═══════════════════════════════════════════════════════════
+
+@cogos.group()
+def file():
+    """Manage files (versioned store)."""
+
+
+@file.command("list")
+@click.option("--prefix", default=None)
+@click.option("--json", "use_json", is_flag=True)
+def file_list(prefix: str | None, use_json: bool):
+    """List files."""
+    repo = _repo()
+    files = repo.list_files(prefix=prefix)
+    data = [{"key": f.key, "id": str(f.id)} for f in files]
+    _output(data, use_json=use_json)
+
+
+@file.command("get")
+@click.argument("key")
+def file_get(key: str):
+    """Show file content."""
+    from cogos.files.store import FileStore
+    repo = _repo()
+    fs = FileStore(repo)
+    content = fs.get_content(key)
+    if content is None:
+        click.echo(f"File not found: {key}")
+        return
+    click.echo(content)
+
+
+@file.command("create")
+@click.argument("key")
+@click.argument("content")
+@click.option("--source", default="human")
+def file_create(key: str, content: str, source: str):
+    """Create a new file."""
+    from cogos.files.store import FileStore
+    repo = _repo()
+    fs = FileStore(repo)
+    f = fs.create(key, content, source=source)
+    click.echo(f"File created: {key} ({f.id})")
+
+
+@file.command("load")
+@click.argument("directory", type=click.Path(exists=True))
+@click.option("--source", default="human", help="Source tag for file versions")
+def file_load(directory: str, source: str):
+    """Load .md and .py files from a directory into the file store.
+
+    Scans DIR recursively for .md and .py files. The file key is the
+    relative path from DIR (e.g., prompts/scheduler.md). Creates new
+    File entries or adds new versions if content changed.
+    """
+    from cogos.files.store import FileStore
+    repo = _repo()
+    fs = FileStore(repo)
+    dir_path = Path(directory).resolve()
+    created = 0
+    updated = 0
+    unchanged = 0
+
+    for fp in sorted(dir_path.rglob("*")):
+        if not fp.is_file():
+            continue
+        if fp.suffix not in (".md", ".py"):
+            continue
+        if fp.name.startswith("."):
+            continue
+
+        key = str(fp.relative_to(dir_path))
+        content = fp.read_text(encoding="utf-8")
+        result = fs.upsert(key, content, source=source)
+
+        if result is None:
+            unchanged += 1
+        elif hasattr(result, "key"):
+            # File object returned => newly created
+            created += 1
+            click.echo(f"  Created: {key}")
+        else:
+            # FileVersion returned => updated
+            updated += 1
+            click.echo(f"  Updated: {key}")
+
+    click.echo(f"Files: {created} created, {updated} updated, {unchanged} unchanged")
+
+
+# ═══════════════════════════════════════════════════════════
+# CAPABILITY commands
+# ═══════════════════════════════════════════════════════════
+
+@cogos.group()
+def capability():
+    """Manage capabilities."""
+
+
+@capability.command("list")
+@click.option("--json", "use_json", is_flag=True)
+def capability_list(use_json: bool):
+    """List capabilities."""
+    repo = _repo()
+    caps = repo.list_capabilities()
+    data = [{"name": c.name, "description": c.description, "enabled": c.enabled, "id": str(c.id)} for c in caps]
+    _output(data, use_json=use_json)
+
+
+@capability.command("get")
+@click.argument("name")
+@click.option("--json", "use_json", is_flag=True)
+def capability_get(name: str, use_json: bool):
+    """Show a capability by name."""
+    repo = _repo()
+    cap = repo.get_capability_by_name(name)
+    if not cap:
+        click.echo(f"Capability not found: {name}")
+        return
+    _output(cap.model_dump(mode="json"), use_json=use_json)
+
+
+@capability.command("enable")
+@click.argument("name")
+def capability_enable(name: str):
+    """Enable a capability."""
+    repo = _repo()
+    cap = repo.get_capability_by_name(name)
+    if not cap:
+        click.echo(f"Capability not found: {name}")
+        return
+    repo.execute(
+        "UPDATE cogos_capability SET enabled = TRUE, updated_at = now() WHERE id = :id",
+        {"id": cap.id},
+    )
+    click.echo(f"Capability {name} enabled.")
+
+
+@capability.command("disable")
+@click.argument("name")
+def capability_disable(name: str):
+    """Disable a capability."""
+    repo = _repo()
+    cap = repo.get_capability_by_name(name)
+    if not cap:
+        click.echo(f"Capability not found: {name}")
+        return
+    repo.execute(
+        "UPDATE cogos_capability SET enabled = FALSE, updated_at = now() WHERE id = :id",
+        {"id": cap.id},
+    )
+    click.echo(f"Capability {name} disabled.")
+
+
+@capability.command("load")
+@click.argument("directory", type=click.Path(exists=True))
+def capability_load(directory: str):
+    """Load capabilities from .py files containing a CAPABILITIES list.
+
+    Each .py file in DIR is scanned for a module-level CAPABILITIES list.
+    Each entry should be a dict with keys matching the Capability model
+    (name, description, handler, input_schema, etc.).
+    """
+    from cogos.db.models import Capability as CapabilityModel
+    import importlib.util
+
+    repo = _repo()
+    dir_path = Path(directory).resolve()
+    count = 0
+
+    for py_file in sorted(dir_path.rglob("*.py")):
+        if py_file.name.startswith("_"):
+            continue
+        try:
+            spec = importlib.util.spec_from_file_location(py_file.stem, py_file)
+            if not spec or not spec.loader:
+                continue
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except Exception as e:
+            click.echo(f"  Skip {py_file.name}: {e}")
+            continue
+
+        caps_list = getattr(mod, "CAPABILITIES", None)
+        if not caps_list or not isinstance(caps_list, list):
+            continue
+
+        for cap_dict in caps_list:
+            if not isinstance(cap_dict, dict) or "name" not in cap_dict:
+                continue
+            cap = CapabilityModel(**cap_dict)
+            cid = repo.upsert_capability(cap)
+            click.echo(f"  Capability upserted: {cap.name} ({cid})")
+            count += 1
+
+    click.echo(f"Loaded {count} capabilities from {dir_path}")
+
+
+# ═══════════════════════════════════════════════════════════
+# EVENT commands
+# ═══════════════════════════════════════════════════════════
+
+@cogos.group()
+def event():
+    """Manage events."""
+
+
+@event.command("list")
+@click.option("--type", "event_type", default=None)
+@click.option("--limit", type=int, default=20)
+@click.option("--json", "use_json", is_flag=True)
+def event_list(event_type: str | None, limit: int, use_json: bool):
+    """List events."""
+    repo = _repo()
+    events = repo.get_events(event_type=event_type, limit=limit)
+    data = [{"id": str(e.id), "type": e.event_type, "source": e.source,
+             "created_at": str(e.created_at)} for e in events]
+    _output(data, use_json=use_json)
+
+
+@event.command("emit")
+@click.argument("event_type")
+@click.option("--payload", default="{}")
+def event_emit(event_type: str, payload: str):
+    """Emit an event."""
+    from cogos.db.models import Event
+    repo = _repo()
+    evt = Event(event_type=event_type, source="cli", payload=json.loads(payload))
+    eid = repo.append_event(evt)
+    click.echo(f"Event emitted: {event_type} ({eid})")
+
+
+# ═══════════════════════════════════════════════════════════
+# RUN commands
+# ═══════════════════════════════════════════════════════════
+
+@cogos.group()
+def run():
+    """View run history."""
+
+
+@run.command("list")
+@click.option("--process", "process_name", default=None)
+@click.option("--limit", type=int, default=20)
+@click.option("--json", "use_json", is_flag=True)
+def run_list(process_name: str | None, limit: int, use_json: bool):
+    """List runs."""
+    repo = _repo()
+    pid = None
+    if process_name:
+        p = repo.get_process_by_name(process_name)
+        if p:
+            pid = p.id
+    runs = repo.list_runs(process_id=pid, limit=limit)
+    data = [
+        {"id": str(r.id), "process": str(r.process), "status": r.status.value,
+         "tokens_in": r.tokens_in, "tokens_out": r.tokens_out,
+         "duration_ms": r.duration_ms, "created_at": str(r.created_at)}
+        for r in runs
+    ]
+    _output(data, use_json=use_json)
+
+
+@run.command("show")
+@click.argument("run_id")
+@click.option("--json", "use_json", is_flag=True)
+def run_show(run_id: str, use_json: bool):
+    """Show run details."""
+    from uuid import UUID
+    repo = _repo()
+    r = repo.get_run(UUID(run_id))
+    if not r:
+        click.echo(f"Run not found: {run_id}")
+        return
+    _output(r.model_dump(mode="json"), use_json=use_json)
+
+
+# ═══════════════════════════════════════════════════════════
+# STATUS
+# ═══════════════════════════════════════════════════════════
+
+@cogos.command()
+def status():
+    """Show CogOS status."""
+    repo = _repo()
+    procs = repo.list_processes()
+    click.echo(f"Processes: {len(procs)}")
+    for p in procs:
+        click.echo(f"  {p.name}: {p.status.value} ({p.mode.value})")
+
+    files = repo.list_files()
+    click.echo(f"Files: {len(files)}")
+
+    caps = repo.list_capabilities()
+    click.echo(f"Capabilities: {len(caps)}")
+
+    events = repo.get_events(limit=5)
+    click.echo(f"Recent events: {len(events)}")
+    for e in events:
+        click.echo(f"  {e.event_type} ({e.created_at})")
+
+
+def entry():
+    cogos()
+
+
+if __name__ == "__main__":
+    entry()

@@ -12,6 +12,12 @@ import type {
   Resource,
   Tool,
   TimeRange,
+  CogosStatus,
+  CogosProcess,
+  CogosFile,
+  CogosCapability,
+  CogosHandler,
+  CogosRun,
 } from "./types";
 
 function getApiKey(): string | null {
@@ -474,4 +480,45 @@ export async function deleteTool(name: string, toolName: string): Promise<void> 
     headers: headers(),
   });
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+}
+
+// ── CogOS API ───────────────────────────────────────────────────────────────
+
+export async function getCogosStatus(name: string): Promise<CogosStatus> {
+  return fetchJSON(`/api/cogents/${name}/cogos/status`);
+}
+
+export async function getProcesses(name: string): Promise<CogosProcess[]> {
+  const r = await fetchJSON<{ processes: CogosProcess[] }>(
+    `/api/cogents/${name}/processes`,
+  );
+  return r.processes;
+}
+
+export async function getFiles(name: string): Promise<CogosFile[]> {
+  const r = await fetchJSON<{ files: CogosFile[] }>(
+    `/api/cogents/${name}/files`,
+  );
+  return r.files;
+}
+
+export async function getCapabilities(name: string): Promise<CogosCapability[]> {
+  const r = await fetchJSON<{ capabilities: CogosCapability[] }>(
+    `/api/cogents/${name}/capabilities`,
+  );
+  return r.capabilities;
+}
+
+export async function getHandlers(name: string): Promise<CogosHandler[]> {
+  const r = await fetchJSON<{ handlers: CogosHandler[] }>(
+    `/api/cogents/${name}/handlers`,
+  );
+  return r.handlers;
+}
+
+export async function getRuns(name: string): Promise<CogosRun[]> {
+  const r = await fetchJSON<{ runs: CogosRun[] }>(
+    `/api/cogents/${name}/runs`,
+  );
+  return r.runs;
 }

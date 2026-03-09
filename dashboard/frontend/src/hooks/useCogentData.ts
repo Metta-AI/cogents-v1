@@ -11,12 +11,14 @@ import type {
   Alert,
   Task,
   StatusResponse,
+  CogosProcess,
 } from "@/lib/types";
 import { useWebSocket } from "./useWebSocket";
 
 export function useCogentData(cogentName: string) {
   const [data, setData] = useState<DashboardData>({
     status: null,
+    cogosStatus: null,
     programs: [],
     sessions: [],
     events: [],
@@ -28,6 +30,11 @@ export function useCogentData(cogentName: string) {
     crons: [],
     resources: [],
     tools: [],
+    processes: [],
+    files: [],
+    capabilities: [],
+    handlers: [],
+    runs: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,43 +58,41 @@ export function useCogentData(cogentName: string) {
       api.getCrons(cogentName),
       api.getResources(cogentName),
       api.getTools(cogentName),
+      api.getCogosStatus(cogentName),
+      api.getProcesses(cogentName),
+      api.getFiles(cogentName),
+      api.getCapabilities(cogentName),
+      api.getHandlers(cogentName),
+      api.getRuns(cogentName),
     ]);
     const failCount = results.filter((r) => r.status === "rejected").length;
     if (failCount === results.length) {
       setError("All API requests failed — is the backend running?");
     } else if (failCount > 0) {
       setError(`${failCount} of ${results.length} API requests failed`);
-      setData({
-        status: results[0].status === "fulfilled" ? results[0].value : null,
-        programs: results[1].status === "fulfilled" ? results[1].value : [],
-        sessions: results[2].status === "fulfilled" ? results[2].value : [],
-        events: results[3].status === "fulfilled" ? results[3].value : [],
-        triggers: results[4].status === "fulfilled" ? results[4].value : [],
-        memory: results[5].status === "fulfilled" ? results[5].value : [],
-        tasks: results[6].status === "fulfilled" ? results[6].value : [],
-        channels: results[7].status === "fulfilled" ? results[7].value : [],
-        alerts: results[8].status === "fulfilled" ? results[8].value : [],
-        crons: results[9].status === "fulfilled" ? results[9].value : [],
-        resources: results[10].status === "fulfilled" ? results[10].value : [],
-        tools: results[11].status === "fulfilled" ? results[11].value : [],
-      });
     } else {
       setError(null);
-      setData({
-        status: results[0].status === "fulfilled" ? results[0].value : null,
-        programs: results[1].status === "fulfilled" ? results[1].value : [],
-        sessions: results[2].status === "fulfilled" ? results[2].value : [],
-        events: results[3].status === "fulfilled" ? results[3].value : [],
-        triggers: results[4].status === "fulfilled" ? results[4].value : [],
-        memory: results[5].status === "fulfilled" ? results[5].value : [],
-        tasks: results[6].status === "fulfilled" ? results[6].value : [],
-        channels: results[7].status === "fulfilled" ? results[7].value : [],
-        alerts: results[8].status === "fulfilled" ? results[8].value : [],
-        crons: results[9].status === "fulfilled" ? results[9].value : [],
-        resources: results[10].status === "fulfilled" ? results[10].value : [],
-        tools: results[11].status === "fulfilled" ? results[11].value : [],
-      });
     }
+    setData({
+      status: results[0].status === "fulfilled" ? results[0].value : null,
+      programs: results[1].status === "fulfilled" ? results[1].value : [],
+      sessions: results[2].status === "fulfilled" ? results[2].value : [],
+      events: results[3].status === "fulfilled" ? results[3].value : [],
+      triggers: results[4].status === "fulfilled" ? results[4].value : [],
+      memory: results[5].status === "fulfilled" ? results[5].value : [],
+      tasks: results[6].status === "fulfilled" ? results[6].value : [],
+      channels: results[7].status === "fulfilled" ? results[7].value : [],
+      alerts: results[8].status === "fulfilled" ? results[8].value : [],
+      crons: results[9].status === "fulfilled" ? results[9].value : [],
+      resources: results[10].status === "fulfilled" ? results[10].value : [],
+      tools: results[11].status === "fulfilled" ? results[11].value : [],
+      cogosStatus: results[12].status === "fulfilled" ? results[12].value : null,
+      processes: results[13].status === "fulfilled" ? results[13].value : [],
+      files: results[14].status === "fulfilled" ? results[14].value : [],
+      capabilities: results[15].status === "fulfilled" ? results[15].value : [],
+      handlers: results[16].status === "fulfilled" ? results[16].value : [],
+      runs: results[17].status === "fulfilled" ? results[17].value : [],
+    });
     setLoading(false);
   }, [cogentName, timeRange]);
 
@@ -153,6 +158,17 @@ export function useCogentData(cogentName: string) {
             return { ...prev, tasks: updated };
           }
           return { ...prev, tasks: [task, ...prev.tasks] };
+        }
+
+        case "process_update": {
+          const process = payload as CogosProcess;
+          const idx = prev.processes.findIndex((p) => p.id === process.id);
+          if (idx >= 0) {
+            const updated = [...prev.processes];
+            updated[idx] = process;
+            return { ...prev, processes: updated };
+          }
+          return { ...prev, processes: [process, ...prev.processes] };
         }
 
         default:

@@ -1,0 +1,16 @@
+"""ProcessCapability join table — binds capabilities to processes."""
+
+from __future__ import annotations
+
+from typing import Any
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel, Field
+
+
+class ProcessCapability(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    process: UUID  # FK -> Process.id
+    capability: UUID  # FK -> Capability.id
+    config: dict[str, Any] | None = None  # per-process scoping
+    delegatable: bool = False  # can be passed to spawned children

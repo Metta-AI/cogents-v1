@@ -7,6 +7,67 @@ export interface StatusResponse {
   recent_events: number;
 }
 
+// ── CogOS Types ─────────────────────────────────────────────────────────────
+
+export interface CogosProcess {
+  id: string;
+  name: string;
+  mode: "daemon" | "one_shot";
+  content: string;
+  status: string;
+  priority: number;
+  runner: string;
+  model: string | null;
+  preemptible: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CogosFile {
+  id: string;
+  key: string;
+  content?: string;
+  versions?: Array<{ version: number; source: string; is_active: boolean; created_at: string }>;
+}
+
+export interface CogosCapability {
+  id: string;
+  name: string;
+  description: string;
+  handler: string;
+  enabled: boolean;
+}
+
+export interface CogosHandler {
+  id: string;
+  process: string;
+  process_name?: string;
+  event_pattern: string;
+  enabled: boolean;
+}
+
+export interface CogosRun {
+  id: string;
+  process: string;
+  process_name?: string;
+  status: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  duration_ms: number | null;
+  error: string | null;
+  model_version: string | null;
+  created_at: string | null;
+}
+
+export interface CogosStatus {
+  processes: { total: number; by_status: Record<string, number> };
+  files: number;
+  capabilities: number;
+  recent_events: number;
+  recent_runs: Array<{ id: string; process_name: string; status: string; duration_ms: number | null; created_at: string }>;
+}
+
 export interface Execution {
   id: string;
   program_name: string;
@@ -187,6 +248,7 @@ export type Timezone = "local" | "utc" | "pst";
 
 export interface DashboardData {
   status: StatusResponse | null;
+  cogosStatus: CogosStatus | null;
   programs: Program[];
   sessions: Session[];
   events: DashboardEvent[];
@@ -198,4 +260,9 @@ export interface DashboardData {
   crons: CronItem[];
   resources: Resource[];
   tools: Tool[];
+  processes: CogosProcess[];
+  files: CogosFile[];
+  capabilities: CogosCapability[];
+  handlers: CogosHandler[];
+  runs: CogosRun[];
 }

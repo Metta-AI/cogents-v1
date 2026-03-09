@@ -1,0 +1,129 @@
+"use client";
+
+import type { CogosRun } from "@/lib/types";
+import { Badge } from "@/components/shared/Badge";
+import { DataTable, type Column } from "@/components/shared/DataTable";
+import { fmtTimestamp, fmtMs, fmtCost, fmtNum } from "@/lib/format";
+
+interface Props {
+  runs: CogosRun[];
+}
+
+type BadgeVariant = "success" | "warning" | "error" | "info" | "neutral" | "accent";
+
+const STATUS_VARIANT: Record<string, BadgeVariant> = {
+  running: "accent",
+  completed: "success",
+  failed: "error",
+  error: "error",
+  timeout: "warning",
+  pending: "info",
+};
+
+const columns: Column<CogosRun & Record<string, unknown>>[] = [
+  {
+    key: "process_name",
+    label: "Process",
+    render: (row) => (
+      <span className="text-[var(--text-primary)] font-medium">
+        {row.process_name || row.process}
+      </span>
+    ),
+  },
+  {
+    key: "status",
+    label: "Status",
+    render: (row) => (
+      <Badge variant={STATUS_VARIANT[row.status] || "neutral"}>{row.status}</Badge>
+    ),
+  },
+  {
+    key: "duration_ms",
+    label: "Duration",
+    sortable: true,
+    render: (row) => (
+      <span className="text-[var(--text-secondary)]">{fmtMs(row.duration_ms)}</span>
+    ),
+  },
+  {
+    key: "tokens_in",
+    label: "Tokens In",
+    sortable: true,
+    render: (row) => (
+      <span className="text-[var(--text-secondary)]">{fmtNum(row.tokens_in)}</span>
+    ),
+  },
+  {
+    key: "tokens_out",
+    label: "Tokens Out",
+    sortable: true,
+    render: (row) => (
+      <span className="text-[var(--text-secondary)]">{fmtNum(row.tokens_out)}</span>
+    ),
+  },
+  {
+    key: "cost_usd",
+    label: "Cost",
+    sortable: true,
+    render: (row) => (
+      <span className="text-[var(--text-secondary)]">{fmtCost(row.cost_usd)}</span>
+    ),
+  },
+  {
+    key: "model_version",
+    label: "Model",
+    render: (row) =>
+      row.model_version ? (
+        <span className="text-[var(--text-secondary)] text-xs">{row.model_version}</span>
+      ) : (
+        <span className="text-[var(--text-muted)]">--</span>
+      ),
+  },
+  {
+    key: "error",
+    label: "Error",
+    render: (row) =>
+      row.error ? (
+        <span className="text-red-400 text-xs truncate max-w-[200px] inline-block" title={row.error}>
+          {row.error.length > 60 ? row.error.slice(0, 60) + "..." : row.error}
+        </span>
+      ) : (
+        <span className="text-[var(--text-muted)]">--</span>
+      ),
+  },
+  {
+    key: "created_at",
+    label: "Created",
+    render: (row) => (
+      <span className="text-[var(--text-muted)] text-xs">{fmtTimestamp(row.created_at)}</span>
+    ),
+  },
+];
+
+export function RunsPanel({ runs }: Props) {
+  const rows = runs.map((r) => ({ ...r } as CogosRun & Record<string, unknown>));
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+          Runs
+          <span className="ml-2 text-[var(--text-muted)] font-normal">({runs.length})</span>
+        </h2>
+        <div className="flex gap-1.5">
+          {Object.entries(
+            runs.reduce<Record<string, number>>((acc, r) => {
+              acc[r.status] = (acc[r.status] || 0) + 1;
+              return acc;
+            }, {}),
+          ).map(([status, count]) => (
+            <Badge key={status} variant={STATUS_VARIANT[status] || "neutral"}>
+              {count} {status}
+            </Badge>
+          ))}
+        </div>
+      </div>
+      <DataTable columns={columns} rows={rows} emptyMessage="No runs" />
+    </div>
+  );
+}
