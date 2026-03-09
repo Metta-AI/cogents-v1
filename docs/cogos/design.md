@@ -17,17 +17,17 @@ functions with typed input/output schemas. At runtime, capabilities are
 presented as proxy objects with methods. A process can only invoke capabilities
 explicitly bound to it.
 
-**Signal** — An append-only log entry. Processes register handlers for signal
-patterns. The scheduler matches signals to handlers and wakes sleeping
+**Event** — An append-only log entry. Processes register handlers for event
+patterns. The scheduler matches events to handlers and wakes sleeping
 processes.
 
-**Handler** — Binds a process to a signal pattern. When a matching signal
+**Handler** — Binds a process to an event pattern. When a matching event
 arrives, the process becomes eligible to run.
 
 ## Process Lifecycle
 
 ```
-            signal match
+            event match
   WAITING ─────────────────> RUNNABLE
      ^                          |
      |                          |-- resources available --> RUNNING
@@ -53,12 +53,12 @@ arrives, the process becomes eligible to run.
 **Modes:**
 
 - `daemon` — Runs indefinitely. Completes a run, returns to WAITING for the
-  next matching signal. Must have at least one handler.
+  next matching event. Must have at least one handler.
 - `one_shot` — Runs once and completes. Cannot have handlers.
 
 **Rules:**
 
-- A process handles one signal per run, strictly sequential.
+- A process handles one event per run, strictly sequential.
 - For parallelism, a process spawns child `one_shot` processes.
 - A process that stays RUNNABLE too long gets its effective priority aged
   upward to prevent starvation.
@@ -95,7 +95,7 @@ LLM writes natural Python.
 # Static capabilities are top-level objects in the sandbox
 files       # .read(key) .search(query) .write(key, content)
 procs       # .list() .get(name) .create(...) .spawn(...)
-signals     # .emit(type, payload) .query(...)
+events     # .emit(type, payload) .query(...)
 resources   # .check(name)
 
 # Capability calls return proxy objects with methods
@@ -117,8 +117,8 @@ child = procs.spawn(
     content="Reindex after data-sync failure",
 )
 
-# Human-in-the-loop via signals
-signals.emit("approval:requested", {
+# Human-in-the-loop via events
+events.emit("approval:requested", {
     "action": "delete staging data",
     "process": "cleanup",
 })
@@ -184,13 +184,13 @@ under the name the agent assigned it.
 ## Scheduler
 
 The scheduler is a daemon process. It registers a handler for
-`scheduler:tick` signals emitted by a cron job. Its prompt orchestrates
+`scheduler:tick` events emitted by a cron job. Its prompt orchestrates
 scheduling by invoking capabilities.
 
 ### Per-Tick Flow
 
-1. **Match signals.** Find undelivered signals. For each, find enabled
-   handlers with matching patterns. Create SignalDelivery rows. Mark WAITING
+1. **Match events.** Find undelivered events. For each, find enabled
+   handlers with matching patterns. Create EventDelivery rows. Mark WAITING
    processes with pending deliveries as RUNNABLE.
 
 2. **Age priorities.** Compute effective priority:
@@ -213,7 +213,7 @@ scheduling by invoking capabilities.
 ### Scheduler Capabilities
 
 ```
-match_signals()              match pending signals to handlers
+match_events()              match pending events to handlers
 select_processes()           softmax sample from runnable processes
 dispatch_process(proc_id)    send to executor
 check_resources()            query resource availability
@@ -234,7 +234,7 @@ Our executor controls the conversation loop directly.
 
 1. Load process, prompt from file store (resolve includes), capability
    instructions.
-2. Build system prompt and user message (process content + signal payload).
+2. Build system prompt and user message (process content + event payload).
 3. Conversation loop: LLM calls `search` / `run_code`, executor handles
    them, returns results, loops until done.
 4. Record run. Validate result against return schema.
@@ -251,7 +251,7 @@ Claude Code CLI runs in a container. The sandbox is exposed as an MCP server.
 2. Claude Code CLI starts with the process's prompt as system instructions
    and content as the initial message.
 3. Claude Code uses `run_code` for system interaction (files, processes,
-   signals) and its native capabilities (bash, file editing, git) for
+   events) and its native capabilities (bash, file editing, git) for
    everything else.
 4. On completion, record run. Optionally persist session to S3.
 
@@ -307,13 +307,13 @@ When the scheduler resumes a suspended process:
 
 ## Human-in-the-Loop
 
-No special mechanism needed. It falls out naturally from signals:
+No special mechanism needed. It falls out naturally from events:
 
-1. Process emits `approval:requested` signal with details of the action.
+1. Process emits `approval:requested` event with details of the action.
 2. Process registers a handler for `approval:granted:{process_id}`.
 3. Process returns, goes to WAITING.
 4. Human reviews in dashboard or channel, approves or rejects.
-5. Approval signal emitted, process wakes and proceeds (or handles
+5. Approval event emitted, process wakes and proceeds (or handles
    rejection).
 
 This pattern works for any human interaction: approvals, reviews, input
@@ -382,28 +382,28 @@ ProcessCapability
 Handler
   id              UUID            PK
   process         UUID            FK -> Process
-  signal_pattern  str             matched against Signal.signal_type
+  event_pattern  str             matched against Event.event_type
   enabled         bool
 ```
 
-### Signal
+### Event
 
 ```
-Signal
+Event
   id              UUID            PK
-  signal_type     str             hierarchical, e.g. "process:completed:sync"
+  event_type     str             hierarchical, e.g. "process:completed:sync"
   source          str             originating component
   payload         dict
-  parent_signal   UUID?           FK -> Signal (causal chain)
+  parent_event   UUID?           FK -> Event (causal chain)
   created_at      datetime
 ```
 
-### SignalDelivery
+### EventDelivery
 
 ```
-SignalDelivery
+EventDelivery
   id              UUID            PK
-  signal          UUID            FK -> Signal
+  event          UUID            FK -> Event
   handler         UUID            FK -> Handler
   status          enum            pending | delivered | skipped
   run             UUID?           FK -> Run
@@ -449,7 +449,7 @@ Capability
 Run
   id              UUID            PK
   process         UUID            FK -> Process
-  signal          UUID?           FK -> Signal (triggering signal)
+  event          UUID?           FK -> Event (triggering event)
   conversation    UUID?           FK -> Conversation
   status          enum            running | completed | failed
                                   | timeout | suspended
@@ -489,7 +489,7 @@ ResourceUsage
 Cron
   id              UUID            PK
   expression      str             cron expression
-  signal_type     str             signal to emit
+  event_type     str             event to emit
   payload         dict
   enabled         bool
 ```
@@ -568,8 +568,8 @@ cogos/
       handler.py
       file.py
       capability.py
-      signal.py
-      signal_delivery.py
+      event.py
+      event_delivery.py
       run.py
       resource.py
       cron.py
@@ -594,7 +594,7 @@ cogos/
     handler.py              handler commands
     file.py                 file commands
     capability.py           capability commands
-    signal.py               signal commands
+    event.py               event commands
     resource.py             resource commands
     cron.py                 cron commands
   dashboard/
@@ -604,7 +604,7 @@ cogos/
       handlers.py
       files.py
       capabilities.py
-      signals.py
+      events.py
       resources.py
       runs.py
       cron.py
@@ -626,7 +626,7 @@ cogos/
 
 ## Open Questions
 
-1. **Signal pattern syntax.** Simple glob (`process:completed:*`) or regex
+1. **Event pattern syntax.** Simple glob (`process:completed:*`) or regex
    or JSONPath filters on payload?
 2. **Scope persistence.** Should the variable table survive ECS session
    resume, or start fresh each wake?
