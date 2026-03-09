@@ -123,6 +123,19 @@ events.emit("approval:requested", {
     "process": "cleanup",
 })
 # Process goes WAITING, handler on approval:granted wakes it
+
+# Listen for events while running (sockets)
+s = events.listen("github:pr-opened")
+s.on_event(lambda e: print(f"New PR: {e.payload['title']}"))
+
+# Decorator style
+@events.on("github:pr-review-requested")
+def handle_review(event):
+    pr = github.get_pr(event.payload["pr_id"])
+    pr.add_comment("Looking at this now")
+
+# Close when done listening
+s.close()
 ```
 
 ### Scope
@@ -318,6 +331,84 @@ No special mechanism needed. It falls out naturally from events:
 
 This pattern works for any human interaction: approvals, reviews, input
 requests, escalations.
+
+## Event Sockets
+
+Two mechanisms for event delivery:
+
+- **Handler** (table, static) — wakes a WAITING process, creates a new Run.
+- **Socket** (runtime, dynamic) — delivers events to a RUNNING process
+  mid-execution. No new Run.
+
+### Socket API
+
+Processes open sockets in `run_code` to receive events during execution:
+
+```python
+# Open a listener on an event pattern
+s = events.listen("github:pr-opened")
+
+# Register callback — runs in sandbox when event matches
+s.on_event(lambda e: print(f"New PR: {e.payload['title']}"))
+
+# Decorator style
+@events.on("github:pr-review-requested")
+def handle_review(event):
+    pr = github.get_pr(event.payload["pr_id"])
+    pr.add_comment("Looking at this now")
+
+# Close when done
+s.close()
+```
+
+### How Sockets Work
+
+`events.listen(pattern)` registers a SocketEntry in the variable table:
+
+```python
+@dataclass
+class SocketEntry:
+    pattern: str
+    callbacks: list[Callable]
+    active: bool
+```
+
+The executor loop checks sockets between turns:
+
+1. LLM writes code via `run_code()`.
+2. Sandbox executes (may open sockets, register callbacks).
+3. Return result to LLM.
+4. Check socket event queue.
+5. For each pending event matching an active socket:
+   - Execute callback in sandbox.
+   - Callback output becomes part of conversation context.
+6. LLM sees callback results on next turn.
+7. Loop.
+
+Events matched via sockets are tracked in EventDelivery with the `run` FK
+pointing to the current Run. Full audit trail.
+
+Sockets are scope entries like everything else — auto-cleaned at end of run.
+
+### ECS / Claude Code
+
+Claude Code has hooks that fire after tool calls. The MCP server uses a
+`PostToolUse` hook to check for pending socket events:
+
+```json
+{
+  "PostToolUse": [{
+    "command": "cogos-event-check --process-id $PROCESS_ID"
+  }]
+}
+```
+
+The hook script:
+1. Queries pending events matching active sockets for this process.
+2. Executes registered callbacks.
+3. Prints output to stdout — Claude Code sees it as hook feedback.
+
+Same delivery semantics as Lambda, no Claude Code modifications needed.
 
 ## Model Routing
 

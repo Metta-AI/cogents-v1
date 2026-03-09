@@ -108,7 +108,11 @@ Agentica-style proxy object model.
 Create `src/cogos/sandbox/executor.py`:
 - `VariableTable` class managing scope entries
 - `ScopeEntry` dataclass (type, context, methods, children)
+- `SocketEntry` dataclass (pattern, callbacks, active) — registered via
+  `events.listen()`, checked between turns
 - `execute_code(code, variable_table)` — runs Python with proxies injected
+- `check_sockets(variable_table, repo)` — query pending events matching
+  active sockets, execute callbacks, return output for injection
 - Scope lifecycle management (add, release, cascade-release)
 
 ### 3.2 Proxy Generator
@@ -149,6 +153,7 @@ Create `src/cogos/capabilities/`:
 | `procs/get` | New | Returns Process proxy with .kill(), .handlers, .spawn() |
 | `procs/spawn` | New | Creates child process, enforces delegatable check |
 | `events/emit` | `brain.lambdas.shared.events` | Write to DB instead of EventBridge |
+| `events/listen` | New | Opens a socket, returns SocketEntry proxy with .on_event(), .close() |
 | `events/query` | New | |
 | `resources/check` | New | |
 | `scheduler/match_events` | Part of `pick-task-to-run` program | Now a capability |
@@ -176,6 +181,9 @@ Port from `src/brain/lambdas/executor/handler.py` with these changes:
 - Add snapshot/resume support for preemption
 - Add result validation against `process.return_schema`
 - Add retry logic (increment retry_count, backoff, DISABLED on exhaust)
+- Add event socket support: between conversation turns, check active
+  sockets for pending events, execute callbacks, inject output into
+  conversation context
 
 **What stays the same:**
 - Bedrock converse API call loop
@@ -190,6 +198,9 @@ Currently in `src/brain/lambdas/executor/handler.py` (ECS branch) and
 - Start MCP server from `cogos/sandbox/server.py` in the container
 - Pass process prompt as CLAUDE.md / system instructions
 - Pass process content as initial message
+- Configure `PostToolUse` hook for event socket delivery:
+  `cogos-event-check --process-id $PROCESS_ID` checks active sockets,
+  executes callbacks, prints output for Claude Code to see
 - Record run on completion
 
 ## Phase 5: Scheduler
