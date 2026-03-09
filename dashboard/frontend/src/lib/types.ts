@@ -23,11 +23,23 @@ export interface CogosProcess {
   updated_at: string | null;
 }
 
+export interface CogosFileVersion {
+  id: string;
+  file_id: string;
+  version: number;
+  content: string;
+  source: string;
+  read_only: boolean;
+  is_active: boolean;
+  created_at: string | null;
+}
+
 export interface CogosFile {
   id: string;
   key: string;
-  content?: string;
-  versions?: Array<{ version: number; source: string; is_active: boolean; created_at: string }>;
+  includes: string[];
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface CogosCapability {

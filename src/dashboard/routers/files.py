@@ -60,6 +60,10 @@ class FileUpdate(BaseModel):
     read_only: bool = False
 
 
+class VersionContentUpdate(BaseModel):
+    content: str
+
+
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
@@ -137,6 +141,45 @@ def update_file(name: str, key: str, body: FileUpdate) -> FileVersionOut:
     if fv is None:
         raise HTTPException(status_code=404, detail="File not found or content unchanged")
     return _version_out(fv)
+
+
+@router.post("/files/{key:path}/versions/{version}/activate")
+def activate_file_version(name: str, key: str, version: int) -> dict:
+    repo = get_cogos_repo()
+    f = repo.get_file_by_key(key)
+    if not f:
+        raise HTTPException(status_code=404, detail="File not found")
+    versions = repo.list_file_versions(f.id)
+    if not any(v.version == version for v in versions):
+        raise HTTPException(status_code=404, detail="Version not found")
+    repo.set_active_file_version(f.id, version)
+    return {"activated": True, "key": key, "version": version}
+
+
+@router.put("/files/{key:path}/versions/{version}/content")
+def update_file_version_content(name: str, key: str, version: int, body: VersionContentUpdate) -> FileVersionOut:
+    repo = get_cogos_repo()
+    f = repo.get_file_by_key(key)
+    if not f:
+        raise HTTPException(status_code=404, detail="File not found")
+    if not repo.update_file_version_content(f.id, version, body.content):
+        raise HTTPException(status_code=404, detail="Version not found")
+    versions = repo.list_file_versions(f.id)
+    fv = next((v for v in versions if v.version == version), None)
+    if not fv:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return _version_out(fv)
+
+
+@router.delete("/files/{key:path}/versions/{version}")
+def delete_file_version(name: str, key: str, version: int) -> dict:
+    repo = get_cogos_repo()
+    f = repo.get_file_by_key(key)
+    if not f:
+        raise HTTPException(status_code=404, detail="File not found")
+    if not repo.delete_file_version(f.id, version):
+        raise HTTPException(status_code=404, detail="Version not found")
+    return {"deleted": True, "key": key, "version": version}
 
 
 @router.delete("/files/{key:path}")

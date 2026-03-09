@@ -308,6 +308,23 @@ class LocalRepository:
             fv.is_active = fv.version == version
         self._save()
 
+    def delete_file_version(self, file_id: UUID, version: int) -> bool:
+        versions = self._file_versions.get(file_id, [])
+        before = len(versions)
+        self._file_versions[file_id] = [v for v in versions if v.version != version]
+        if len(self._file_versions[file_id]) < before:
+            self._save()
+            return True
+        return False
+
+    def update_file_version_content(self, file_id: UUID, version: int, content: str) -> bool:
+        for fv in self._file_versions.get(file_id, []):
+            if fv.version == version:
+                fv.content = content
+                self._save()
+                return True
+        return False
+
     # ── Events ───────────────────────────────────────────────
 
     def append_event(self, event: Event) -> UUID:
