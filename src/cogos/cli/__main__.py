@@ -118,20 +118,36 @@ def cogos(ctx: click.Context, cogent: str):
 
 
 # ═══════════════════════════════════════════════════════════
-# BOOTSTRAP
+# IMAGE commands
 # ═══════════════════════════════════════════════════════════
 
-@cogos.command()
+@cogos.group()
+def image():
+    """Manage CogOS images (boot, snapshot, list)."""
+
+
+@image.command()
+@click.argument("name")
+@click.option("--clean", is_flag=True, help="Wipe all tables before loading")
 @click.pass_context
-def bootstrap(ctx: click.Context):
-    """Initialize CogOS tables and built-in records."""
+def boot(ctx: click.Context, name: str, clean: bool):
+    """Boot CogOS from an image."""
+    from cogos.image.spec import load_image
+    from cogos.image.apply import apply_image
+
+    # Find image directory
+    repo_root = Path(__file__).resolve().parents[3]
+    image_dir = repo_root / "images" / name
+    if not image_dir.is_dir():
+        click.echo(f"Image not found: {image_dir}")
+        return
+
     repo = _repo()
 
     # Run migration
     migration = Path(__file__).parent.parent / "db" / "migrations" / "001_create_tables.sql"
     if migration.exists():
         sql = migration.read_text()
-        # Split on semicolons and execute each statement
         for stmt in sql.split(";"):
             stmt = stmt.strip()
             if stmt and not stmt.startswith("--"):
@@ -143,217 +159,69 @@ def bootstrap(ctx: click.Context):
                     else:
                         click.echo(f"  Warning: {e}")
         click.echo("Migration applied.")
-    else:
-        click.echo(f"Migration file not found: {migration}")
+
+    if clean:
+        for table in ["cogos_trace", "cogos_run", "cogos_event_delivery",
+                       "cogos_event", "cogos_handler", "cogos_process_capability",
+                       "cogos_file_version", "cogos_file", "cogos_process", "cogos_capability"]:
+            try:
+                repo.execute(f"DELETE FROM {table}")
+            except Exception:
+                pass
+        click.echo("Tables cleaned.")
+
+    spec = load_image(image_dir)
+    counts = apply_image(spec, repo)
+
+    click.echo(
+        f"Boot complete: {counts['capabilities']} capabilities, "
+        f"{counts['files']} files, {counts['processes']} processes"
+    )
+
+
+@image.command()
+@click.argument("name")
+@click.pass_context
+def snapshot(ctx: click.Context, name: str):
+    """Snapshot running CogOS state into an image."""
+    from cogos.image.snapshot import snapshot_image
+
+    repo_root = Path(__file__).resolve().parents[3]
+    output_dir = repo_root / "images" / name
+    if output_dir.exists():
+        click.echo(f"Image already exists: {output_dir}")
+        click.echo("Remove it first or choose a different name.")
         return
 
-    # Register built-in capabilities
-    from cogos.db.models import Capability
-    try:
-        from cogos.capabilities import BUILTIN_CAPABILITIES
-    except (ImportError, AttributeError):
-        BUILTIN_CAPABILITIES = []
+    repo = _repo()
+    cogent_name = ctx.obj.get("cogent_name")
+    snapshot_image(repo, output_dir, cogent_name=cogent_name)
+    click.echo(f"Snapshot saved to images/{name}/")
 
-    # Fallback: define essential built-in capabilities if the module doesn't provide them
-    if not BUILTIN_CAPABILITIES:
-        BUILTIN_CAPABILITIES = [
-            {
-                "name": "files/read",
-                "description": "Read a file by key",
-                "handler": "cogos.capabilities.files:read",
-                "input_schema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"]},
-            },
-            {
-                "name": "files/write",
-                "description": "Write content to a file",
-                "handler": "cogos.capabilities.files:write",
-                "input_schema": {"type": "object", "properties": {"key": {"type": "string"}, "content": {"type": "string"}}, "required": ["key", "content"]},
-            },
-            {
-                "name": "files/search",
-                "description": "Search files by query",
-                "handler": "cogos.capabilities.files:search",
-                "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
-            },
-            {
-                "name": "procs/list",
-                "description": "List all processes",
-                "handler": "cogos.capabilities.procs:list_processes",
-                "input_schema": {"type": "object", "properties": {}},
-            },
-            {
-                "name": "procs/get",
-                "description": "Get a process by name",
-                "handler": "cogos.capabilities.procs:get_process",
-                "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
-            },
-            {
-                "name": "procs/spawn",
-                "description": "Spawn a child process",
-                "handler": "cogos.capabilities.procs:spawn",
-                "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "mode": {"type": "string"}, "content": {"type": "string"}}, "required": ["name"]},
-            },
-            {
-                "name": "events/emit",
-                "description": "Emit an event",
-                "handler": "cogos.capabilities.events:emit",
-                "input_schema": {"type": "object", "properties": {"event_type": {"type": "string"}, "payload": {"type": "object"}}, "required": ["event_type"]},
-            },
-            {
-                "name": "events/query",
-                "description": "Query events",
-                "handler": "cogos.capabilities.events:query",
-                "input_schema": {"type": "object", "properties": {"event_type": {"type": "string"}, "limit": {"type": "integer"}}},
-            },
-            {
-                "name": "events/listen",
-                "description": "Open an event socket for in-process delivery",
-                "handler": "cogos.capabilities.events:listen",
-                "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]},
-            },
-            {
-                "name": "resources/check",
-                "description": "Check resource availability",
-                "handler": "cogos.capabilities.resources:check",
-                "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
-            },
-            {
-                "name": "scheduler/match_events",
-                "description": "Match pending events to handlers",
-                "handler": "cogos.capabilities.scheduler:match_events",
-                "input_schema": {"type": "object", "properties": {}},
-            },
-            {
-                "name": "scheduler/select_processes",
-                "description": "Softmax sample from runnable processes",
-                "handler": "cogos.capabilities.scheduler:select_processes",
-                "input_schema": {"type": "object", "properties": {}},
-            },
-            {
-                "name": "scheduler/dispatch_process",
-                "description": "Send a process to the executor",
-                "handler": "cogos.capabilities.scheduler:dispatch_process",
-                "input_schema": {"type": "object", "properties": {"process_id": {"type": "string"}}, "required": ["process_id"]},
-            },
-            {
-                "name": "scheduler/kill_process",
-                "description": "Force-terminate a running process",
-                "handler": "cogos.capabilities.scheduler:kill_process",
-                "input_schema": {"type": "object", "properties": {"process_id": {"type": "string"}}, "required": ["process_id"]},
-            },
-            {
-                "name": "scheduler/suspend_process",
-                "description": "Snapshot and suspend a running process",
-                "handler": "cogos.capabilities.scheduler:suspend_process",
-                "input_schema": {"type": "object", "properties": {"process_id": {"type": "string"}}, "required": ["process_id"]},
-            },
-            {
-                "name": "scheduler/resume_process",
-                "description": "Resume a suspended process from snapshot",
-                "handler": "cogos.capabilities.scheduler:resume_process",
-                "input_schema": {"type": "object", "properties": {"process_id": {"type": "string"}}, "required": ["process_id"]},
-            },
-            {
-                "name": "scheduler/check_resources",
-                "description": "Query resource availability for scheduling",
-                "handler": "cogos.capabilities.scheduler:check_resources",
-                "input_schema": {"type": "object", "properties": {}},
-            },
-            {
-                "name": "scheduler/unblock_processes",
-                "description": "Move BLOCKED processes to RUNNABLE where possible",
-                "handler": "cogos.capabilities.scheduler:unblock_processes",
-                "input_schema": {"type": "object", "properties": {}},
-            },
-        ]
 
-    cap_count = 0
-    for cap_dict in BUILTIN_CAPABILITIES:
-        cap = Capability(**cap_dict) if isinstance(cap_dict, dict) else cap_dict
+@image.command("list")
+def image_list():
+    """List available images."""
+    from cogos.image.spec import load_image
+
+    repo_root = Path(__file__).resolve().parents[3]
+    images_dir = repo_root / "images"
+    if not images_dir.is_dir():
+        click.echo("No images/ directory found.")
+        return
+
+    for d in sorted(images_dir.iterdir()):
+        if not d.is_dir() or d.name.startswith("."):
+            continue
         try:
-            repo.upsert_capability(cap)
-            cap_count += 1
+            spec = load_image(d)
+            click.echo(
+                f"  {d.name:20s}  {len(spec.capabilities)} caps, "
+                f"{len(spec.resources)} resources, {len(spec.processes)} procs, "
+                f"{len(spec.cron_rules)} cron, {len(spec.files)} files"
+            )
         except Exception as e:
-            click.echo(f"  Warning: capability {getattr(cap, 'name', '?')}: {e}")
-    click.echo(f"Registered {cap_count} built-in capabilities.")
-
-    # Create scheduler prompt file
-    from cogos.files.store import FileStore
-    from cogos.db.models import (
-        Process, ProcessMode, ProcessStatus,
-        Handler as HandlerModel, ProcessCapability as PCModel,
-        Cron,
-    )
-
-    fs = FileStore(repo)
-    scheduler_prompt = (
-        "You are the CogOS scheduler. On each tick:\n"
-        "1. Call match_events() to wake sleeping processes\n"
-        "2. Call unblock_processes() to check blocked processes\n"
-        "3. Call select_processes() to pick what to run\n"
-        "4. Call dispatch_process() for each selected process\n"
-    )
-    fs.upsert("cogos/scheduler", scheduler_prompt, source="system")
-    click.echo("Scheduler prompt file created.")
-
-    # Create scheduler process
-    scheduler_file = repo.get_file_by_key("cogos/scheduler")
-    scheduler_code_id = scheduler_file.id if scheduler_file else None
-
-    scheduler_proc = Process(
-        name="scheduler",
-        mode=ProcessMode.DAEMON,
-        content="CogOS scheduler daemon",
-        code=scheduler_code_id,
-        runner="lambda",
-        priority=100.0,
-        status=ProcessStatus.WAITING,
-    )
-    scheduler_pid = repo.upsert_process(scheduler_proc)
-    click.echo(f"Scheduler process created: {scheduler_pid}")
-
-    # Bind scheduler capabilities
-    scheduler_caps = [
-        "scheduler/match_events", "scheduler/select_processes",
-        "scheduler/dispatch_process", "scheduler/kill_process",
-        "scheduler/suspend_process", "scheduler/resume_process",
-        "scheduler/check_resources", "scheduler/unblock_processes",
-    ]
-    for cap_name in scheduler_caps:
-        cap = repo.get_capability_by_name(cap_name)
-        if cap:
-            pc = PCModel(process=scheduler_pid, capability=cap.id)
-            try:
-                repo.create_process_capability(pc)
-            except Exception:
-                pass  # Already bound
-
-    # Create scheduler:tick handler
-    h = HandlerModel(process=scheduler_pid, event_pattern="scheduler:tick", enabled=True)
-    repo.create_handler(h)
-    click.echo("Scheduler handler (scheduler:tick) created.")
-
-    # Create default scheduler:tick cron entry
-    cron = Cron(expression="* * * * *", event_type="scheduler:tick", enabled=True)
-    try:
-        repo.execute(
-            """INSERT INTO cron (id, cron_expression, event_pattern, metadata, enabled)
-               VALUES (:id, :expression, :event_pattern, :metadata::jsonb, :enabled)
-               ON CONFLICT (id) DO UPDATE SET
-                   cron_expression = EXCLUDED.cron_expression, enabled = EXCLUDED.enabled""",
-            {
-                "id": cron.id,
-                "expression": cron.expression,
-                "event_pattern": cron.event_type,
-                "metadata": {},
-                "enabled": cron.enabled,
-            },
-        )
-        click.echo("Cron entry (scheduler:tick every minute) created.")
-    except Exception as e:
-        click.echo(f"  Warning: cron entry: {e}")
-
-    click.echo("Bootstrap complete.")
+            click.echo(f"  {d.name:20s}  (error: {e})")
 
 
 # ═══════════════════════════════════════════════════════════
