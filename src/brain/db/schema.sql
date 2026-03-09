@@ -18,29 +18,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 -- CORE
 -- ═══════════════════════════════════════════════════════════
 
--- Knowledge store: hierarchical named memory records
+-- Knowledge store: versioned named memory records
 CREATE TABLE IF NOT EXISTS memory (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    scope       TEXT NOT NULL CHECK (scope IN ('polis', 'cogent')),
-    name        TEXT,
-    content     TEXT NOT NULL DEFAULT '',
-    provenance  JSONB NOT NULL DEFAULT '{}',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_unique_name ON memory (scope, name) WHERE name IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory (scope);
-CREATE INDEX IF NOT EXISTS idx_memory_name ON memory (name) WHERE name IS NOT NULL;
-
--- Add embedding column if pgvector is available
-DO $$ BEGIN
-    ALTER TABLE memory ADD COLUMN IF NOT EXISTS embedding vector(1536);
-EXCEPTION WHEN OTHERS THEN
-    RAISE NOTICE 'pgvector not available, skipping embedding column';
-END $$;
-
--- Versioned memory store
-CREATE TABLE IF NOT EXISTS memory_v2 (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name            TEXT UNIQUE NOT NULL,
     active_version  INT NOT NULL DEFAULT 1,
@@ -48,10 +27,11 @@ CREATE TABLE IF NOT EXISTS memory_v2 (
     created_at      TIMESTAMPTZ DEFAULT now(),
     modified_at     TIMESTAMPTZ DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_memory_name ON memory (name);
 
 CREATE TABLE IF NOT EXISTS memory_version (
     id          UUID DEFAULT gen_random_uuid(),
-    memory_id   UUID NOT NULL REFERENCES memory_v2(id) ON DELETE CASCADE,
+    memory_id   UUID NOT NULL REFERENCES memory(id) ON DELETE CASCADE,
     version     INT NOT NULL,
     read_only   BOOLEAN DEFAULT FALSE,
     content     TEXT DEFAULT '',
@@ -64,7 +44,7 @@ CREATE TABLE IF NOT EXISTS memory_version (
 CREATE TABLE IF NOT EXISTS programs (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name          TEXT NOT NULL UNIQUE,
-    memory_id     UUID REFERENCES memory_v2(id),
+    memory_id     UUID REFERENCES memory(id),
     memory_version INT,
     tools         JSONB NOT NULL DEFAULT '[]',
     metadata      JSONB NOT NULL DEFAULT '{}',

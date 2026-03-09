@@ -315,7 +315,7 @@ class Repository:
     # MEMORY (versioned)
     # ═══════════════════════════════════════════════════════════
 
-    def _memory_v2_from_rows(self, rows: list[dict]) -> Memory | None:
+    def _memory_from_rows(self, rows: list[dict]) -> Memory | None:
         """Build a Memory with versions dict from JOIN query rows."""
         if not rows:
             return None
@@ -348,7 +348,7 @@ class Repository:
     def insert_memory(self, mem: Memory) -> UUID:
         """Insert a new versioned memory record."""
         response = self._execute(
-            """INSERT INTO memory_v2 (id, name, active_version, includes)
+            """INSERT INTO memory (id, name, active_version, includes)
                VALUES (:id, :name, :active_version, :includes::jsonb)
                ON CONFLICT (name)
                DO UPDATE SET active_version = EXCLUDED.active_version,
@@ -367,7 +367,7 @@ class Repository:
             mem.created_at = datetime.fromisoformat(row["created_at"])
             mem.modified_at = datetime.fromisoformat(row["modified_at"])
             return UUID(row["id"])
-        raise RuntimeError("Failed to insert memory_v2")
+        raise RuntimeError("Failed to insert memory")
 
     def get_memory_by_name(self, name: str) -> Memory | None:
         """Get a versioned memory by name, with all versions populated."""
@@ -375,13 +375,13 @@ class Repository:
             """SELECT m.id, m.name, m.active_version, m.includes, m.created_at, m.modified_at,
                       mv.id as mv_id, mv.version, mv.read_only, mv.content,
                       mv.source, mv.created_at as mv_created_at
-               FROM memory_v2 m
+               FROM memory m
                LEFT JOIN memory_version mv ON mv.memory_id = m.id
                WHERE m.name = :name""",
             [self._param("name", name)],
         )
         rows = self._rows_to_dicts(response)
-        return self._memory_v2_from_rows(rows)
+        return self._memory_from_rows(rows)
 
     def get_memory_by_id(self, memory_id: UUID) -> Memory | None:
         """Get a versioned memory by ID, with all versions populated."""
@@ -389,13 +389,13 @@ class Repository:
             """SELECT m.id, m.name, m.active_version, m.includes, m.created_at, m.modified_at,
                       mv.id as mv_id, mv.version, mv.read_only, mv.content,
                       mv.source, mv.created_at as mv_created_at
-               FROM memory_v2 m
+               FROM memory m
                LEFT JOIN memory_version mv ON mv.memory_id = m.id
                WHERE m.id = :id""",
             [self._param("id", memory_id)],
         )
         rows = self._rows_to_dicts(response)
-        return self._memory_v2_from_rows(rows)
+        return self._memory_from_rows(rows)
 
     def insert_memory_version(self, mv: MemoryVersion) -> None:
         """Insert a new memory version row."""
@@ -413,7 +413,7 @@ class Repository:
         )
         # Update modified_at on parent memory
         self._execute(
-            "UPDATE memory_v2 SET modified_at = now() WHERE id = :id",
+            "UPDATE memory SET modified_at = now() WHERE id = :id",
             [self._param("id", mv.memory_id)],
         )
 
@@ -471,7 +471,7 @@ class Repository:
     def update_active_version(self, memory_id: UUID, version: int) -> None:
         """Set the active version for a memory."""
         self._execute(
-            "UPDATE memory_v2 SET active_version = :version, modified_at = now() WHERE id = :id",
+            "UPDATE memory SET active_version = :version, modified_at = now() WHERE id = :id",
             [
                 self._param("id", memory_id),
                 self._param("version", version),
@@ -493,7 +493,7 @@ class Repository:
     def update_memory_includes(self, memory_id: UUID, includes: list[str]) -> None:
         """Update the includes list on a memory."""
         self._execute(
-            "UPDATE memory_v2 SET includes = :includes::jsonb, modified_at = now() WHERE id = :id",
+            "UPDATE memory SET includes = :includes::jsonb, modified_at = now() WHERE id = :id",
             [
                 self._param("id", memory_id),
                 self._param("includes", includes),
@@ -503,7 +503,7 @@ class Repository:
     def update_memory_name(self, memory_id: UUID, new_name: str) -> None:
         """Rename a memory."""
         self._execute(
-            "UPDATE memory_v2 SET name = :name, modified_at = now() WHERE id = :id",
+            "UPDATE memory SET name = :name, modified_at = now() WHERE id = :id",
             [
                 self._param("id", memory_id),
                 self._param("name", new_name),
@@ -513,7 +513,7 @@ class Repository:
     def delete_memory(self, memory_id: UUID) -> None:
         """Delete a versioned memory (CASCADE removes versions)."""
         self._execute(
-            "DELETE FROM memory_v2 WHERE id = :id",
+            "DELETE FROM memory WHERE id = :id",
             [self._param("id", memory_id)],
         )
 
@@ -555,7 +555,7 @@ class Repository:
             f"""SELECT m.id, m.name, m.active_version, m.includes, m.created_at, m.modified_at,
                        mv.id as mv_id, mv.version, mv.read_only, mv.content,
                        mv.source, mv.created_at as mv_created_at
-                FROM memory_v2 m
+                FROM memory m
                 LEFT JOIN memory_version mv
                     ON mv.memory_id = m.id AND mv.version = m.active_version
                 WHERE 1=1{where_clause}
@@ -635,7 +635,7 @@ class Repository:
                 f"""SELECT m.id, m.name, m.active_version, m.includes, m.created_at, m.modified_at,
                            mv.id as mv_id, mv.version, mv.read_only, mv.content,
                            mv.source, mv.created_at as mv_created_at
-                    FROM memory_v2 m
+                    FROM memory m
                     LEFT JOIN memory_version mv ON mv.memory_id = m.id
                     WHERE m.name IN ({in_clause})""",
                 name_params,
@@ -646,7 +646,7 @@ class Repository:
             for row in rows:
                 grouped.setdefault(row["name"], []).append(row)
             for name, group in grouped.items():
-                mem = self._memory_v2_from_rows(group)
+                mem = self._memory_from_rows(group)
                 if mem:
                     self._merge_memory_by_name(records_by_name, mem)
 
@@ -664,7 +664,7 @@ class Repository:
                 f"""SELECT m.id, m.name, m.active_version, m.includes, m.created_at, m.modified_at,
                            mv.id as mv_id, mv.version, mv.read_only, mv.content,
                            mv.source, mv.created_at as mv_created_at
-                    FROM memory_v2 m
+                    FROM memory m
                     LEFT JOIN memory_version mv ON mv.memory_id = m.id
                     WHERE ({or_clause}) AND m.name LIKE '%/init'""",
                 prefix_params,
@@ -674,7 +674,7 @@ class Repository:
             for row in rows:
                 grouped.setdefault(row["name"], []).append(row)
             for name, group in grouped.items():
-                mem = self._memory_v2_from_rows(group)
+                mem = self._memory_from_rows(group)
                 if mem:
                     self._merge_memory_by_name(records_by_name, mem)
 

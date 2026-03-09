@@ -152,7 +152,7 @@ $$ LANGUAGE plpgsql""",
         "INSERT INTO schema_version (version) VALUES (5) ON CONFLICT DO NOTHING",
     ],
     7: [
-        "ALTER TABLE programs ADD COLUMN IF NOT EXISTS memory_id UUID REFERENCES memory_v2(id)",
+        "ALTER TABLE programs ADD COLUMN IF NOT EXISTS memory_id UUID REFERENCES memory(id)",
         "ALTER TABLE programs ADD COLUMN IF NOT EXISTS memory_version INT",
         "ALTER TABLE programs DROP COLUMN IF EXISTS content",
         "ALTER TABLE programs DROP COLUMN IF EXISTS program_type",
@@ -161,7 +161,7 @@ $$ LANGUAGE plpgsql""",
     ],
     6: [
         # --- Create versioned memory tables ---
-        """CREATE TABLE IF NOT EXISTS memory_v2 (
+        """CREATE TABLE IF NOT EXISTS memory (
             id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             name            TEXT UNIQUE NOT NULL,
             active_version  INT NOT NULL DEFAULT 1,
@@ -170,7 +170,7 @@ $$ LANGUAGE plpgsql""",
         )""",
         """CREATE TABLE IF NOT EXISTS memory_version (
             id          UUID DEFAULT gen_random_uuid(),
-            memory_id   UUID NOT NULL REFERENCES memory_v2(id) ON DELETE CASCADE,
+            memory_id   UUID NOT NULL REFERENCES memory(id) ON DELETE CASCADE,
             version     INT NOT NULL,
             read_only   BOOLEAN DEFAULT FALSE,
             content     TEXT DEFAULT '',
@@ -179,11 +179,11 @@ $$ LANGUAGE plpgsql""",
             PRIMARY KEY (memory_id, version)
         )""",
         # --- Migrate data from old memory table ---
-        """INSERT INTO memory_v2 (id, name, active_version, created_at, modified_at)
+        """INSERT INTO memory (id, name, active_version, created_at, modified_at)
            SELECT id, name, 1, created_at, updated_at
            FROM memory
            WHERE name IS NOT NULL
-             AND NOT EXISTS (SELECT 1 FROM memory_v2 WHERE memory_v2.name = memory.name)""",
+             AND NOT EXISTS (SELECT 1 FROM memory WHERE memory.name = memory.name)""",
         """INSERT INTO memory_version (memory_id, version, read_only, content, source, created_at)
            SELECT id, 1,
                   CASE WHEN scope = 'polis' THEN TRUE ELSE FALSE END,
@@ -226,9 +226,46 @@ $$ LANGUAGE plpgsql""",
         "INSERT INTO schema_version (version) VALUES (8) ON CONFLICT DO NOTHING",
     ],
     9: [
-        "ALTER TABLE memory_v2 ADD COLUMN IF NOT EXISTS includes JSONB NOT NULL DEFAULT '[]'",
+        "ALTER TABLE memory ADD COLUMN IF NOT EXISTS includes JSONB NOT NULL DEFAULT '[]'",
         "ALTER TABLE programs DROP COLUMN IF EXISTS memory_keys",
         "INSERT INTO schema_version (version) VALUES (9) ON CONFLICT DO NOTHING",
+    ],
+    10: [
+        # --- Consolidate memory_v2 → memory ---
+        # Drop empty memory_v2 (data lives in memory table, altered in-place by migration 6)
+        "DROP TABLE IF EXISTS memory_v2 CASCADE",
+        "DROP TABLE IF EXISTS memory_legacy CASCADE",
+        # Ensure memory table has all required columns
+        "ALTER TABLE memory ADD COLUMN IF NOT EXISTS active_version INT NOT NULL DEFAULT 1",
+        "ALTER TABLE memory ADD COLUMN IF NOT EXISTS modified_at TIMESTAMPTZ DEFAULT now()",
+        "ALTER TABLE memory ADD COLUMN IF NOT EXISTS includes JSONB NOT NULL DEFAULT '[]'",
+        # Ensure memory_version references memory(id)
+        """CREATE TABLE IF NOT EXISTS memory_version (
+            id          UUID DEFAULT gen_random_uuid(),
+            memory_id   UUID NOT NULL REFERENCES memory(id) ON DELETE CASCADE,
+            version     INT NOT NULL,
+            read_only   BOOLEAN DEFAULT FALSE,
+            content     TEXT DEFAULT '',
+            source      TEXT DEFAULT 'cogent',
+            created_at  TIMESTAMPTZ DEFAULT now(),
+            PRIMARY KEY (memory_id, version)
+        )""",
+        # Fix programs table (duplicate key 7 bug lost memory_id/memory_version migration)
+        "ALTER TABLE programs ADD COLUMN IF NOT EXISTS memory_id UUID REFERENCES memory(id)",
+        "ALTER TABLE programs ADD COLUMN IF NOT EXISTS memory_version INT",
+        "ALTER TABLE programs DROP COLUMN IF EXISTS content",
+        "ALTER TABLE programs DROP COLUMN IF EXISTS program_type",
+        "ALTER TABLE programs DROP COLUMN IF EXISTS includes",
+        "ALTER TABLE programs DROP COLUMN IF EXISTS memory_keys",
+        # Clean up old memory indexes/columns
+        "DROP INDEX IF EXISTS idx_memory_unique_name",
+        "DROP INDEX IF EXISTS idx_memory_scope",
+        "ALTER TABLE memory DROP COLUMN IF EXISTS scope",
+        "ALTER TABLE memory DROP COLUMN IF EXISTS content",
+        "ALTER TABLE memory DROP COLUMN IF EXISTS provenance",
+        "ALTER TABLE memory DROP COLUMN IF EXISTS updated_at",
+        "ALTER TABLE memory DROP COLUMN IF EXISTS embedding",
+        "INSERT INTO schema_version (version) VALUES (10) ON CONFLICT DO NOTHING",
     ],
 }
 
@@ -275,7 +312,7 @@ def reset_schema(
 
     drop_sql = """
         DROP TABLE IF EXISTS memory_version CASCADE;
-        DROP TABLE IF EXISTS memory_v2 CASCADE;
+        DROP TABLE IF EXISTS memory CASCADE;
         DROP TABLE IF EXISTS memory_legacy CASCADE;
         DROP TABLE IF EXISTS tools CASCADE;
         DROP TABLE IF EXISTS resource_usage CASCADE;
