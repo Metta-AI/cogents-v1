@@ -11,7 +11,26 @@ from pathlib import Path
 import click
 
 _COGENT_DIR = Path.home() / ".cogents"
-_FRONTEND_DIR = Path(__file__).parent.parent.parent / "dashboard" / "frontend"
+_REPO_ROOT = Path(__file__).parent.parent.parent
+_FRONTEND_DIR = _REPO_ROOT / "dashboard" / "frontend"
+
+
+def _checkout_ports() -> tuple[int, int]:
+    """Read BE/FE ports from repo root .env file."""
+    env_file = _REPO_ROOT / ".env"
+    be, fe = 8100, 5200
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            v = v.split("#")[0].strip()
+            if k == "DASHBOARD_BE_PORT":
+                be = int(v)
+            elif k == "DASHBOARD_FE_PORT":
+                fe = int(v)
+    return be, fe
 
 
 def _key_file(name: str) -> Path:
@@ -59,20 +78,29 @@ def _ensure_db_env(name: str, env: dict) -> dict:
 
 
 @dashboard.command()
-@click.option("--port", default=8100, help="Backend port")
-@click.option("--frontend-port", default=5174, help="Frontend port")
+@click.option("--port", default=None, type=int, help="Backend port (default: derived from checkout path)")
+@click.option("--frontend-port", default=None, type=int, help="Frontend port (default: derived from checkout path)")
 @click.option("--no-browser", is_flag=True, help="Don't open browser")
+@click.option("--local", is_flag=True, help="Use local DB (USE_LOCAL_DB=1)")
 @click.pass_context
-def serve(ctx: click.Context, port: int, frontend_port: int, no_browser: bool):
+def serve(ctx: click.Context, port: int | None, frontend_port: int | None, no_browser: bool, local: bool):
     """Start the dashboard dev server."""
     from cli import get_cogent_name
+
+    default_be, default_fe = _checkout_ports()
+    port = port or default_be
+    frontend_port = frontend_port or default_fe
 
     name = get_cogent_name(ctx)
     env = {
         **os.environ,
         "DASHBOARD_COGENT_NAME": name,
         "DASHBOARD_PORT": str(port),
+        "DASHBOARD_BE_PORT": str(port),
+        "DASHBOARD_FE_PORT": str(frontend_port),
     }
+    if local:
+        env["USE_LOCAL_DB"] = "1"
     env = _ensure_db_env(name, env)
 
     # Start FastAPI backend
@@ -87,7 +115,7 @@ def serve(ctx: click.Context, port: int, frontend_port: int, no_browser: bool):
         frontend = subprocess.Popen(
             ["npm", "run", "dev"],
             cwd=str(_FRONTEND_DIR),
-            env={**env, "PORT": str(frontend_port)},
+            env=env,
         )
 
     if not no_browser:
