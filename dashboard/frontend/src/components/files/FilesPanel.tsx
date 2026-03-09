@@ -404,7 +404,7 @@ export function FilesPanel({ files, cogentName, onRefresh }: FilesPanelProps) {
   const canMutate = !!cogentName && !!onRefresh;
 
   return (
-    <div className="flex flex-col h-full" style={{ minHeight: "calc(100vh - 160px)" }}>
+    <div style={{ paddingBottom: activeSelectedFile ? "45vh" : undefined }}>
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
@@ -497,7 +497,7 @@ export function FilesPanel({ files, cogentName, onRefresh }: FilesPanelProps) {
       {/* Tree + file list */}
       <div
         className="flex gap-0 border rounded-md overflow-hidden"
-        style={{ borderColor: "var(--border)", flex: activeSelectedFile ? "0 0 auto" : "1 1 0", maxHeight: activeSelectedFile ? "40%" : undefined, minHeight: "120px" }}
+        style={{ borderColor: "var(--border)", minHeight: "120px" }}
       >
         <HierarchyPanel
           items={files}
@@ -568,9 +568,20 @@ export function FilesPanel({ files, cogentName, onRefresh }: FilesPanelProps) {
         </div>
       </div>
 
-      {/* Version panel — separate frame below */}
+      {/* Version panel — fixed bottom frame */}
       {activeSelectedFile && (
-        <div className="flex-1 min-h-0 mt-3 border rounded-md overflow-hidden" style={{ borderColor: "var(--border)" }}>
+        <div
+          className="fixed flex flex-col border-t"
+          style={{
+            left: "var(--sidebar-w)",
+            right: 0,
+            bottom: 0,
+            height: "40vh",
+            borderColor: "var(--border)",
+            background: "var(--bg-deep)",
+            zIndex: 20,
+          }}
+        >
           <VersionPanel
             file={activeSelectedFile}
             cogentName={cogentName}

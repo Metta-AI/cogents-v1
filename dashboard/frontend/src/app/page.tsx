@@ -103,7 +103,7 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
       >
         {activeTab === "overview" && <OverviewPanel data={data} />}
         {activeTab === "processes" && (
-          <ProcessesPanel processes={data.processes} />
+          <ProcessesPanel processes={data.processes} cogentName={cogentName} onRefresh={refresh} />
         )}
         {activeTab === "files" && (
           <FilesPanel files={data.files} cogentName={cogentName} onRefresh={refresh} />
