@@ -95,7 +95,7 @@ class ProcessUpdate(BaseModel):
 class ProcessesResponse(BaseModel):
     cogent_name: str
     count: int
-    processes: list[ProcessSummary]
+    processes: list[ProcessDetail]
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
@@ -185,12 +185,9 @@ def list_processes(
                     if is_failed:
                         run_counts[pid][label]["failed"] += 1
 
-    summaries = []
-    for p in procs:
-        s = _summary(p)
-        summaries.append(s)
+    details = [_detail(p) for p in procs]
 
-    return ProcessesResponse(cogent_name=name, count=len(summaries), processes=summaries)
+    return ProcessesResponse(cogent_name=name, count=len(details), processes=details)
 
 
 @router.get("/processes/{process_id}")
@@ -210,6 +207,7 @@ def get_process(name: str, process_id: str) -> dict:
             "cost_usd": float(r.cost_usd),
             "duration_ms": r.duration_ms,
             "error": r.error,
+            "result": r.result,
             "created_at": str(r.created_at) if r.created_at else None,
             "completed_at": str(r.completed_at) if r.completed_at else None,
         }

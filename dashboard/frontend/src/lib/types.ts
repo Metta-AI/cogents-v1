@@ -14,13 +14,38 @@ export interface CogosProcess {
   name: string;
   mode: "daemon" | "one_shot";
   content: string;
-  status: string;
+  code: string | null;
   priority: number;
+  resources: string[];
   runner: string;
-  model: string | null;
+  status: string;
+  runnable_since: string | null;
+  parent_process: string | null;
   preemptible: boolean;
+  model: string | null;
+  model_constraints: Record<string, unknown>;
+  return_schema: Record<string, unknown> | null;
+  max_duration_ms: number | null;
+  max_retries: number;
+  retry_count: number;
+  retry_backoff_ms: number | null;
+  clear_context: boolean;
+  metadata: Record<string, unknown>;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface CogosProcessRun {
+  id: string;
+  status: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  duration_ms: number | null;
+  error: string | null;
+  result: Record<string, unknown> | null;
+  created_at: string | null;
+  completed_at: string | null;
 }
 
 export interface CogosFileVersion {

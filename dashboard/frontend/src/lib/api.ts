@@ -13,6 +13,7 @@ import type {
   TimeRange,
   CogosStatus,
   CogosProcess,
+  CogosProcessRun,
   CogosFile,
   CogosFileVersion,
   CogosCapability,
@@ -452,6 +453,48 @@ export async function getProcesses(name: string): Promise<CogosProcess[]> {
     `/api/cogents/${name}/processes`,
   );
   return r.processes;
+}
+
+export async function getProcessDetail(
+  name: string,
+  processId: string,
+): Promise<{ process: CogosProcess; runs: CogosProcessRun[] }> {
+  return fetchJSON(`/api/cogents/${name}/processes/${processId}`);
+}
+
+export async function createProcess(
+  name: string,
+  body: Partial<Omit<CogosProcess, "id" | "created_at" | "updated_at" | "retry_count">> & { name: string },
+): Promise<CogosProcess> {
+  const resp = await fetch(`/api/cogents/${name}/processes`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function updateProcess(
+  name: string,
+  processId: string,
+  updates: Partial<Omit<CogosProcess, "id" | "created_at" | "updated_at" | "retry_count">>,
+): Promise<CogosProcess> {
+  const resp = await fetch(`/api/cogents/${name}/processes/${processId}`, {
+    method: "PUT",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function deleteProcess(name: string, processId: string): Promise<void> {
+  const resp = await fetch(`/api/cogents/${name}/processes/${processId}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
 }
 
 export async function getFiles(name: string): Promise<CogosFile[]> {
