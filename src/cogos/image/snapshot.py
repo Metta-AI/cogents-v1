@@ -1,0 +1,139 @@
+"""Snapshot a running cogent's state into an image directory."""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+def _repr_val(v) -> str:
+    """Format a Python value for source code output."""
+    if v is None:
+        return "None"
+    if isinstance(v, str):
+        return repr(v)
+    if isinstance(v, bool):
+        return repr(v)
+    if isinstance(v, (int, float)):
+        return repr(v)
+    if isinstance(v, dict):
+        if not v:
+            return "{}"
+        items = ", ".join(f"{_repr_val(k)}: {_repr_val(val)}" for k, val in v.items())
+        return "{" + items + "}"
+    if isinstance(v, list):
+        if not v:
+            return "[]"
+        items = ", ".join(_repr_val(i) for i in v)
+        return "[" + items + "]"
+    return repr(v)
+
+
+def snapshot_image(repo, output_dir: Path, *, cogent_name: str | None = None) -> None:
+    """Read DB state and generate an image directory."""
+    init_dir = output_dir / "init"
+    init_dir.mkdir(parents=True, exist_ok=True)
+    files_dir = output_dir / "files"
+
+    # -- Capabilities --
+    caps = repo.list_capabilities()
+    lines = []
+    for c in caps:
+        parts = [f'add_capability({_repr_val(c.name)}']
+        parts.append(f'    handler={_repr_val(c.handler)}')
+        if c.description:
+            parts.append(f'    description={_repr_val(c.description)}')
+        if c.instructions:
+            parts.append(f'    instructions={_repr_val(c.instructions)}')
+        if c.input_schema:
+            parts.append(f'    input_schema={_repr_val(c.input_schema)}')
+        if c.output_schema:
+            parts.append(f'    output_schema={_repr_val(c.output_schema)}')
+        if c.iam_role_arn:
+            parts.append(f'    iam_role_arn={_repr_val(c.iam_role_arn)}')
+        if c.metadata:
+            parts.append(f'    metadata={_repr_val(c.metadata)}')
+        lines.append(",\n".join(parts) + ",\n)")
+    (init_dir / "capabilities.py").write_text("\n\n".join(lines) + "\n" if lines else "")
+
+    # -- Resources --
+    (init_dir / "resources.py").write_text("")
+
+    # -- Processes --
+    procs = repo.list_processes()
+    lines = []
+    for p in procs:
+        # Get capability names
+        cap_names = []
+        try:
+            pcs = repo.list_process_capabilities(p.id)
+            for pc in pcs:
+                cap = repo.get_capability(pc.capability)
+                if cap:
+                    cap_names.append(cap.name)
+        except (AttributeError, TypeError):
+            pass
+
+        # Get handler patterns
+        handler_patterns = []
+        try:
+            handlers = repo.list_handlers(process_id=p.id)
+            handler_patterns = [h.event_pattern for h in handlers]
+        except (AttributeError, TypeError):
+            pass
+
+        # Get code_key
+        code_key = None
+        if p.code:
+            try:
+                f = repo.get_file_by_id(p.code)
+                if f:
+                    code_key = f.key
+            except (AttributeError, TypeError):
+                pass
+
+        parts = [f'add_process({_repr_val(p.name)}']
+        parts.append(f'    mode={_repr_val(p.mode.value)}')
+        if p.content:
+            parts.append(f'    content={_repr_val(p.content)}')
+        if code_key:
+            parts.append(f'    code_key={_repr_val(code_key)}')
+        parts.append(f'    runner={_repr_val(p.runner)}')
+        if p.model:
+            parts.append(f'    model={_repr_val(p.model)}')
+        parts.append(f'    priority={_repr_val(p.priority)}')
+        if cap_names:
+            parts.append(f'    capabilities={_repr_val(cap_names)}')
+        if handler_patterns:
+            parts.append(f'    handlers={_repr_val(handler_patterns)}')
+        if p.metadata:
+            parts.append(f'    metadata={_repr_val(p.metadata)}')
+        lines.append(",\n".join(parts) + ",\n)")
+    (init_dir / "processes.py").write_text("\n\n".join(lines) + "\n" if lines else "")
+
+    # -- Cron --
+    (init_dir / "cron.py").write_text("")
+
+    # -- Files --
+    file_list = repo.list_files()
+    for f in file_list:
+        fv = repo.get_active_file_version(f.id)
+        if fv and fv.content:
+            out_path = files_dir / f.key
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(fv.content)
+
+    # -- README --
+    now = datetime.utcnow().isoformat(timespec="seconds")
+    source = f" from cogent `{cogent_name}`" if cogent_name else ""
+    readme = (
+        f"# Snapshot{source}\n\n"
+        f"Generated: {now}Z\n\n"
+        f"- {len(caps)} capabilities\n"
+        f"- {len(procs)} processes\n"
+        f"- {len(file_list)} files\n"
+    )
+    (output_dir / "README.md").write_text(readme)
