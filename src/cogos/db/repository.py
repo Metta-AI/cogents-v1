@@ -363,6 +363,29 @@ class Repository:
         )
         return response.get("numberOfRecordsUpdated", 0) == 1
 
+    def list_processes_for_capability(self, capability_id: UUID) -> list[dict]:
+        """Return processes granted a specific capability with grant metadata."""
+        response = self._execute(
+            """SELECT p.id AS process_id, p.name AS process_name, p.status AS process_status,
+                      pc.delegatable, pc.config
+               FROM cogos_process_capability pc
+               JOIN cogos_process p ON p.id = pc.process
+               WHERE pc.capability = :capability
+               ORDER BY p.name""",
+            [self._param("capability", capability_id)],
+        )
+        rows = self._rows_to_dicts(response)
+        return [
+            {
+                "process_id": str(r["process_id"]),
+                "process_name": r["process_name"],
+                "process_status": r["process_status"],
+                "delegatable": r.get("delegatable", False),
+                "config": self._json_field(r, "config"),
+            }
+            for r in rows
+        ]
+
     # ═══════════════════════════════════════════════════════════
     # HANDLERS
     # ═══════════════════════════════════════════════════════════

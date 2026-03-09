@@ -288,6 +288,24 @@ class LocalRepository:
         self._maybe_reload()
         return [pc for pc in self._process_capabilities.values() if pc.process == process_id]
 
+    def list_processes_for_capability(self, capability_id: UUID) -> list[dict]:
+        """Return processes granted a specific capability with grant metadata."""
+        self._maybe_reload()
+        results = []
+        for pc in self._process_capabilities.values():
+            if pc.capability == capability_id:
+                proc = self._processes.get(pc.process)
+                if proc:
+                    results.append({
+                        "process_id": str(proc.id),
+                        "process_name": proc.name,
+                        "process_status": proc.status.value if hasattr(proc.status, "value") else str(proc.status),
+                        "delegatable": pc.delegatable,
+                        "config": pc.config,
+                    })
+        results.sort(key=lambda r: r["process_name"])
+        return results
+
     def get_capability(self, cap_id: UUID) -> Capability | None:
         self._maybe_reload()
         return self._capabilities.get(cap_id)

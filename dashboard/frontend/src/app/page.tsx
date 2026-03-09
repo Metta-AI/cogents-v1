@@ -109,7 +109,7 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
           <FilesPanel files={data.files} cogentName={cogentName} onRefresh={refresh} />
         )}
         {activeTab === "capabilities" && (
-          <CapabilitiesPanel capabilities={data.capabilities} />
+          <CapabilitiesPanel capabilities={data.capabilities} cogentName={cogentName} onRefresh={refresh} />
         )}
         {activeTab === "handlers" && (
           <HandlersPanel handlers={data.handlers} />

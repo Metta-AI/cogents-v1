@@ -16,6 +16,7 @@ import type {
   CogosFile,
   CogosFileVersion,
   CogosCapability,
+  CapabilityProcess,
   CogosHandler,
   CogosRun,
 } from "./types";
@@ -607,6 +608,34 @@ export async function getCapabilities(name: string): Promise<CogosCapability[]> 
     `/api/cogents/${name}/capabilities`,
   );
   return r.capabilities;
+}
+
+export async function updateCapability(
+  name: string,
+  capName: string,
+  updates: {
+    enabled?: boolean;
+    description?: string;
+    instructions?: string;
+    input_schema?: Record<string, unknown>;
+    output_schema?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<CogosCapability> {
+  const resp = await fetch(`/api/cogents/${name}/capabilities/${encodeURIComponent(capName)}`, {
+    method: "PUT",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
+export async function getCapabilityProcesses(
+  name: string,
+  capName: string,
+): Promise<CapabilityProcess[]> {
+  return fetchJSON(`/api/cogents/${name}/capabilities/${encodeURIComponent(capName)}/processes`);
 }
 
 export async function getHandlers(name: string): Promise<CogosHandler[]> {

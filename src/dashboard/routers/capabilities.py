@@ -110,3 +110,20 @@ def update_capability(name: str, cap_name: str, body: CapabilityUpdate) -> Capab
 
     repo.upsert_capability(c)
     return _to_out(c)
+
+
+class CapabilityProcessOut(BaseModel):
+    process_id: str
+    process_name: str
+    process_status: str
+    delegatable: bool
+    config: dict | None = None
+
+
+@router.get("/capabilities/{cap_name}/processes")
+def list_capability_processes(name: str, cap_name: str) -> list[dict]:
+    repo = get_cogos_repo()
+    c = repo.get_capability_by_name(cap_name)
+    if not c:
+        raise HTTPException(status_code=404, detail="Capability not found")
+    return repo.list_processes_for_capability(c.id)
