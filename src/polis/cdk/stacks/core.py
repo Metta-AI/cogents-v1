@@ -16,12 +16,14 @@ from aws_cdk import (
     aws_iam as iam,
     aws_lambda as lambda_,
     aws_route53 as route53,
+    aws_secretsmanager as secretsmanager,
 )
 from constructs import Construct
 
 from polis.config import PolisConfig
 
 WATCHER_HANDLER_DIR = Path(__file__).resolve().parent.parent.parent / "watcher"
+EMAIL_HANDLER_DIR = Path(__file__).resolve().parent.parent.parent / "io" / "email"
 
 
 class PolisStack(cdk.Stack):
@@ -339,6 +341,49 @@ class PolisStack(cdk.Stack):
             )
         )
 
+        # --- Email Ingest Lambda (receives from Cloudflare Email Worker) ---
+        email_ingest_secret = secretsmanager.Secret.from_secret_name_v2(
+            self, "EmailIngestSecret", "polis/email/ingest_secret",
+        )
+
+        self.email_ingest_fn = lambda_.Function(
+            self,
+            "EmailIngestLambda",
+            function_name="cogent-email-ingest",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="handler.handler",
+            code=lambda_.Code.from_asset(str(EMAIL_HANDLER_DIR)),
+            timeout=Duration.seconds(30),
+            environment={
+                "EMAIL_INGEST_SECRET": email_ingest_secret.secret_value.unsafe_unwrap(),
+            },
+        )
+
+        # Needs to resolve cogent DBs via CloudFormation and write via Data API
+        self.email_ingest_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["cloudformation:DescribeStacks"],
+                resources=["*"],
+            )
+        )
+        self.email_ingest_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement"],
+                resources=["*"],
+            )
+        )
+        self.email_ingest_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=["*"],
+            )
+        )
+
+        # Function URL for Cloudflare Worker to POST to
+        self.email_ingest_url = self.email_ingest_fn.add_function_url(
+            auth_type=lambda_.FunctionUrlAuthType.NONE,
+        )
+
         # --- Outputs ---
         cdk.CfnOutput(self, "ECRRepositoryUri", value=self.ecr_repo.repository_uri)
         cdk.CfnOutput(self, "ClusterArn", value=self.cluster.cluster_arn)
@@ -346,3 +391,4 @@ class PolisStack(cdk.Stack):
         cdk.CfnOutput(self, "Domain", value=config.domain)
         cdk.CfnOutput(self, "StatusTableArn", value=self.status_table.table_arn)
         cdk.CfnOutput(self, "PolisAdminRoleArn", value=self.admin_role.role_arn)
+        cdk.CfnOutput(self, "EmailIngestUrl", value=self.email_ingest_url.url)

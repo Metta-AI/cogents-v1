@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -127,54 +128,63 @@ class TestSearchCapability:
         assert result.content == []
 
 
-# ── Ingest Endpoint ──────────────────────────────────────────
+# ── Ingest Lambda ────────────────────────────────────────────
 
 
-class TestIngestEndpoint:
-    @pytest.fixture
-    def client(self):
+class TestIngestLambda:
+    @pytest.fixture(autouse=True)
+    def _setup(self):
         import os
         os.environ["EMAIL_INGEST_SECRET"] = "test-secret-123"
-        os.environ.setdefault("USE_LOCAL_DB", "1")
 
-        from fastapi.testclient import TestClient
-        from cogos.io.email.ingest import router
-        from fastapi import FastAPI
+    def _make_event(self, body, token=None):
+        headers = {}
+        if token:
+            headers["authorization"] = f"Bearer {token}"
+        return {"headers": headers, "body": json.dumps(body)}
 
-        app = FastAPI()
-        app.include_router(router, prefix="/api")
-        return TestClient(app)
-
-    def test_ingest_valid(self, client):
-        with patch("dashboard.db.get_cogos_repo") as mock_repo_fn:
-            mock_repo = MagicMock()
-            mock_repo.append_event.return_value = uuid4()
-            mock_repo_fn.return_value = mock_repo
-
-            resp = client.post(
-                "/api/ingest/email",
-                json={
-                    "event_type": "email:received",
-                    "source": "cloudflare-email-worker",
-                    "payload": {"from": "a@b.com", "subject": "Hi"},
-                },
-                headers={"Authorization": "Bearer test-secret-123"},
+    def test_ingest_valid(self):
+        with patch("polis.io.email.handler._insert_event", return_value="evt-1") as mock_insert:
+            from polis.io.email.handler import handler
+            resp = handler(
+                self._make_event(
+                    {"event_type": "email:received", "source": "cloudflare-email-worker",
+                     "payload": {"from": "a@b.com", "subject": "Hi", "cogent": "ovo"}},
+                    token="test-secret-123",
+                ),
+                None,
             )
-            assert resp.status_code == 200
-            assert "event_id" in resp.json()
-            mock_repo.append_event.assert_called_once()
+            assert resp["statusCode"] == 200
+            assert "evt-1" in resp["body"]
+            mock_insert.assert_called_once_with("ovo", "email:received", "cloudflare-email-worker",
+                                                 {"from": "a@b.com", "subject": "Hi", "cogent": "ovo"})
 
-    def test_ingest_unauthorized(self, client):
-        resp = client.post(
-            "/api/ingest/email",
-            json={"event_type": "email:received", "source": "x", "payload": {}},
-            headers={"Authorization": "Bearer wrong-token"},
+    def test_ingest_unauthorized(self):
+        from polis.io.email.handler import handler
+        resp = handler(
+            self._make_event(
+                {"event_type": "email:received", "source": "x", "payload": {"cogent": "ovo"}},
+                token="wrong-token",
+            ),
+            None,
         )
-        assert resp.status_code == 401
+        assert resp["statusCode"] == 401
 
-    def test_ingest_no_token(self, client):
-        resp = client.post(
-            "/api/ingest/email",
-            json={"event_type": "email:received", "source": "x", "payload": {}},
+    def test_ingest_no_token(self):
+        from polis.io.email.handler import handler
+        resp = handler(
+            self._make_event({"event_type": "email:received", "source": "x", "payload": {"cogent": "ovo"}}),
+            None,
         )
-        assert resp.status_code == 401
+        assert resp["statusCode"] == 401
+
+    def test_ingest_missing_cogent(self):
+        from polis.io.email.handler import handler
+        resp = handler(
+            self._make_event(
+                {"event_type": "email:received", "source": "x", "payload": {"from": "a@b.com"}},
+                token="test-secret-123",
+            ),
+            None,
+        )
+        assert resp["statusCode"] == 400
