@@ -53,6 +53,7 @@ def create_app() -> FastAPI:
         cogos_events,
         cogos_status,
     )
+    from cogos.io.email.ingest import router as email_ingest_router
 
     app.include_router(status.router, prefix="/api/cogents/{name}")
     app.include_router(programs.router, prefix="/api/cogents/{name}")
@@ -74,6 +75,9 @@ def create_app() -> FastAPI:
     app.include_router(runs.router, prefix="/api/cogents/{name}")
     app.include_router(cogos_events.router, prefix="/api/cogents/{name}")
     app.include_router(cogos_status.router, prefix="/api/cogents/{name}")
+
+    # Email ingest (no cogent prefix — Worker POSTs to /api/ingest/email)
+    app.include_router(email_ingest_router, prefix="/api")
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):

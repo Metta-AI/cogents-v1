@@ -140,6 +140,12 @@ class ComputeConstruct(Construct):
                 resources=[f"arn:aws:secretsmanager:*:*:secret:cogent/{config.cogent_name}/*"],
             )
         )
+        executor_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ses:SendEmail", "ses:SendRawEmail"],
+                resources=[f"arn:aws:ses:*:*:identity/{config.domain}"],
+            )
+        )
 
         # Lambda code with bundled dependencies
         lambda_code = lambda_.Code.from_asset(_build_lambda_package())
@@ -255,6 +261,14 @@ class ComputeConstruct(Construct):
                     "bedrock:InvokeModelWithResponseStream",
                 ],
                 resources=["*"],
+            )
+        )
+
+        # SES email sending
+        task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ses:SendEmail", "ses:SendRawEmail"],
+                resources=[f"arn:aws:ses:*:*:identity/{config.domain}"],
             )
         )
 

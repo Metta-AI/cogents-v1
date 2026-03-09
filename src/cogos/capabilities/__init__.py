@@ -261,6 +261,82 @@ BUILTIN_CAPABILITIES: list[dict] = [
             },
         },
     },
+    # ── Email ──────────────────────────────────────────────────
+    {
+        "name": "email/send",
+        "description": "Send an email via SES.",
+        "handler": "cogos.io.email.capability.send",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient email address."},
+                "subject": {"type": "string", "description": "Email subject."},
+                "body": {"type": "string", "description": "Email body text."},
+                "reply_to": {"type": "string", "description": "Reply-to address."},
+            },
+            "required": ["to", "subject", "body"],
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string"},
+                "to": {"type": "string"},
+                "subject": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "email/check",
+        "description": "Check recent inbound emails.",
+        "handler": "cogos.io.email.capability.check",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 10, "description": "Max emails to return."},
+            },
+        },
+        "output_schema": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "from": {"type": "string"},
+                    "to": {"type": "string"},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                    "date": {"type": "string"},
+                    "message_id": {"type": "string"},
+                },
+            },
+        },
+    },
+    {
+        "name": "email/search",
+        "description": "Search inbound emails by keyword query.",
+        "handler": "cogos.io.email.capability.search",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search terms to match against sender, subject, body."},
+                "limit": {"type": "integer", "default": 50},
+            },
+            "required": ["query"],
+        },
+        "output_schema": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "from": {"type": "string"},
+                    "to": {"type": "string"},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                    "date": {"type": "string"},
+                    "message_id": {"type": "string"},
+                },
+            },
+        },
+    },
     # ── Scheduler ────────────────────────────────────────────
     {
         "name": "scheduler/match_events",
