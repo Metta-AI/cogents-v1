@@ -5,16 +5,16 @@ import { Sidebar, type TabId, VALID_TABS } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 import { useCogentData } from "@/hooks/useCogentData";
 import { OverviewPanel } from "@/components/overview/OverviewPanel";
-import { ProgramsPanel } from "@/components/programs/ProgramsPanel";
+import { ProcessesPanel } from "@/components/processes/ProcessesPanel";
+import { FilesPanel } from "@/components/files/FilesPanel";
+import { CapabilitiesPanel } from "@/components/capabilities/CapabilitiesPanel";
+import { HandlersPanel } from "@/components/handlers/HandlersPanel";
+import { RunsPanel } from "@/components/runs/RunsPanel";
 import { ChannelsPanel } from "@/components/channels/ChannelsPanel";
 import { EventsPanel } from "@/components/events/EventsPanel";
-import { TriggersPanel } from "@/components/triggers/TriggersPanel";
-import { MemoryPanel } from "@/components/memory/MemoryPanel";
 import { ResourcesPanel } from "@/components/resources/ResourcesPanel";
-import { TasksPanel } from "@/components/tasks/TasksPanel";
 import { AlertsPanel } from "@/components/alerts/AlertsPanel";
 import { CronPanel } from "@/components/cron/CronPanel";
-import { ToolsPanel } from "@/components/tools/ToolsPanel";
 
 function getTabFromHash(): TabId {
   if (typeof window === "undefined") return "overview";
@@ -57,20 +57,23 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
   const { data, loading, error, refresh, timeRange, setTimeRange, connected } = useCogentData(cogentName);
 
   const STUCK_THRESHOLD_MS = 10 * 60 * 1000;
-  const stuckTaskCount = useMemo(() => {
-    return data.tasks.filter(
-      (t) => t.status === "running" && t.updated_at &&
-        Date.now() - new Date(t.updated_at).getTime() > STUCK_THRESHOLD_MS,
+  const stuckProcessCount = useMemo(() => {
+    return data.processes.filter(
+      (p) => p.status === "running" && p.updated_at &&
+        Date.now() - new Date(p.updated_at).getTime() > STUCK_THRESHOLD_MS,
     ).length;
-  }, [data.tasks]);
+  }, [data.processes]);
 
-  const statusText = loading && !data.status
+  const cs = data.cogosStatus;
+  const statusText = loading && !data.status && !cs
     ? "connecting..."
     : error
       ? error
-      : data.status
-        ? `${data.status.active_sessions} active · ${data.status.trigger_count} triggers · ${data.status.unresolved_alerts} alerts`
-        : "no data";
+      : cs
+        ? `${cs.processes.total} processes · ${cs.files} files · ${cs.capabilities} capabilities`
+        : data.status
+          ? `${data.status.active_sessions} active · ${data.status.trigger_count} triggers · ${data.status.unresolved_alerts} alerts`
+          : "no data";
 
   return (
     <div className="h-screen overflow-hidden">
@@ -78,7 +81,7 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
         activeTab={activeTab}
         onTabChange={onTabChange}
         alertCount={data.status?.unresolved_alerts}
-        stuckTaskCount={stuckTaskCount}
+        stuckProcessCount={stuckProcessCount}
       />
       <Header
         cogentName={cogentName}
@@ -100,32 +103,32 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
         }}
       >
         {activeTab === "overview" && <OverviewPanel data={data} />}
-        {activeTab === "programs" && (
-          <ProgramsPanel programs={data.programs} cogentName={cogentName} />
+        {activeTab === "processes" && (
+          <ProcessesPanel processes={data.processes} />
         )}
-        {activeTab === "channels" && (
-          <ChannelsPanel channels={data.channels} cogentName={cogentName} onRefresh={refresh} />
+        {activeTab === "files" && (
+          <FilesPanel files={data.files} />
         )}
-        {activeTab === "tools" && (
-          <ToolsPanel tools={data.tools} cogentName={cogentName} onRefresh={refresh} />
+        {activeTab === "capabilities" && (
+          <CapabilitiesPanel capabilities={data.capabilities} />
+        )}
+        {activeTab === "handlers" && (
+          <HandlersPanel handlers={data.handlers} />
+        )}
+        {activeTab === "runs" && (
+          <RunsPanel runs={data.runs} />
         )}
         {activeTab === "events" && (
           <EventsPanel events={data.events} cogentName={cogentName} triggers={data.triggers} timeRange={timeRange} onTabChange={onTabChange as (tab: string) => void} />
         )}
-        {activeTab === "triggers" && (
-          <TriggersPanel triggers={data.triggers} cogentName={cogentName} programs={data.programs.map(p => p.name)} onRefresh={refresh} />
-        )}
-        {activeTab === "memory" && (
-          <MemoryPanel memory={data.memory} cogentName={cogentName} onRefresh={refresh} />
-        )}
-        {activeTab === "resources" && (
-          <ResourcesPanel resources={data.resources} />
-        )}
-        {activeTab === "tasks" && (
-          <TasksPanel tasks={data.tasks} cogentName={cogentName} onRefresh={refresh} memory={data.memory} programs={data.programs} tools={data.tools} timeRange={timeRange} />
+        {activeTab === "channels" && (
+          <ChannelsPanel channels={data.channels} cogentName={cogentName} onRefresh={refresh} />
         )}
         {activeTab === "cron" && (
           <CronPanel crons={data.crons} cogentName={cogentName} onRefresh={refresh} />
+        )}
+        {activeTab === "resources" && (
+          <ResourcesPanel resources={data.resources} />
         )}
         {activeTab === "alerts" && (
           <AlertsPanel alerts={data.alerts} cogentName={cogentName} onRefresh={refresh} />
