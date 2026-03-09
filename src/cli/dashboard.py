@@ -109,20 +109,14 @@ def serve(ctx: click.Context, port: int, frontend_port: int, no_browser: bool):
 
 
 @dashboard.command()
+@click.option("--docker", is_flag=True, help="Force rebuild Docker image")
+@click.option("--skip-health", is_flag=True, help="Skip waiting for service stability")
 @click.pass_context
-def deploy(ctx: click.Context):
-    """Deploy the dashboard via polis (build Docker image, push to ECR, restart ECS)."""
-    from cli import get_cogent_name
-    from polis.aws import set_profile
-    from polis.cli import dashboard_deploy
-    from polis.config import PolisConfig
+def deploy(ctx: click.Context, docker: bool, skip_health: bool):
+    """Deploy the dashboard (build frontend, push to S3/ECR, restart ECS)."""
+    from brain.update_cli import update_dashboard
 
-    name = get_cogent_name(ctx)
-    ctx.ensure_object(dict)
-    ctx.obj.setdefault("config", PolisConfig())
-    ctx.obj.setdefault("profile", None)
-    set_profile(None)
-    ctx.invoke(dashboard_deploy, name=name)
+    ctx.invoke(update_dashboard, docker=docker, skip_health=skip_health)
 
 
 @dashboard.command()
