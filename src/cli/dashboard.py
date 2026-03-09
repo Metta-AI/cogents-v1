@@ -119,6 +119,77 @@ def deploy(ctx: click.Context, docker: bool, skip_health: bool):
     ctx.invoke(update_dashboard, docker=docker, skip_health=skip_health)
 
 
+@dashboard.command("create-pat")
+@click.option("--force", is_flag=True, help="Overwrite existing PAT")
+@click.pass_context
+def create_pat(ctx: click.Context, force: bool):
+    """Generate a Personal Access Token for API access (bypasses OAuth).
+
+    The PAT is stored in polis secrets and used as an ALB bypass rule.
+    After creating, run 'brain update stack' to apply the ALB rule.
+    """
+    from cli import get_cogent_name
+    from polis.aws import get_polis_session, set_profile
+
+    name = get_cogent_name(ctx)
+    set_profile("softmax-org")
+    session, _ = get_polis_session()
+
+    from polis.secrets.store import SecretStore
+    store = SecretStore(session=session)
+    api_key_path = f"cogent/{name}/dashboard-api-key"
+
+    # Check for existing
+    existing = None
+    try:
+        existing = store.get(api_key_path, use_cache=False)
+    except Exception:
+        pass
+
+    if existing and not force:
+        click.echo(f"PAT already exists for {name}.")
+        click.echo(f"Key: {existing['api_key']}")
+        click.echo("Use --force to regenerate.")
+        return
+
+    key = secrets.token_urlsafe(48)
+    store.put(api_key_path, {"api_key": key, "cogent": name})
+
+    # Save locally too
+    kf = _key_file(name)
+    kf.write_text(key)
+
+    click.echo(f"PAT created for {name}")
+    click.echo(f"Key: {key}")
+    click.echo(f"Saved locally to: {kf}")
+    click.echo()
+    click.echo("To activate the PAT as an ALB bypass rule, run:")
+    click.echo(f"  cogent {name} brain update stack")
+    click.echo()
+    click.echo("Usage:")
+    click.echo(f"  curl -H 'X-Api-Key: {key}' https://{name.replace('.', '-')}.softmax-cogents.com/api/...")
+
+
+@dashboard.command("show-pat")
+@click.pass_context
+def show_pat(ctx: click.Context):
+    """Show the dashboard PAT (from polis secrets)."""
+    from cli import get_cogent_name
+    from polis.aws import get_polis_session, set_profile
+
+    name = get_cogent_name(ctx)
+    set_profile("softmax-org")
+    session, _ = get_polis_session()
+
+    from polis.secrets.store import SecretStore
+    store = SecretStore(session=session)
+    try:
+        secret = store.get(f"cogent/{name}/dashboard-api-key", use_cache=False)
+        click.echo(f"PAT: {secret['api_key']}")
+    except Exception:
+        click.echo(f"No PAT found for {name}. Run: cogent {name} dashboard create-pat")
+
+
 @dashboard.command()
 @click.pass_context
 def login(ctx: click.Context):
