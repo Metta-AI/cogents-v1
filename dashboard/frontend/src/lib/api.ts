@@ -459,7 +459,7 @@ export async function getProcesses(name: string): Promise<CogosProcess[]> {
 export async function getProcessDetail(
   name: string,
   processId: string,
-): Promise<{ process: CogosProcess; runs: CogosProcessRun[] }> {
+): Promise<{ process: CogosProcess; runs: CogosProcessRun[]; resolved_prompt: string }> {
   return fetchJSON(`/api/cogents/${name}/processes/${processId}`);
 }
 

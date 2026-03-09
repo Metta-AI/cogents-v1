@@ -213,7 +213,55 @@ def get_process(name: str, process_id: str) -> dict:
         }
         for r in runs
     ]
-    return {"process": _detail(p).model_dump(), "runs": run_list}
+
+    # Resolve full prompt: file content + includes
+    resolved_prompt = _resolve_process_prompt(p, repo)
+
+    return {"process": _detail(p).model_dump(), "runs": run_list, "resolved_prompt": resolved_prompt}
+
+
+def _resolve_process_prompt(p: Process, repo) -> str:  # noqa: ANN001
+    """Build the full composed prompt for a process by resolving file includes."""
+    sections: list[str] = []
+
+    # System prompt from linked file (process.code FK)
+    if p.code:
+        from cogos.files.store import FileStore
+        file_store = FileStore(repo)
+        f = repo.get_file_by_id(p.code)
+        if f:
+            fv = repo.get_active_file_version(f.id)
+            if fv:
+                sections.append(f"## System Prompt (file: {f.key})\n\n{fv.content}")
+
+            # Resolve includes recursively
+            if f.includes:
+                visited: set[str] = {f.key}
+                _resolve_file_includes(f.includes, visited, sections, repo)
+
+    # User message from process.content
+    if p.content:
+        sections.append(f"## Process Content\n\n{p.content}")
+
+    return "\n\n---\n\n".join(sections) if sections else p.content or ""
+
+
+def _resolve_file_includes(
+    keys: list[str], visited: set[str], sections: list[str], repo,  # noqa: ANN001
+) -> None:
+    """Recursively resolve file includes, appending content to sections."""
+    for key in keys:
+        if key in visited:
+            continue
+        visited.add(key)
+        f = repo.get_file_by_key(key)
+        if not f:
+            continue
+        fv = repo.get_active_file_version(f.id)
+        if fv:
+            sections.append(f"## Included File: {f.key}\n\n{fv.content}")
+        if f.includes:
+            _resolve_file_includes(f.includes, visited, sections, repo)
 
 
 @router.post("/processes", response_model=ProcessDetail)

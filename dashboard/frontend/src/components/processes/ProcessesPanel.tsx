@@ -97,6 +97,35 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
+const AWS_REGION = "us-east-1";
+
+function buildCloudWatchUrl(cogentName: string, runId: string, createdAt: string | null): string {
+  const safeName = cogentName.replace(/\./g, "-");
+  const logGroup = `/aws/lambda/cogent-${safeName}-executor`;
+  const query = `fields @timestamp, @message | filter @message like "${runId}" | sort @timestamp asc`;
+  const encodedQuery = encodeURIComponent(query)
+    .replace(/%20/g, "*20")
+    .replace(/%22/g, "*22")
+    .replace(/%7C/g, "*7c")
+    .replace(/%40/g, "*40")
+    .replace(/%0A/g, "*0a");
+  let startParam = "start~-3600~timeType~'RELATIVE~unit~'seconds";
+  if (createdAt) {
+    const ts = new Date(createdAt).getTime();
+    const start = ts - 60 * 60 * 1000;
+    const end = ts + 60 * 60 * 1000;
+    startParam = `start~${start}~end~${end}~timeType~'ABSOLUTE`;
+  }
+  const encodedSource = logGroup.replace(/\//g, "*2f");
+  return (
+    `https://${AWS_REGION}.console.aws.amazon.com/cloudwatch/home?region=${AWS_REGION}` +
+    `#logsV2:logs-insights$3FqueryDetail$3D~(` +
+    `${startParam}` +
+    `~editorString~'${encodedQuery}` +
+    `~source~(~'${encodedSource}))`
+  );
+}
+
 /* ── TagListEditor: editable list with typeahead ── */
 
 function TagListEditor({
@@ -210,7 +239,7 @@ function TagListEditor({
 
 /* ── Last Run Display ── */
 
-function LastRunInfo({ run }: { run: CogosProcessRun }) {
+function LastRunInfo({ run, cogentName }: { run: CogosProcessRun; cogentName?: string }) {
   const [showResult, setShowResult] = useState(false);
   return (
     <div
@@ -219,9 +248,22 @@ function LastRunInfo({ run }: { run: CogosProcessRun }) {
     >
       <div className="flex items-center justify-between">
         <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">Last Run</span>
-        <Badge variant={run.status === "completed" ? "success" : run.status === "failed" ? "error" : "warning"}>
-          {run.status}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={run.status === "completed" ? "success" : run.status === "failed" ? "error" : "warning"}>
+            {run.status}
+          </Badge>
+          {cogentName && (
+            <a
+              href={buildCloudWatchUrl(cogentName, run.id, run.created_at)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--accent)] text-[10px] hover:underline"
+              title="View CloudWatch logs"
+            >
+              CW Logs
+            </a>
+          )}
+        </div>
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
         <span className="text-[var(--text-muted)]">
@@ -405,6 +447,8 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [detailRuns, setDetailRuns] = useState<CogosProcessRun[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [resolvedPrompt, setResolvedPrompt] = useState<string>("");
+  const [showResolved, setShowResolved] = useState(false);
 
   const resourceSuggestions = useMemo(() => resources.map((r) => r.name), [resources]);
 
@@ -424,15 +468,20 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
     if (selectedId === id) {
       setSelectedId(null);
       setDetailRuns([]);
+      setResolvedPrompt("");
+      setShowResolved(false);
       return;
     }
     setSelectedId(id);
     setLoadingDetail(true);
+    setShowResolved(false);
     try {
       const detail = await api.getProcessDetail(cogentName, id);
       setDetailRuns(detail.runs);
+      setResolvedPrompt(detail.resolved_prompt || "");
     } catch {
       setDetailRuns([]);
+      setResolvedPrompt("");
     }
     setLoadingDetail(false);
   }, [selectedId, cogentName]);
@@ -621,12 +670,24 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                     <span className="text-[var(--text-muted)]">clear ctx: <span className="text-[var(--text-secondary)]">{proc.clear_context ? "yes" : "no"}</span></span>
                   </div>
 
-                  {/* Content */}
-                  {proc.content && (
+                  {/* Content with resolved prompt toggle */}
+                  {(proc.content || resolvedPrompt) && (
                     <div>
-                      <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Content</div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] text-[var(--text-muted)] uppercase">
+                          {showResolved ? "Full Prompt" : "Content"}
+                        </span>
+                        {resolvedPrompt && resolvedPrompt !== proc.content && (
+                          <button
+                            onClick={() => setShowResolved((v) => !v)}
+                            className="text-[10px] px-1.5 py-0 rounded bg-transparent border border-[var(--border)] text-[var(--accent)] cursor-pointer hover:border-[var(--accent)]"
+                          >
+                            {showResolved ? "Show Raw" : "Show Full Prompt"}
+                          </button>
+                        )}
+                      </div>
                       <div className="text-[11px] text-[var(--text-secondary)] font-mono whitespace-pre-wrap p-2 rounded" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", maxHeight: "200px", overflowY: "auto" }}>
-                        {proc.content}
+                        {showResolved ? resolvedPrompt : (proc.content || "(empty)")}
                       </div>
                     </div>
                   )}
@@ -649,7 +710,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                   {loadingDetail ? (
                     <div className="text-[11px] text-[var(--text-muted)]">Loading runs...</div>
                   ) : detailRuns.length > 0 ? (
-                    <LastRunInfo run={detailRuns[0]} />
+                    <LastRunInfo run={detailRuns[0]} cogentName={cogentName} />
                   ) : lastRun ? (
                     <LastRunInfo run={{
                       id: lastRun.id,
@@ -662,7 +723,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                       result: null,
                       created_at: lastRun.created_at,
                       completed_at: null,
-                    }} />
+                    }} cogentName={cogentName} />
                   ) : null}
 
                   {/* Actions */}

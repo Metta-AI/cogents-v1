@@ -121,7 +121,7 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
           <HandlersPanel handlers={data.handlers} />
         )}
         {activeTab === "runs" && (
-          <RunsPanel runs={data.runs} />
+          <RunsPanel runs={data.runs} cogentName={cogentName} />
         )}
         {activeTab === "events" && (
           <EventsPanel events={data.events} cogentName={cogentName} triggers={data.triggers} timeRange={timeRange} onTabChange={onTabChange as (tab: string) => void} />
