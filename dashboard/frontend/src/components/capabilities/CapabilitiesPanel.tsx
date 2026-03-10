@@ -307,7 +307,7 @@ function CapabilityDetail({ cap, cogentName, onRefresh, onClose }: DetailProps) 
 
 export function CapabilitiesPanel({ capabilities, cogentName, onRefresh }: Props) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const displayItems = useMemo(() => {
     if (!selectedPath) return capabilities;
@@ -316,10 +316,13 @@ export function CapabilitiesPanel({ capabilities, cogentName, onRefresh }: Props
     return node ? getAllItems(node) : capabilities;
   }, [capabilities, selectedPath]);
 
-  const expandedCap = expandedId ? displayItems.find((c) => c.id === expandedId) ?? null : null;
+  const selectedCap = useMemo(() => {
+    if (!selectedId) return null;
+    return capabilities.find((c) => c.id === selectedId) ?? null;
+  }, [capabilities, selectedId]);
 
   return (
-    <div className="flex h-full" style={{ minHeight: "calc(100vh - 160px)" }}>
+    <div className="flex h-full" style={{ minHeight: "calc(100vh - 160px)", paddingBottom: selectedCap ? "45vh" : undefined }}>
       <HierarchyPanel
         items={capabilities}
         getGroup={getCapGroup}
@@ -372,11 +375,17 @@ export function CapabilitiesPanel({ capabilities, cogentName, onRefresh }: Props
                 <tr
                   key={c.id}
                   className="border-b border-[var(--border)] last:border-0 cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
-                  style={expandedId === c.id ? { background: "var(--bg-hover)" } : undefined}
-                  onDoubleClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
+                  style={{
+                    background: selectedId === c.id ? "var(--bg-hover)" : undefined,
+                    borderLeft: selectedId === c.id ? "2px solid var(--accent)" : "2px solid transparent",
+                  }}
+                  onClick={() => setSelectedId(selectedId === c.id ? null : c.id)}
                 >
                   <td className="px-4 py-2 align-top">
-                    <span className="font-mono text-[12px] text-[var(--text-secondary)]">
+                    <span
+                      className="font-mono text-[12px]"
+                      style={{ color: selectedId === c.id ? "var(--accent)" : "var(--text-secondary)" }}
+                    >
                       {c.name}
                     </span>
                     {!c.enabled && <span className="ml-2"><Badge variant="neutral">disabled</Badge></span>}
@@ -392,16 +401,32 @@ export function CapabilitiesPanel({ capabilities, cogentName, onRefresh }: Props
             </tbody>
           </table>
         </div>
-
-        {expandedCap && (
-          <CapabilityDetail
-            cap={expandedCap}
-            cogentName={cogentName}
-            onRefresh={onRefresh}
-            onClose={() => setExpandedId(null)}
-          />
-        )}
       </div>
+
+      {/* Detail panel — fixed bottom frame */}
+      {selectedCap && (
+        <div
+          className="fixed flex flex-col border-t overflow-y-auto"
+          style={{
+            left: "var(--sidebar-w)",
+            right: 0,
+            bottom: 0,
+            height: "40vh",
+            borderColor: "var(--border)",
+            background: "var(--bg-deep)",
+            zIndex: 20,
+          }}
+        >
+          <div className="p-4">
+            <CapabilityDetail
+              cap={selectedCap}
+              cogentName={cogentName}
+              onRefresh={onRefresh}
+              onClose={() => setSelectedId(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
