@@ -38,10 +38,15 @@ def coalesce_status_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     merged: list[dict[str, Any]] = []
     for stack_name, group in groups.items():
-        identity_item = max(group, key=_identity_score)
-        merged_item = dict(identity_item)
+        identity_item = next((item for item in group if record_type(item) == "identity"), None)
+        merged_item = dict(identity_item or max(group, key=lambda item: _int_value(item.get("updated_at"))))
         merged_item["stack_name"] = stack_name
-        merged_item["cogent_name"] = identity_item.get("cogent_name") or safe_name_from_stack_name(stack_name)
+        merged_item["record_type"] = record_type(identity_item or merged_item)
+        merged_item["cogent_name"] = (
+            identity_item.get("cogent_name")
+            if identity_item and identity_item.get("cogent_name")
+            else merged_item.get("cogent_name") or safe_name_from_stack_name(stack_name)
+        )
 
         for item in group:
             status = item.get("stack_status")
@@ -65,19 +70,21 @@ def coalesce_status_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return merged
 
 
-def _identity_score(item: dict[str, Any]) -> tuple[int, int]:
-    """Prefer canonical identity rows over stack-name fallbacks."""
-    name = str(item.get("cogent_name") or "")
-    score = 0
-    if item.get("domain"):
-        score += 100
-    if item.get("certificate_arn"):
-        score += 50
-    if "." in name:
-        score += 25
-    if not name.endswith("-brain"):
-        score += 10
-    return score, _int_value(item.get("updated_at"))
+def record_type(item: dict[str, Any]) -> str:
+    """Return the explicit status row type.
+
+    `identity` rows are created by `polis cogents create`.
+    `runtime` rows are written by the watcher from CloudFormation/ECS state.
+    """
+    kind = str(item.get("record_type") or "").strip()
+    if kind:
+        return kind
+
+    # Backward-compatible interpretation for older REGISTERED rows created
+    # before `record_type` existed.
+    if item.get("stack_status") == "REGISTERED" and item.get("domain") and item.get("certificate_arn"):
+        return "identity"
+    return "runtime"
 
 
 def _int_value(value: Any) -> int:
