@@ -109,6 +109,8 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
             onRefresh={refresh}
             resources={data.resources}
             runs={data.runs}
+            files={data.files}
+            capabilities={data.capabilities}
           />
         )}
         {activeTab === "files" && (

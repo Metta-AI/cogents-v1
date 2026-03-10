@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import type { CogosProcess, CogosProcessRun, Resource, CogosRun } from "@/lib/types";
+import type { CogosProcess, CogosProcessRun, Resource, CogosRun, CogosFile, CogosCapability } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
 import { JsonViewer } from "@/components/shared/JsonViewer";
 import * as api from "@/lib/api";
@@ -13,6 +13,8 @@ interface Props {
   onRefresh: () => void;
   resources: Resource[];
   runs: CogosRun[];
+  files: CogosFile[];
+  capabilities: CogosCapability[];
 }
 
 type BadgeVariant = "success" | "warning" | "error" | "info" | "neutral" | "accent";
@@ -37,46 +39,72 @@ interface ProcessForm {
   name: string;
   mode: "daemon" | "one_shot";
   content: string;
+  code: string; // file key
   priority: string;
   runner: string;
   status: string;
   model: string;
-  max_duration_ms: string;
+  max_duration_val: string;
+  max_duration_unit: "ms" | "s" | "m" | "h" | "d";
   max_retries: string;
   preemptible: boolean;
   clear_context: boolean;
   resources: string[];
+  capabilities: string[];
 }
 
 const EMPTY_FORM: ProcessForm = {
   name: "",
   mode: "one_shot",
   content: "",
+  code: "",
   priority: "0",
   runner: "lambda",
-  status: "waiting",
+  status: "runnable",
   model: "",
-  max_duration_ms: "",
+  max_duration_val: "",
+  max_duration_unit: "m",
   max_retries: "0",
   preemptible: false,
   clear_context: false,
   resources: [],
+  capabilities: [],
 };
 
-function formFromProcess(p: CogosProcess): ProcessForm {
+const DURATION_UNITS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+type DurationUnit = keyof typeof DURATION_UNITS;
+
+function msToFormDuration(ms: number | null): { max_duration_val: string; max_duration_unit: DurationUnit } {
+  if (ms == null || ms === 0) return { max_duration_val: "", max_duration_unit: "m" };
+  for (const u of ["d", "h", "m", "s", "ms"] as DurationUnit[]) {
+    const factor = DURATION_UNITS[u];
+    if (ms % factor === 0) return { max_duration_val: String(ms / factor), max_duration_unit: u };
+  }
+  return { max_duration_val: String(ms), max_duration_unit: "ms" };
+}
+
+function formDurationToMs(val: string, unit: DurationUnit): number | null {
+  const n = parseFloat(val);
+  if (!val || isNaN(n)) return null;
+  return Math.round(n * DURATION_UNITS[unit]);
+}
+
+function formFromProcess(p: CogosProcess, codeKey?: string, capNames?: string[]): ProcessForm {
   return {
     name: p.name,
     mode: p.mode,
     content: p.content,
+    code: codeKey ?? "",
     priority: String(p.priority),
     runner: p.runner,
     status: p.status,
     model: p.model ?? "",
-    max_duration_ms: p.max_duration_ms != null ? String(p.max_duration_ms) : "",
+    ...msToFormDuration(p.max_duration_ms),
     max_retries: String(p.max_retries),
     preemptible: p.preemptible,
     clear_context: p.clear_context,
     resources: p.resources ?? [],
+    capabilities: capNames ?? [],
   };
 }
 
@@ -176,7 +204,7 @@ function TagListEditor({
 
   return (
     <div ref={wrapperRef}>
-      <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">{label}</label>
+      {label && <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">{label}</label>}
       {items.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-1">
           {items.map((item, idx) => (
@@ -305,6 +333,233 @@ function LastRunInfo({ run, cogentName }: { run: CogosProcessRun; cogentName?: s
   );
 }
 
+/* ── Icon Button Group ── */
+
+function IconButtonGroup<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { value: T; icon: string; title: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div>
+      <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">{label}</label>
+      <div className="flex gap-1">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            className="px-2 py-1 text-[12px] rounded border cursor-pointer transition-colors"
+            style={{
+              background: value === opt.value ? "var(--accent)" : "var(--bg-elevated)",
+              color: value === opt.value ? "white" : "var(--text-secondary)",
+              borderColor: value === opt.value ? "var(--accent)" : "var(--border)",
+            }}
+            title={opt.title}
+            type="button"
+          >
+            {opt.icon}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Status Menu Button ── */
+
+function StatusMenu({ value, onChange }: { value: string; onChange: (s: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Status</label>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="px-2 py-1 text-[12px] rounded border cursor-pointer transition-colors flex items-center gap-1"
+        style={{
+          background: "var(--bg-elevated)",
+          color: "var(--text-primary)",
+          borderColor: "var(--border)",
+        }}
+      >
+        <Badge variant={STATUS_VARIANT[value] || "neutral"}>{value}</Badge>
+        <span className="text-[10px] text-[var(--text-muted)]">▾</span>
+      </button>
+      {open && (
+        <div
+          className="absolute z-50 left-0 mt-1 rounded overflow-hidden shadow-lg py-1"
+          style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", minWidth: "120px" }}
+        >
+          {STATUSES.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => { onChange(s); setOpen(false); }}
+              className="w-full text-left px-3 py-1 text-[11px] border-0 cursor-pointer flex items-center gap-2"
+              style={{
+                background: s === value ? "var(--bg-hover)" : "transparent",
+                color: "var(--text-secondary)",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = s === value ? "var(--bg-hover)" : "transparent"; }}
+            >
+              <Badge variant={STATUS_VARIANT[s] || "neutral"}>{s}</Badge>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Model Menu Button ── */
+
+const MODELS = [
+  { value: "", label: "default (sonnet)" },
+  { value: "us.anthropic.claude-haiku-4-5-20251001-v1:0", label: "haiku" },
+  { value: "us.anthropic.claude-sonnet-4-20250514-v1:0", label: "sonnet" },
+  { value: "us.anthropic.claude-opus-4-20250514-v1:0", label: "opus" },
+];
+
+function modelLabel(value: string): string {
+  const m = MODELS.find((m) => m.value === value);
+  if (m) return m.label;
+  if (value.includes("haiku")) return "haiku";
+  if (value.includes("opus")) return "opus";
+  if (value.includes("sonnet")) return "sonnet";
+  return value || "default (sonnet)";
+}
+
+function ModelMenu({ value, onChange }: { value: string; onChange: (m: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const currentLabel = modelLabel(value);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Model</label>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="px-2 py-1 text-[12px] rounded border cursor-pointer transition-colors flex items-center gap-1"
+        style={{
+          background: "var(--bg-elevated)",
+          color: "var(--text-primary)",
+          borderColor: "var(--border)",
+        }}
+      >
+        {currentLabel}
+        <span className="text-[10px] text-[var(--text-muted)]">▾</span>
+      </button>
+      {open && (
+        <div
+          className="absolute z-50 left-0 mt-1 rounded overflow-hidden shadow-lg py-1"
+          style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", minWidth: "100px" }}
+        >
+          {MODELS.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => { onChange(m.value); setOpen(false); }}
+              className="w-full text-left px-3 py-1 text-[11px] border-0 cursor-pointer"
+              style={{
+                background: m.value === value ? "var(--bg-hover)" : "transparent",
+                color: "var(--text-secondary)",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = m.value === value ? "var(--bg-hover)" : "transparent"; }}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Duration Unit Menu ── */
+
+const DURATION_UNIT_OPTIONS: DurationUnit[] = ["ms", "s", "m", "h", "d"];
+
+function DurationUnitMenu({ value, onChange }: { value: DurationUnit; onChange: (u: DurationUnit) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="px-2 py-1 text-[12px] rounded border cursor-pointer transition-colors flex items-center gap-0.5"
+        style={{
+          background: "var(--bg-elevated)",
+          color: "var(--text-primary)",
+          borderColor: "var(--border)",
+        }}
+      >
+        {value}
+        <span className="text-[10px] text-[var(--text-muted)]">▾</span>
+      </button>
+      {open && (
+        <div
+          className="absolute z-50 left-0 mt-1 rounded overflow-hidden shadow-lg py-1"
+          style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", minWidth: "40px" }}
+        >
+          {DURATION_UNIT_OPTIONS.map((u) => (
+            <button
+              key={u}
+              type="button"
+              onClick={() => { onChange(u); setOpen(false); }}
+              className="w-full text-left px-3 py-1 text-[11px] border-0 cursor-pointer"
+              style={{
+                background: u === value ? "var(--bg-hover)" : "transparent",
+                color: "var(--text-secondary)",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = u === value ? "var(--bg-hover)" : "transparent"; }}
+            >
+              {u}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Process Form ── */
 
 function ProcessFormEditor({
@@ -315,6 +570,8 @@ function ProcessFormEditor({
   saving,
   isNew,
   resourceSuggestions,
+  fileSuggestions,
+  capabilitySuggestions,
 }: {
   form: ProcessForm;
   onChange: (form: ProcessForm) => void;
@@ -323,6 +580,8 @@ function ProcessFormEditor({
   saving: boolean;
   isNew: boolean;
   resourceSuggestions: string[];
+  fileSuggestions: string[];
+  capabilitySuggestions: string[];
 }) {
   return (
     <div className="space-y-3 p-4 rounded-md" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)" }}>
@@ -332,10 +591,99 @@ function ProcessFormEditor({
         </span>
       </div>
 
-      {/* Name */}
-      <div>
-        <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Name</label>
-        <input className={INPUT_CLS} value={form.name} onChange={(e) => onChange({ ...form, name: e.target.value })} />
+      {/* Name + Priority */}
+      <div className="flex gap-3 items-end">
+        <div className="flex-1">
+          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Name</label>
+          <input className={INPUT_CLS} value={form.name} onChange={(e) => onChange({ ...form, name: e.target.value })} />
+        </div>
+        <div style={{ width: "70px" }}>
+          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Priority</label>
+          <input
+            className={INPUT_CLS}
+            value={form.priority}
+            onChange={(e) => onChange({ ...form, priority: e.target.value })}
+            style={{ MozAppearance: "textfield", WebkitAppearance: "none", appearance: "textfield" } as React.CSSProperties}
+          />
+        </div>
+      </div>
+
+      {/* Toggles row: mode, runner, status, preemptible, clear context */}
+      <div className="flex gap-4 items-end flex-wrap">
+        <IconButtonGroup
+          label="Mode"
+          value={form.mode}
+          onChange={(mode) => onChange({ ...form, mode })}
+          options={[
+            { value: "one_shot" as const, icon: "→", title: "One-shot" },
+            { value: "daemon" as const, icon: "⟳", title: "Daemon" },
+          ]}
+        />
+        <IconButtonGroup
+          label="Runner"
+          value={form.runner}
+          onChange={(runner) => onChange({ ...form, runner })}
+          options={[
+            { value: "lambda", icon: "λ", title: "Lambda" },
+            { value: "ecs", icon: "🖥", title: "ECS" },
+          ]}
+        />
+        <StatusMenu value={form.status} onChange={(status) => onChange({ ...form, status })} />
+        <div>
+          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Preempt</label>
+          <button
+            type="button"
+            onClick={() => onChange({ ...form, preemptible: !form.preemptible })}
+            className="px-2 py-1 text-[12px] rounded border cursor-pointer transition-colors"
+            style={{
+              background: form.preemptible ? "var(--accent)" : "var(--bg-elevated)",
+              color: form.preemptible ? "white" : "var(--text-muted)",
+              borderColor: form.preemptible ? "var(--accent)" : "var(--border)",
+            }}
+            title="Preemptible"
+          >
+            {form.preemptible ? "on" : "off"}
+          </button>
+        </div>
+        <div>
+          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Clear Ctx</label>
+          <button
+            type="button"
+            onClick={() => onChange({ ...form, clear_context: !form.clear_context })}
+            className="px-2 py-1 text-[12px] rounded border cursor-pointer transition-colors"
+            style={{
+              background: form.clear_context ? "var(--accent)" : "var(--bg-elevated)",
+              color: form.clear_context ? "white" : "var(--text-muted)",
+              borderColor: form.clear_context ? "var(--accent)" : "var(--border)",
+            }}
+            title="Clear Context"
+          >
+            {form.clear_context ? "on" : "off"}
+          </button>
+        </div>
+        <ModelMenu value={form.model} onChange={(model) => onChange({ ...form, model })} />
+        <div>
+          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Duration</label>
+          <div className="flex gap-1">
+            <input
+              className={INPUT_CLS}
+              value={form.max_duration_val}
+              onChange={(e) => onChange({ ...form, max_duration_val: e.target.value })}
+              placeholder="--"
+              style={{ width: "45px", MozAppearance: "textfield", WebkitAppearance: "none", appearance: "textfield" } as React.CSSProperties}
+            />
+            <DurationUnitMenu value={form.max_duration_unit} onChange={(max_duration_unit) => onChange({ ...form, max_duration_unit })} />
+          </div>
+        </div>
+        <div style={{ width: "40px" }}>
+          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Retries</label>
+          <input
+            className={INPUT_CLS}
+            value={form.max_retries}
+            onChange={(e) => onChange({ ...form, max_retries: e.target.value })}
+            style={{ MozAppearance: "textfield", WebkitAppearance: "none", appearance: "textfield" } as React.CSSProperties}
+          />
+        </div>
       </div>
 
       {/* Content */}
@@ -350,58 +698,26 @@ function ProcessFormEditor({
         />
       </div>
 
-      {/* Row: mode, status, runner */}
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Mode</label>
-          <select className={INPUT_CLS} value={form.mode} onChange={(e) => onChange({ ...form, mode: e.target.value as "daemon" | "one_shot" })}>
-            {MODES.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+      {/* Memory (file) with typeahead + scratch default */}
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <label className="text-[10px] text-[var(--text-muted)] uppercase">Memory (prompt file)</label>
+          {!form.code && form.name.trim() && (
+            <button
+              type="button"
+              onClick={() => onChange({ ...form, code: `/scratch/process/${form.name.trim()}/index.md` })}
+              className="text-[10px] px-1.5 py-0 rounded bg-transparent border border-[var(--border)] text-[var(--accent)] cursor-pointer hover:border-[var(--accent)]"
+            >
+              + scratch
+            </button>
+          )}
         </div>
-        <div>
-          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Status</label>
-          <select className={INPUT_CLS} value={form.status} onChange={(e) => onChange({ ...form, status: e.target.value })}>
-            {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Runner</label>
-          <select className={INPUT_CLS} value={form.runner} onChange={(e) => onChange({ ...form, runner: e.target.value })}>
-            {RUNNERS.map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
-        </div>
-      </div>
-
-      {/* Row: priority, model, max_duration_ms, max_retries */}
-      <div className="grid grid-cols-4 gap-3">
-        <div>
-          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Priority</label>
-          <input className={INPUT_CLS} type="number" step="0.1" value={form.priority} onChange={(e) => onChange({ ...form, priority: e.target.value })} />
-        </div>
-        <div>
-          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Model</label>
-          <input className={INPUT_CLS} value={form.model} onChange={(e) => onChange({ ...form, model: e.target.value })} placeholder="default" />
-        </div>
-        <div>
-          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Max Duration (ms)</label>
-          <input className={INPUT_CLS} type="number" value={form.max_duration_ms} onChange={(e) => onChange({ ...form, max_duration_ms: e.target.value })} placeholder="none" />
-        </div>
-        <div>
-          <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Max Retries</label>
-          <input className={INPUT_CLS} type="number" value={form.max_retries} onChange={(e) => onChange({ ...form, max_retries: e.target.value })} />
-        </div>
-      </div>
-
-      {/* Checkboxes */}
-      <div className="flex gap-6">
-        <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)] cursor-pointer">
-          <input type="checkbox" checked={form.preemptible} onChange={(e) => onChange({ ...form, preemptible: e.target.checked })} />
-          Preemptible
-        </label>
-        <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)] cursor-pointer">
-          <input type="checkbox" checked={form.clear_context} onChange={(e) => onChange({ ...form, clear_context: e.target.checked })} />
-          Clear Context
-        </label>
+        <TagListEditor
+          label=""
+          items={form.code ? [form.code] : []}
+          onChange={(items) => onChange({ ...form, code: items[0] || "" })}
+          suggestions={fileSuggestions}
+        />
       </div>
 
       {/* Resources with typeahead */}
@@ -410,6 +726,14 @@ function ProcessFormEditor({
         items={form.resources}
         onChange={(resources) => onChange({ ...form, resources })}
         suggestions={resourceSuggestions}
+      />
+
+      {/* Capabilities with typeahead */}
+      <TagListEditor
+        label="Capabilities"
+        items={form.capabilities}
+        onChange={(capabilities) => onChange({ ...form, capabilities })}
+        suggestions={capabilitySuggestions}
       />
 
       {/* Save / Cancel */}
@@ -439,7 +763,7 @@ function ProcessFormEditor({
 
 /* ── Main Panel ── */
 
-export function ProcessesPanel({ processes, cogentName, onRefresh, resources, runs }: Props) {
+export function ProcessesPanel({ processes, cogentName, onRefresh, resources, runs, files, capabilities }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null); // "new" for create
   const [form, setForm] = useState<ProcessForm>(EMPTY_FORM);
@@ -449,8 +773,13 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [resolvedPrompt, setResolvedPrompt] = useState<string>("");
   const [showResolved, setShowResolved] = useState(false);
+  const [detailCodeKey, setDetailCodeKey] = useState<string>("");
+  const [detailCapabilities, setDetailCapabilities] = useState<string[]>([]);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const resourceSuggestions = useMemo(() => resources.map((r) => r.name), [resources]);
+  const fileSuggestions = useMemo(() => files.map((f) => f.key), [files]);
+  const capabilitySuggestions = useMemo(() => capabilities.map((c) => c.name), [capabilities]);
 
   // Build map of process_id -> latest run from the runs list
   const lastRunByProcess = useMemo(() => {
@@ -479,9 +808,13 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
       const detail = await api.getProcessDetail(cogentName, id);
       setDetailRuns(detail.runs);
       setResolvedPrompt(detail.resolved_prompt || "");
+      setDetailCodeKey(detail.code_key || "");
+      setDetailCapabilities(detail.capabilities || []);
     } catch {
       setDetailRuns([]);
       setResolvedPrompt("");
+      setDetailCodeKey("");
+      setDetailCapabilities([]);
     }
     setLoadingDetail(false);
   }, [selectedId, cogentName]);
@@ -494,8 +827,8 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
 
   const handleEdit = useCallback((p: CogosProcess) => {
     setEditingId(p.id);
-    setForm(formFromProcess(p));
-  }, []);
+    setForm(formFromProcess(p, detailCodeKey, detailCapabilities));
+  }, [detailCodeKey, detailCapabilities]);
 
   const handleCancel = useCallback(() => {
     setEditingId(null);
@@ -509,15 +842,17 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
         name: form.name.trim(),
         mode: form.mode,
         content: form.content,
+        code: form.code.trim() || null,
         priority: parseFloat(form.priority) || 0,
         runner: form.runner,
         status: form.status,
         model: form.model.trim() || null,
-        max_duration_ms: form.max_duration_ms ? parseInt(form.max_duration_ms) : null,
+        max_duration_ms: formDurationToMs(form.max_duration_val, form.max_duration_unit),
         max_retries: parseInt(form.max_retries) || 0,
         preemptible: form.preemptible,
         clear_context: form.clear_context,
         resources: form.resources,
+        capabilities: form.capabilities,
       };
       if (editingId === "new") {
         await api.createProcess(cogentName, body as Parameters<typeof api.createProcess>[1]);
@@ -587,6 +922,8 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
             saving={saving}
             isNew
             resourceSuggestions={resourceSuggestions}
+            fileSuggestions={fileSuggestions}
+            capabilitySuggestions={capabilitySuggestions}
           />
         </div>
       )}
@@ -596,27 +933,38 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
         <div className="text-[var(--text-muted)] text-xs py-8 text-center">No processes</div>
       )}
 
-      <div className="rounded-md overflow-hidden" style={{ border: processes.length ? "1px solid var(--border)" : "none" }}>
-        {processes.length > 0 && (
-          <div
-            className="grid items-center px-3 py-1.5 text-[10px] uppercase tracking-wide font-medium text-[var(--text-muted)]"
-            style={{
-              gridTemplateColumns: "minmax(120px, 2fr) 80px 80px 60px 80px 80px 60px auto",
-              background: "var(--bg-deep)",
-              borderBottom: "1px solid var(--border)",
-            }}
-          >
-            <span>Name</span>
-            <span>Mode</span>
-            <span>Status</span>
-            <span>Pri</span>
-            <span>Runner</span>
-            <span>Model</span>
-            <span>Last Run</span>
-            <span className="text-right">Updated</span>
-          </div>
-        )}
-        {processes.map((proc) => {
+      {(() => {
+        const STATUS_ORDER = ["running", "runnable", "waiting", "blocked", "suspended", "completed", "disabled"];
+        const grouped = STATUS_ORDER
+          .map((status) => ({ status, procs: processes.filter((p) => p.status === status) }))
+          .filter((g) => g.procs.length > 0);
+        // Include any statuses not in the predefined order
+        const knownStatuses = new Set(STATUS_ORDER);
+        const extra = processes.filter((p) => !knownStatuses.has(p.status));
+        if (extra.length > 0) grouped.push({ status: "other", procs: extra });
+
+        return grouped.map((group) => (
+      <div key={group.status} className="mb-4 rounded-md overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+        <div
+          className="flex items-center px-3 py-1.5 text-[10px] uppercase tracking-wide font-medium text-[var(--text-muted)] cursor-pointer select-none"
+          style={{
+            background: "var(--bg-deep)",
+            borderBottom: collapsedGroups.has(group.status) ? "none" : "1px solid var(--border)",
+          }}
+          onClick={() => setCollapsedGroups((prev) => {
+            const next = new Set(prev);
+            if (next.has(group.status)) next.delete(group.status);
+            else next.add(group.status);
+            return next;
+          })}
+        >
+          <span className="mr-2 text-[10px]" style={{ width: "12px", display: "inline-block" }}>
+            {collapsedGroups.has(group.status) ? "▸" : "▾"}
+          </span>
+          <Badge variant={STATUS_VARIANT[group.status] || "neutral"}>{group.status}</Badge>
+          <span className="ml-2 text-[var(--text-muted)]">({group.procs.length})</span>
+        </div>
+        {!collapsedGroups.has(group.status) && group.procs.map((proc) => {
           const isSelected = selectedId === proc.id;
           const isEditing = editingId === proc.id;
           const lastRun = lastRunByProcess[proc.id];
@@ -627,7 +975,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
               <div
                 className="grid items-center px-3 py-2 cursor-pointer transition-colors"
                 style={{
-                  gridTemplateColumns: "minmax(120px, 2fr) 80px 80px 60px 80px 80px 60px auto",
+                  gridTemplateColumns: "1fr 1fr 90px",
                   background: isSelected ? "var(--bg-hover)" : "var(--bg-surface)",
                   borderBottom: "1px solid var(--border)",
                 }}
@@ -635,22 +983,50 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                 onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                 onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-surface)"; }}
               >
-                <span className="text-[var(--text-primary)] font-medium text-[12px] truncate">{proc.name}</span>
-                <span><Badge variant={proc.mode === "daemon" ? "accent" : "info"}>{proc.mode}</Badge></span>
-                <span><Badge variant={STATUS_VARIANT[proc.status] || "neutral"}>{proc.status}</Badge></span>
-                <span className="text-[11px] text-[var(--text-secondary)]">{proc.priority}</span>
-                <span className="text-[11px] text-[var(--text-secondary)]">{proc.runner}</span>
-                <span className="text-[11px] text-[var(--text-secondary)] truncate">{proc.model ?? "--"}</span>
-                <span>
-                  {lastRun ? (
-                    <Badge variant={lastRun.status === "completed" ? "success" : lastRun.status === "failed" ? "error" : "warning"}>
-                      {lastRun.status === "completed" ? "ok" : lastRun.status ?? "?"}
-                    </Badge>
-                  ) : (
-                    <span className="text-[var(--text-muted)] text-[11px]">--</span>
-                  )}
+                <span className="inline-flex items-center gap-1.5 text-[var(--text-primary)] font-medium text-[12px] truncate">
+                  <span className="text-[var(--text-muted)]" title={proc.mode}>
+                    {proc.mode === "daemon" ? "⟳" : "→"}
+                  </span>
+                  {proc.name}
                 </span>
-                <span className="text-[var(--text-muted)] text-xs text-right">{fmtTimestamp(proc.updated_at)}</span>
+                <span className="text-[11px] text-red-400 truncate" title={lastRun?.error || ""}>
+                  {lastRun?.error ? (lastRun.error.length > 40 ? lastRun.error.slice(0, 40) + "…" : lastRun.error) : ""}
+                </span>
+                <span className="flex items-center justify-end gap-1">
+                  <span className="inline-flex items-center justify-center w-[22px] h-[18px]">
+                    {lastRun ? (
+                      <Badge variant={lastRun.status === "completed" ? "success" : lastRun.status === "failed" || lastRun.status === "error" ? "error" : lastRun.status === "running" ? "accent" : "warning"}>
+                        {lastRun.status === "completed" ? "✓" : lastRun.status === "failed" || lastRun.status === "error" ? "✗" : lastRun.status === "running" ? "…" : "?"}
+                      </Badge>
+                    ) : (
+                      <span className="text-[var(--text-muted)] text-[10px]">·</span>
+                    )}
+                  </span>
+                  <span className="inline-flex items-center justify-center w-[22px] h-[18px]">
+                    {lastRun ? (
+                      <a
+                        href={buildCloudWatchUrl(cogentName, lastRun.id, lastRun.created_at)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] font-mono px-1 py-0 rounded hover:underline"
+                        style={{ background: "rgba(234,179,8,0.12)", color: "#facc15" }}
+                        title="Session logs (CloudWatch)"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        SL
+                      </a>
+                    ) : (
+                      <span className="text-[var(--text-muted)] text-[10px]">·</span>
+                    )}
+                  </span>
+                  <span
+                    className="inline-flex items-center justify-center w-[22px] h-[18px] text-[10px] font-mono rounded"
+                    style={{ background: proc.runner === "ecs" ? "rgba(139,92,246,0.15)" : "rgba(59,130,246,0.15)", color: proc.runner === "ecs" ? "#a78bfa" : "#60a5fa" }}
+                    title={proc.runner}
+                  >
+                    {proc.runner === "ecs" ? "🖥" : "λ"}
+                  </span>
+                </span>
               </div>
 
               {/* Expanded detail */}
@@ -661,12 +1037,17 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                 >
                   {/* Metadata row */}
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
-                    <span className="text-[var(--text-muted)]">id: <span className="font-mono text-[var(--text-secondary)]">{proc.id}</span></span>
+                    <button
+                      className="text-[var(--text-muted)] text-[11px] bg-transparent border-0 cursor-pointer hover:text-[var(--accent)] p-0 inline-flex items-center gap-1"
+                      title={proc.id}
+                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(proc.id); }}
+                    >
+                      id 📋
+                    </button>
                     <span className="text-[var(--text-muted)]">retries: <span className="text-[var(--text-secondary)]">{proc.retry_count}/{proc.max_retries}</span></span>
                     {proc.max_duration_ms != null && (
                       <span className="text-[var(--text-muted)]">max duration: <span className="text-[var(--text-secondary)]">{fmtDuration(proc.max_duration_ms)}</span></span>
                     )}
-                    <span className="text-[var(--text-muted)]">preemptible: <span className="text-[var(--text-secondary)]">{proc.preemptible ? "yes" : "no"}</span></span>
                     <span className="text-[var(--text-muted)]">clear ctx: <span className="text-[var(--text-secondary)]">{proc.clear_context ? "yes" : "no"}</span></span>
                   </div>
 
@@ -706,24 +1087,54 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                     </div>
                   )}
 
-                  {/* Last run detail */}
+                  {/* Recent runs */}
                   {loadingDetail ? (
                     <div className="text-[11px] text-[var(--text-muted)]">Loading runs...</div>
                   ) : detailRuns.length > 0 ? (
-                    <LastRunInfo run={detailRuns[0]} cogentName={cogentName} />
-                  ) : lastRun ? (
-                    <LastRunInfo run={{
-                      id: lastRun.id,
-                      status: lastRun.status,
-                      tokens_in: lastRun.tokens_in,
-                      tokens_out: lastRun.tokens_out,
-                      cost_usd: lastRun.cost_usd,
-                      duration_ms: lastRun.duration_ms,
-                      error: lastRun.error,
-                      result: null,
-                      created_at: lastRun.created_at,
-                      completed_at: null,
-                    }} cogentName={cogentName} />
+                    <div>
+                      <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Recent Runs ({detailRuns.length})</div>
+                      <table className="w-full text-[11px]" style={{ borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr className="text-[9px] uppercase tracking-wide text-[var(--text-muted)]" style={{ background: "var(--bg-surface)" }}>
+                            <th className="text-left px-2 py-1 font-medium" style={{ borderBottom: "1px solid var(--border)" }}></th>
+                            <th className="text-left px-2 py-1 font-medium" style={{ borderBottom: "1px solid var(--border)" }}>Duration</th>
+                            <th className="text-left px-2 py-1 font-medium" style={{ borderBottom: "1px solid var(--border)" }}>Tokens</th>
+                            <th className="text-left px-2 py-1 font-medium" style={{ borderBottom: "1px solid var(--border)" }}>Cost</th>
+                            <th className="text-left px-2 py-1 font-medium" style={{ borderBottom: "1px solid var(--border)" }}>Created</th>
+                            <th className="text-left px-2 py-1 font-medium" style={{ borderBottom: "1px solid var(--border)" }}>Error</th>
+                            <th className="text-right px-2 py-1 font-medium" style={{ borderBottom: "1px solid var(--border)" }}>Logs</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detailRuns.slice(0, 10).map((run) => (
+                            <tr key={run.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                              <td className="px-2 py-1">
+                                <Badge variant={run.status === "completed" ? "success" : run.status === "failed" || run.status === "error" ? "error" : run.status === "running" ? "accent" : "warning"}>
+                                  {run.status === "completed" ? "✓" : run.status === "failed" || run.status === "error" ? "✗" : run.status === "running" ? "…" : "?"}
+                                </Badge>
+                              </td>
+                              <td className="px-2 py-1 text-[var(--text-secondary)] whitespace-nowrap">{fmtDuration(run.duration_ms)}</td>
+                              <td className="px-2 py-1 text-[var(--text-muted)] whitespace-nowrap">{fmtTokens(run.tokens_in)}/{fmtTokens(run.tokens_out)}</td>
+                              <td className="px-2 py-1 text-[var(--text-secondary)] whitespace-nowrap">${run.cost_usd.toFixed(3)}</td>
+                              <td className="px-2 py-1 text-[var(--text-muted)] text-[10px] whitespace-nowrap">{run.created_at ? fmtTimestamp(run.created_at) : "--"}</td>
+                              <td className="px-2 py-1 text-red-400 text-[10px] truncate max-w-[200px]" title={run.error || ""}>{run.error ? (run.error.length > 30 ? run.error.slice(0, 30) + "…" : run.error) : ""}</td>
+                              <td className="px-2 py-1 text-right">
+                                <a
+                                  href={buildCloudWatchUrl(cogentName, run.id, run.created_at)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[var(--accent)] text-[10px] hover:underline"
+                                  title="CloudWatch logs"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  CW
+                                </a>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   ) : null}
 
                   {/* Actions */}
@@ -774,6 +1185,8 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                     saving={saving}
                     isNew={false}
                     resourceSuggestions={resourceSuggestions}
+                    fileSuggestions={fileSuggestions}
+                    capabilitySuggestions={capabilitySuggestions}
                   />
                 </div>
               )}
@@ -781,6 +1194,8 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
           );
         })}
       </div>
+        ));
+      })()}
     </div>
   );
 }
