@@ -877,6 +877,151 @@ def status():
         click.echo(f"  {e.event_type} ({e.created_at})")
 
 
+# ═══════════════════════════════════════════════════════════
+# DISCORD commands
+# ═══════════════════════════════════════════════════════════
+
+@cogos.group()
+def discord():
+    """Manage the Discord bridge (Fargate service)."""
+
+
+def _get_ecs_client():
+    import boto3
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    return boto3.client("ecs", region_name=region)
+
+
+def _discord_service_name(cogent_name: str) -> str:
+    safe = cogent_name.replace(".", "-")
+    return f"cogent-{safe}-discord"
+
+
+def _discord_cluster_name(cogent_name: str) -> str:
+    safe = cogent_name.replace(".", "-")
+    return f"cogent-{safe}"
+
+
+def _get_service_status(cogent_name: str) -> dict | None:
+    """Get ECS service status for the discord bridge."""
+    ecs = _get_ecs_client()
+    cluster = _discord_cluster_name(cogent_name)
+    service = _discord_service_name(cogent_name)
+    try:
+        resp = ecs.describe_services(cluster=cluster, services=[service])
+        services = resp.get("services", [])
+        if not services:
+            return None
+        svc = services[0]
+        return {
+            "status": svc.get("status"),
+            "desired_count": svc.get("desiredCount", 0),
+            "running_count": svc.get("runningCount", 0),
+            "pending_count": svc.get("pendingCount", 0),
+            "task_definition": svc.get("taskDefinition", ""),
+        }
+    except Exception:
+        return None
+
+
+@discord.command()
+@click.pass_context
+def start(ctx: click.Context):
+    """Start the Discord bridge Fargate service."""
+    cogent_name = ctx.obj["cogent_name"]
+    ecs = _get_ecs_client()
+    cluster = _discord_cluster_name(cogent_name)
+    service = _discord_service_name(cogent_name)
+
+    status = _get_service_status(cogent_name)
+    if status and status["desired_count"] > 0:
+        click.echo(f"Discord bridge already running ({status['running_count']} tasks)")
+        return
+
+    try:
+        ecs.update_service(
+            cluster=cluster,
+            service=service,
+            desiredCount=1,
+        )
+        click.echo(f"Discord bridge starting for {cogent_name}...")
+        click.echo(f"  cluster: {cluster}")
+        click.echo(f"  service: {service}")
+    except Exception as e:
+        click.echo(f"Failed to start: {e}", err=True)
+
+
+@discord.command()
+@click.pass_context
+def stop(ctx: click.Context):
+    """Stop the Discord bridge Fargate service."""
+    cogent_name = ctx.obj["cogent_name"]
+    ecs = _get_ecs_client()
+    cluster = _discord_cluster_name(cogent_name)
+    service = _discord_service_name(cogent_name)
+
+    try:
+        ecs.update_service(
+            cluster=cluster,
+            service=service,
+            desiredCount=0,
+        )
+        click.echo(f"Discord bridge stopping for {cogent_name}...")
+    except Exception as e:
+        click.echo(f"Failed to stop: {e}", err=True)
+
+
+@discord.command()
+@click.pass_context
+def restart(ctx: click.Context):
+    """Restart the Discord bridge (force new deployment)."""
+    cogent_name = ctx.obj["cogent_name"]
+    ecs = _get_ecs_client()
+    cluster = _discord_cluster_name(cogent_name)
+    service = _discord_service_name(cogent_name)
+
+    try:
+        ecs.update_service(
+            cluster=cluster,
+            service=service,
+            desiredCount=1,
+            forceNewDeployment=True,
+        )
+        click.echo(f"Discord bridge restarting for {cogent_name}...")
+    except Exception as e:
+        click.echo(f"Failed to restart: {e}", err=True)
+
+
+@discord.command("status")
+@click.pass_context
+def discord_status(ctx: click.Context):
+    """Show Discord bridge status."""
+    cogent_name = ctx.obj["cogent_name"]
+    info = _get_service_status(cogent_name)
+    if not info:
+        click.echo(f"No Discord bridge service found for {cogent_name}")
+        return
+
+    click.echo(f"Discord bridge for {cogent_name}:")
+    click.echo(f"  Status:   {info['status']}")
+    click.echo(f"  Desired:  {info['desired_count']}")
+    click.echo(f"  Running:  {info['running_count']}")
+    click.echo(f"  Pending:  {info['pending_count']}")
+    click.echo(f"  Task def: {info['task_definition']}")
+
+
+@discord.command("run-local")
+@click.pass_context
+def discord_run_local(ctx: click.Context):
+    """Run the Discord bridge locally (blocking, for development)."""
+    cogent_name = ctx.obj["cogent_name"]
+    os.environ.setdefault("COGENT_NAME", cogent_name)
+
+    from cogos.io.discord.bridge import main as bridge_main
+    click.echo(f"Starting local Discord bridge for {cogent_name}...")
+    bridge_main()
+
+
 def entry():
     cogos()
 

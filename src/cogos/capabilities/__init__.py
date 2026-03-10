@@ -34,6 +34,11 @@ BUILTIN_CAPABILITIES: list[dict] = [
         "handler": "cogos.io.email.capability.EmailCapability",
     },
     {
+        "name": "discord",
+        "description": "Discord messaging. discord.send(channel, content), discord.react(channel, message_id, emoji), discord.create_thread(channel, name), discord.dm(user_id, content), discord.receive(limit).",
+        "handler": "cogos.io.discord.capability.DiscordCapability",
+    },
+    {
         "name": "scheduler",
         "description": "Process scheduling. scheduler.match_events(), scheduler.select_processes(), scheduler.dispatch_process(), scheduler.kill_process().",
         "handler": "cogos.capabilities.scheduler.SchedulerCapability",
