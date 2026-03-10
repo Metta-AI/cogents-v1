@@ -608,6 +608,7 @@ def update_stack(ctx: click.Context, profile: str):
 
     click.echo(f"Updating CDK stack for cogent-{name}...")
     cmd = [
+        "npx",
         "cdk",
         "deploy",
         f"cogent-{safe_name}-brain",
