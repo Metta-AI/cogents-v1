@@ -557,6 +557,7 @@ def cogents_create(ctx: click.Context, name: str):
         Item={
             "cogent_name": name,
             "stack_name": expected_stack_name(name),
+            "record_type": "identity",
             "stack_status": "REGISTERED",
             "running_count": 0,
             "desired_count": 0,

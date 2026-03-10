@@ -65,10 +65,12 @@ def handler(event, context):
 
         try:
             resp = cfn.describe_stacks(StackName=stack_name)
+            stack = resp["Stacks"][0]
             outputs = {
-                o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])
+                o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])
             }
-            cogent_name = outputs.get("CogentName", cogent_name)
+            tags = {t["Key"]: t["Value"] for t in stack.get("Tags", [])}
+            cogent_name = tags.get("cogent_name") or outputs.get("CogentName", cogent_name)
             image_tag = outputs.get("ImageTag", "-")
 
             cluster_arn = outputs.get("ClusterArn")
@@ -94,6 +96,7 @@ def handler(event, context):
                 "desired_count": desired_count,
                 "image_tag": image_tag,
                 "channels": channels_map.get(cogent_name, {}),
+                "record_type": "runtime",
                 "domain": existing.get("domain"),
                 "certificate_arn": existing.get("certificate_arn"),
                 "_cluster_name": cluster_name,
