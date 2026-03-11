@@ -348,14 +348,15 @@ def process_run(name: str, local: bool):
 
             # Emit completion event
             repo.append_event(Event(
-                event_type=f"process:completed:{name}",
+                event_type="process:run:success",
                 source=name,
-                payload={"run_id": str(run.id), "duration_ms": duration_ms},
+                payload={"run_id": str(run.id), "process_id": str(p.id),
+                         "process_name": name, "duration_ms": duration_ms},
             ))
 
-            # Transition process state
+            # Transition process state: daemons go back to runnable, one-shots complete
             if p.mode.value == "daemon":
-                repo.update_process_status(p.id, ProcessStatus.WAITING)
+                repo.update_process_status(p.id, ProcessStatus.RUNNABLE)
             else:
                 repo.update_process_status(p.id, ProcessStatus.COMPLETED)
 

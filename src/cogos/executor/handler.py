@@ -140,14 +140,15 @@ def handler(event: dict, context: Any = None) -> dict:
 
         # Emit completion event
         repo.append_event(Event(
-            event_type=f"process:completed:{process.name}",
+            event_type="process:run:success",
             source=process.name,
-            payload={"run_id": str(run.id), "duration_ms": duration_ms},
+            payload={"run_id": str(run.id), "process_id": str(process.id),
+                     "process_name": process.name, "duration_ms": duration_ms},
         ))
 
-        # Transition process state
+        # Transition process state: daemons go back to runnable, one-shots complete
         if process.mode.value == "daemon":
-            repo.update_process_status(process.id, ProcessStatus.WAITING)
+            repo.update_process_status(process.id, ProcessStatus.RUNNABLE)
         else:
             repo.update_process_status(process.id, ProcessStatus.COMPLETED)
 
