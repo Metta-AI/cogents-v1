@@ -16,10 +16,10 @@ def _write_image(tmp: Path) -> Path:
         'add_resource("lambda_slots", type="pool", capacity=5)\n'
     )
     (init / "processes.py").write_text(
-        'add_process("scheduler", mode="daemon", priority=100.0, capabilities=["files"], handlers=["scheduler:tick"])\n'
+        'add_process("scheduler", mode="daemon", priority=100.0, capabilities=["files"], handlers=[])\n'
     )
     (init / "cron.py").write_text(
-        'add_cron("* * * * *", event_type="scheduler:tick")\n'
+        '# No cron rules — system ticks are generated implicitly by the dispatcher.\n'
     )
 
     files = tmp / "files" / "cogos"
@@ -45,10 +45,9 @@ def test_load_image_parses_all_sections():
     assert len(spec.processes) == 1
     assert spec.processes[0]["name"] == "scheduler"
     assert spec.processes[0]["capabilities"] == ["files"]
-    assert spec.processes[0]["handlers"] == ["scheduler:tick"]
+    assert spec.processes[0]["handlers"] == []
 
-    assert len(spec.cron_rules) == 1
-    assert spec.cron_rules[0]["event_type"] == "scheduler:tick"
+    assert len(spec.cron_rules) == 0
 
     assert spec.files["cogos/scheduler.md"] == "You are the scheduler."
 

@@ -21,7 +21,7 @@ def test_snapshot_round_trips(tmp_path):
             {"name": "scheduler", "mode": "daemon", "content": "scheduler daemon",
              "code_key": "cogos/scheduler", "runner": "lambda", "model": None,
              "priority": 100.0, "capabilities": ["files"],
-             "handlers": ["scheduler:tick"], "metadata": {}},
+             "handlers": [], "metadata": {}},
         ],
         cron_rules=[],
         files={"cogos/scheduler": "You are the scheduler."},
@@ -44,5 +44,5 @@ def test_snapshot_round_trips(tmp_path):
     assert len(restored.processes) == 1
     assert restored.processes[0]["name"] == "scheduler"
     assert "files" in restored.processes[0]["capabilities"]
-    assert "scheduler:tick" in restored.processes[0]["handlers"]
+    assert restored.processes[0]["handlers"] == []
     assert restored.files["cogos/scheduler"] == "You are the scheduler."

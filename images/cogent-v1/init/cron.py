@@ -1,1 +1,1 @@
-add_cron("* * * * *", event_type="scheduler:tick")
+# No cron rules — system ticks are generated implicitly by the dispatcher.

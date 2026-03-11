@@ -18,11 +18,9 @@ def _make_spec() -> ImageSpec:
             {"name": "scheduler", "mode": "daemon", "content": "scheduler daemon",
              "code_key": "cogos/scheduler", "runner": "lambda", "model": None,
              "priority": 100.0, "capabilities": ["files"],
-             "handlers": ["scheduler:tick"], "metadata": {}},
+             "handlers": [], "metadata": {}},
         ],
-        cron_rules=[
-            {"expression": "* * * * *", "event_type": "scheduler:tick"},
-        ],
+        cron_rules=[],
         files={"cogos/scheduler": "You are the scheduler."},
     )
 
@@ -58,8 +56,7 @@ def test_apply_creates_processes_with_bindings(tmp_path):
     assert procs[0].name == "scheduler"
 
     handlers = repo.list_handlers(process_id=procs[0].id)
-    assert len(handlers) == 1
-    assert handlers[0].event_pattern == "scheduler:tick"
+    assert len(handlers) == 0
 
 
 def test_apply_creates_resources(tmp_path):
@@ -80,9 +77,7 @@ def test_apply_creates_cron_rules(tmp_path):
     apply_image(spec, repo)
 
     rules = repo.list_cron_rules()
-    assert len(rules) == 1
-    assert rules[0].expression == "* * * * *"
-    assert rules[0].event_type == "scheduler:tick"
+    assert len(rules) == 0
 
 
 def test_apply_upsert_is_idempotent(tmp_path):
@@ -94,6 +89,6 @@ def test_apply_upsert_is_idempotent(tmp_path):
     assert len(repo.list_capabilities()) == 1
     assert len(repo.list_resources()) == 1
     assert len(repo.list_processes()) == 1
-    assert len(repo.list_cron_rules()) == 1
+    assert len(repo.list_cron_rules()) == 0
     handlers = repo.list_handlers(process_id=repo.list_processes()[0].id)
-    assert len(handlers) == 1
+    assert len(handlers) == 0

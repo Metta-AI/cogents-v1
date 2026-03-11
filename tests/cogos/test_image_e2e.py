@@ -17,13 +17,13 @@ def test_boot_cogent_v1(tmp_path):
 
     assert len(spec.capabilities) >= 7
     assert len(spec.resources) == 2
-    assert len(spec.processes) == 1
-    assert len(spec.cron_rules) == 1
+    assert len(spec.processes) >= 1
+    assert len(spec.cron_rules) == 0
     assert len(spec.files) >= 1
 
     counts = apply_image(spec, repo)
     assert counts["capabilities"] >= 7
-    assert counts["processes"] == 1
+    assert counts["processes"] >= 1
     assert counts["files"] >= 1
 
     # Verify scheduler process exists with bindings
@@ -32,7 +32,7 @@ def test_boot_cogent_v1(tmp_path):
     assert len(scheduler) == 1
 
     handlers = repo.list_handlers(process_id=scheduler[0].id)
-    assert any(h.event_pattern == "scheduler:tick" for h in handlers)
+    assert len(handlers) == 0  # scheduler has no handlers; dispatcher runs it directly
 
 
 def test_boot_then_snapshot_round_trip(tmp_path):

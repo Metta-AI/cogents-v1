@@ -1,8 +1,12 @@
-"""Dispatcher Lambda: runs the CogOS scheduler tick every second.
+"""Dispatcher Lambda: runs one CogOS scheduler tick per invocation.
 
-Loops for ~55 seconds (leaving margin before the next 1-minute invocation),
-matching events to handlers, selecting runnable processes, and invoking the
-executor for each.
+EventBridge fires this every 60s. Each invocation:
+1. Generates virtual system:tick:minute (and system:tick:hour on the hour)
+2. Matches real events to handlers
+3. Selects runnable processes and dispatches executors
+
+Virtual tick events are NOT written to the event log — they match handlers
+directly and set processes to RUNNABLE.
 """
 
 from __future__ import annotations
@@ -10,7 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
+from datetime import datetime, timezone
+from uuid import UUID
 
 import boto3
 
@@ -19,84 +24,52 @@ from brain.lambdas.shared.logging import setup_logging
 
 logger = setup_logging()
 
-# How long to loop before returning (seconds).  EventBridge fires us every
-# 60 s, so 55 s keeps a comfortable margin.
-_LOOP_DURATION = 55
-
 
 def handler(event: dict, context) -> dict:
-    """Lambda entry point: tick the scheduler every second for ~55 s."""
-    from uuid import UUID
+    """Lambda entry point: single-shot scheduler tick."""
     from cogos.capabilities.scheduler import SchedulerCapability
 
     config = get_config()
 
     try:
         from cogos.db.repository import Repository
-        cogos_repo = Repository.create()
+        repo = Repository.create()
     except Exception:
         logger.debug("CogOS repository not available, skipping scheduler tick")
-        return {"statusCode": 200, "ticks": 0, "dispatched": 0}
+        return {"statusCode": 200, "dispatched": 0}
 
-    scheduler = SchedulerCapability(cogos_repo, UUID("00000000-0000-0000-0000-000000000000"))
+    scheduler = SchedulerCapability(repo, UUID("00000000-0000-0000-0000-000000000000"))
     lambda_client = boto3.client("lambda", region_name=config.region)
     safe_name = os.environ.get("COGENT_NAME", "").replace(".", "-")
     executor_fn = f"cogent-{safe_name}-executor"
-
-    total_dispatched = 0
-    ticks = 0
-    deadline = time.monotonic() + _LOOP_DURATION
-
-    while time.monotonic() < deadline:
-        dispatched = _tick(scheduler, cogos_repo, lambda_client, executor_fn)
-        total_dispatched += dispatched
-        ticks += 1
-
-        remaining = deadline - time.monotonic()
-        if remaining > 1:
-            time.sleep(1)
-        else:
-            break
-
-    if total_dispatched:
-        logger.info(f"Dispatcher: {ticks} ticks, {total_dispatched} dispatched")
-
-    return {
-        "statusCode": 200,
-        "ticks": ticks,
-        "dispatched": total_dispatched,
-    }
-
-
-def _tick(scheduler, repo, lambda_client, executor_fn: str) -> int:
-    """Single scheduler tick: match events → select processes → dispatch."""
-    from uuid import UUID
 
     # Heartbeat — lets the dashboard show time-since-last-tick
     try:
         repo.set_meta("scheduler:last_tick")
     except Exception:
-        pass  # non-critical
+        pass
 
-    # 1. Match events to handlers
+    # 1. Generate virtual system tick events (not written to event log)
+    _apply_system_ticks(repo)
+
+    # 2. Match real events to handlers
     match_result = scheduler.match_events(limit=50)
     if match_result.deliveries_created > 0:
-        logger.info(f"CogOS: matched {match_result.deliveries_created} event deliveries")
+        logger.info(f"Matched {match_result.deliveries_created} event deliveries")
 
-    # 2. Select runnable processes
+    # 3. Select runnable processes
     select_result = scheduler.select_processes(slots=5)
     if not select_result.selected:
-        return 0
+        return {"statusCode": 200, "dispatched": 0}
 
-    # 3. Dispatch each selected process
+    # 4. Dispatch each selected process
     dispatched = 0
     for proc in select_result.selected:
         dispatch_result = scheduler.dispatch_process(process_id=proc.id)
         if hasattr(dispatch_result, "error"):
-            logger.warning(f"CogOS: dispatch failed for {proc.name}: {dispatch_result.error}")
+            logger.warning(f"Dispatch failed for {proc.name}: {dispatch_result.error}")
             continue
 
-        # Get the event payload for the executor
         event_payload = {}
         if dispatch_result.event_id:
             rows = repo._rows_to_dicts(repo._execute(
@@ -117,12 +90,37 @@ def _tick(scheduler, repo, lambda_client, executor_fn: str) -> int:
         try:
             lambda_client.invoke(
                 FunctionName=executor_fn,
-                InvocationType="Event",  # async
+                InvocationType="Event",
                 Payload=json.dumps(payload),
             )
             dispatched += 1
-            logger.info(f"CogOS: dispatched {proc.name} (run={dispatch_result.run_id})")
+            logger.info(f"Dispatched {proc.name} (run={dispatch_result.run_id})")
         except Exception:
-            logger.exception(f"CogOS: failed to invoke executor for {proc.name}")
+            logger.exception(f"Failed to invoke executor for {proc.name}")
 
-    return dispatched
+    if dispatched:
+        logger.info(f"Dispatcher: {dispatched} dispatched")
+
+    return {"statusCode": 200, "dispatched": dispatched}
+
+
+def _apply_system_ticks(repo) -> None:
+    """Generate virtual system:tick:minute (and :hour) events.
+
+    These match handlers and set processes to RUNNABLE but are never
+    written to the cogos_event table.
+    """
+    from cogos.db.models import ProcessStatus
+
+    now = datetime.now(timezone.utc)
+    tick_types = ["system:tick:minute"]
+    if now.minute == 0:
+        tick_types.append("system:tick:hour")
+
+    for tick_type in tick_types:
+        handlers = repo.match_handlers(tick_type)
+        for h in handlers:
+            proc = repo.get_process(h.process)
+            if proc and proc.status == ProcessStatus.WAITING:
+                repo.update_process_status(h.process, ProcessStatus.RUNNABLE)
+                logger.info(f"System tick {tick_type} -> {proc.name} RUNNABLE")
