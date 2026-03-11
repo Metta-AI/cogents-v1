@@ -1144,6 +1144,7 @@ function ProcessFormEditor({
   eventTypeSuggestions,
   cogentName,
   onRefresh,
+  includes,
 }: {
   form: ProcessForm;
   onChange: React.Dispatch<React.SetStateAction<ProcessForm>>;
@@ -1157,6 +1158,7 @@ function ProcessFormEditor({
   eventTypeSuggestions: string[];
   cogentName: string;
   onRefresh?: () => void;
+  includes?: Array<{ key: string; content: string }>;
 }) {
   const [expandedEditFiles, setExpandedEditFiles] = useState<Set<string>>(new Set());
   const [confirmDeleteFile, setConfirmDeleteFile] = useState<string | null>(null);
@@ -1269,8 +1271,39 @@ function ProcessFormEditor({
         <div className="flex items-center gap-2 mb-1">
           <label className="text-[10px] text-[var(--text-muted)] uppercase">Context</label>
         </div>
-        {form.files.length > 0 && (
+        {((includes && includes.length > 0) || form.files.length > 0) && (
           <div className="rounded overflow-hidden mb-1" style={{ border: "1px solid var(--border)" }}>
+            {(includes || []).filter((inc) => !form.files.includes(inc.key)).map((inc) => {
+              const isExpanded = expandedEditFiles.has(inc.key);
+              return (
+                <div key={`inc:${inc.key}`} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <div
+                    className="flex items-center gap-2 px-2 py-1 cursor-pointer text-[11px]"
+                    style={{ background: "var(--bg-elevated)" }}
+                    onClick={() => setExpandedEditFiles((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(inc.key)) next.delete(inc.key);
+                      else next.add(inc.key);
+                      return next;
+                    })}
+                  >
+                    <span className="text-[9px] text-[var(--text-muted)]" style={{ width: "10px" }}>
+                      {isExpanded ? "▾" : "▸"}
+                    </span>
+                    <span className="font-mono text-[var(--text-secondary)] flex-1 truncate">{inc.key}</span>
+                    <span className="text-[9px] text-[var(--text-muted)]">global</span>
+                  </div>
+                  {isExpanded && (
+                    <InlineFileEditor
+                      fileKey={inc.key}
+                      cogentName={cogentName}
+                      onRefresh={onRefresh}
+                      onClose={() => setExpandedEditFiles((prev) => { const next = new Set(prev); next.delete(inc.key); return next; })}
+                    />
+                  )}
+                </div>
+              );
+            })}
             {form.files.map((fileKey) => {
               const isExpanded = expandedEditFiles.has(fileKey);
               return (
@@ -1823,45 +1856,11 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                     <span className="text-[var(--text-muted)]">clear ctx: <span className="text-[var(--text-secondary)]">{proc.clear_context ? "yes" : "no"}</span></span>
                   </div>
 
-                  {/* Included files (collapsible) */}
-                  {detailIncludes.length > 0 && (
-                    <div>
-                      <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Context ({detailIncludes.length})</div>
-                      <div className="flex flex-col gap-0" style={{ border: "1px solid var(--border)", borderRadius: "4px", overflow: "hidden" }}>
-                        {detailIncludes.map((inc) => {
-                          const isExpanded = expandedIncludes.has(inc.key);
-                          return (
-                            <div key={inc.key}>
-                              <button
-                                className="w-full text-left text-[11px] font-mono px-2 py-1 bg-transparent border-0 cursor-pointer flex items-center gap-1 hover:bg-[var(--bg-surface)]"
-                                style={{ color: "var(--text-secondary)", borderBottom: isExpanded ? "1px solid var(--border)" : "none" }}
-                                onClick={() => setExpandedIncludes((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(inc.key)) next.delete(inc.key);
-                                  else next.add(inc.key);
-                                  return next;
-                                })}
-                              >
-                                <span style={{ color: "var(--text-muted)", fontSize: "9px" }}>{isExpanded ? "▼" : "▶"}</span>
-                                {inc.key}
-                              </button>
-                              {isExpanded && (
-                                <div className="text-[11px] text-[var(--text-secondary)] font-mono whitespace-pre-wrap p-2" style={{ background: "var(--bg-surface)", maxHeight: "200px", overflowY: "auto" }}>
-                                  {inc.content}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Prompt tree — collapsible per-file rows */}
                   {promptTree.length > 0 && (
                     <div>
                       <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">
-                        Prompt ({promptTree.length} {promptTree.length === 1 ? "section" : "sections"})
+                        Context ({promptTree.length} {promptTree.length === 1 ? "file" : "files"})
                       </div>
                       <div className="rounded overflow-hidden" style={{ border: "1px solid var(--border)" }}>
                         {promptTree.map((entry) => {
@@ -2099,6 +2098,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                     eventTypeSuggestions={eventTypeSuggestions}
                     cogentName={cogentName}
                     onRefresh={onRefresh}
+                    includes={detailIncludes}
                   />
                 </div>
               )}
