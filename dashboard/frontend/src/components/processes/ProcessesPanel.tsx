@@ -1071,7 +1071,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
       setExpandedIncludes(new Set());
       setDetailHandlers(detail.handlers || []);
       setPromptTree(detail.prompt_tree || []);
-      setExpandedPromptFiles(new Set());
+      setExpandedPromptFiles(new Set(["<content>"]));
     } catch {
       setDetailRuns([]);
       setResolvedPrompt("");
