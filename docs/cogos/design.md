@@ -1,30 +1,63 @@
-# CogOS
+# CogOS Design
 
-An operating system for autonomous AI agents.
+A cluster-level operating system for running many LLM-powered agents safely. CogOS uses capabilities and a DB-backed filesystem to provide process isolation, resource management, and structured inter-agent communication.
 
-## Core Concepts
+## Philosophy
 
-**Process** — The only active entity. Has a lifecycle, priority, resource
-requirements, and capabilities. Executes by running a prompt through an LLM
-that writes Python against capability proxy objects.
+CogOS maps classical OS concepts onto the problem of running many autonomous LLM agents on shared infrastructure:
 
-**File** — A versioned entry in a hierarchical store. Stores both code (prompt
-templates) and data. Processes reference files for their executable. Processes
-interact with files at runtime through capabilities.
+| OS Concept | CogOS Equivalent | Why |
+|---|---|---|
+| Process | Process | Agents are long-lived entities with lifecycles, priorities, and resource requirements. |
+| Filesystem | File Store | Agents need persistent, versioned, shared storage for prompts, configs, and working data. |
+| Syscall / capability | Capability | Agents must be sandboxed. All side effects go through typed, auditable capability calls. |
+| Signal | Event | Agents communicate asynchronously through an append-only event log. |
+| Scheduler | Scheduler daemon | A dedicated process matches events to handlers, manages resources, and dispatches work. |
+| Container image | Image | Declarative snapshots of a cogent's entire configuration, bootable and restorable. |
 
-**Capability** — Defines what a process can do. Capabilities are Python
-functions with typed input/output schemas. At runtime, capabilities are
-presented as proxy objects with methods. A process can only invoke capabilities
-explicitly bound to it.
+The key insight: LLM agents can't be trusted with raw system access. CogOS interposes a capability layer between agent code and the outside world. Every action an agent takes is mediated, typed, logged, and revocable.
 
-**Event** — An append-only log entry. Processes register handlers for event
-patterns. The scheduler matches events to handlers and wakes sleeping
-processes.
+## Core Abstractions
 
-**Handler** — Binds a process to an event pattern. When a matching event
-arrives, the process becomes eligible to run.
+### Process
 
-## Process Lifecycle
+The only active entity. A process has a lifecycle, priority, resource requirements, and a set of bound capabilities. It executes by running a prompt through an LLM that writes Python against capability proxy objects.
+
+```
+Process
+  id              UUID            PK
+  name            str             unique
+  mode            enum            daemon | one_shot
+  content         str             process-specific payload (argv)
+  code            UUID?           FK -> File (prompt template, legacy)
+  files           list[UUID]?     FK -> File (prompt files with includes)
+  priority        float           softmax scheduling weight
+  resources       list[UUID]      FK -> Resource
+  runner          enum            lambda | ecs
+  status          enum            WAITING | RUNNABLE | RUNNING | BLOCKED
+                                  | SUSPENDED | COMPLETED | DISABLED
+  preemptible     bool            can be suspended for higher-priority work
+  model           str?            preferred LLM model
+  model_constraints dict?         e.g. {"min_context": 128000}
+  max_duration_ms int?            execution timeout
+  max_retries     int             default 0
+  retry_count     int             resets on success
+  retry_backoff_ms int?           delay before retry
+  clear_context   bool            ECS: resume session or start fresh
+  parent_process  UUID?           FK -> Process
+  return_schema   dict?           JSON Schema for typed output
+  metadata        dict?           arbitrary metadata
+  runnable_since  datetime?       starvation tracking
+  created_at      datetime
+  updated_at      datetime
+```
+
+**Modes:**
+
+- `daemon` -- runs indefinitely. Completes a run, returns to WAITING for the next matching event. Must have at least one handler.
+- `one_shot` -- runs once and completes. Cannot have handlers.
+
+**Lifecycle:**
 
 ```
             event match
@@ -50,413 +83,74 @@ arrives, the process becomes eligible to run.
                               failed + exhausted -> DISABLED |
 ```
 
-**Modes:**
-
-- `daemon` — Runs indefinitely. Completes a run, returns to WAITING for the
-  next matching event. Must have at least one handler.
-- `one_shot` — Runs once and completes. Cannot have handlers.
-
 **Rules:**
 
 - A process handles one event per run, strictly sequential.
 - For parallelism, a process spawns child `one_shot` processes.
-- A process that stays RUNNABLE too long gets its effective priority aged
-  upward to prevent starvation.
-- Preemptible processes can be suspended mid-execution when a higher-priority
-  process needs resources. The executor snapshots conversation state, variable
-  table, and scope, then resumes later from the snapshot.
+- Starvation prevention: effective priority = `process.priority + f(now - runnable_since)`.
+- Preemptible processes can be suspended between capability calls (not mid-generation).
 
-## Execution Model
+### File
 
-### Two Meta-Capabilities
-
-Every process interacts with the system through two meta-capabilities:
+A versioned entry in a hierarchical key-value store. Stores both code (prompt templates) and data. Processes reference files for their executable prompt. Processes interact with files at runtime through the `files` capability.
 
 ```
-search(query: str) -> list[CapabilitySpec]
+File
+  id              UUID            PK
+  key             str             hierarchical path (e.g. "cogos/scheduler")
+  includes        list[str]       keys of other files to include in context
+  created_at      datetime
+  updated_at      datetime
+
+FileVersion
+  id              UUID            PK
+  file_id         UUID            FK -> File
+  version         int             monotonic
+  content         str
+  read_only       bool
+  source          str             "agent" | "human" | "system"
+  is_active       bool
+  created_at      datetime
 ```
 
-Discover available capabilities by keyword. Returns names, descriptions,
-and schemas. Keeps LLM context lean — definitions are loaded on demand.
+Files support an include system. A file can declare `includes: ["whoami/index", "includes/code_mode"]` and the context engine resolves these recursively, depth-first, concatenating content with section headers. Circular includes are detected and reported.
+
+### Capability
+
+Defines what a process can do. Capabilities are Python classes with typed methods. At runtime, capabilities are instantiated per-process with a repository handle and the owning process ID, then injected into the sandbox as proxy objects.
 
 ```
-run_code(code: str) -> Any
+Capability
+  id              UUID            PK
+  name            str             e.g. "files", "procs", "discord"
+  handler         str             Python dotted path to class
+  description     str
+  instructions    str             guidance injected into system prompt
+  input_schema    dict            JSON Schema per method
+  output_schema   dict?           JSON Schema per method
+  iam_role_arn    str?            scoped IAM access
+  event_types     list[str]       events this capability may emit
+  metadata        dict?
+  enabled         bool
 ```
 
-Execute Python in a sandboxed environment with proxy objects pre-injected
-for all capabilities bound to the process.
-
-### Proxy Objects
-
-Inside `run_code`, capabilities appear as Python objects with methods. The
-LLM writes natural Python.
-
-```python
-# Static capabilities are top-level objects in the sandbox
-files       # .read(key) .search(query) .write(key, content)
-procs       # .list() .get(name) .create(...) .spawn(...)
-events     # .emit(type, payload) .query(...)
-resources   # .check(name)
-
-# Capability calls return proxy objects with methods
-config = files.read("priorities")
-print(config.content)
-config.update("new priorities")
-config.versions()
-
-# Proxy objects can expose nested proxies
-p = procs.get("data-sync")
-p.kill()
-p.handlers.add("github:pr-opened")
-
-# Spawn a child process with delegated capabilities
-child = procs.spawn(
-    name="reindex",
-    mode="one_shot",
-    code=files.read("prompts/reindex").id,
-    content="Reindex after data-sync failure",
-)
-
-# Human-in-the-loop via events
-events.emit("approval:requested", {
-    "action": "delete staging data",
-    "process": "cleanup",
-})
-# Process goes WAITING, handler on approval:granted wakes it
-
-# Listen for events while running (sockets)
-s = events.listen("github:pr-opened")
-s.on_event(lambda e: print(f"New PR: {e.payload['title']}"))
-
-# Decorator style
-@events.on("github:pr-review-requested")
-def handle_review(event):
-    pr = github.get_pr(event.payload["pr_id"])
-    pr.add_comment("Looking at this now")
-
-# Close when done listening
-s.close()
-```
-
-### Scope
-
-The executor maintains a variable table during each run. Scope starts with
-static capability objects and grows as the agent interacts.
-
-```python
-@dataclass
-class ScopeEntry:
-    type: str                           # "File", "Process", etc.
-    context: dict                       # instance state (IDs, refs)
-    methods: list[CapabilitySpec]       # callable methods
-    children: dict[str, ScopeEntry]     # nested attributes
-```
-
-Capabilities control scope through their return value:
-
-```python
-@dataclass
-class CapabilityResult:
-    content: Any                # value shown to the agent
-    scope: dict | null          # variables to add to scope
-    release: list[str] | null   # variables to remove from scope
-```
-
-- Scope entries are created when a capability returns `scope` additions.
-- Released explicitly via `release`, or auto-cleaned at end of run.
-- Nested scopes cascade-release with their parent.
-
-### Proxy Generation
-
-A capability's `output_schema` drives proxy generation:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "content": {"type": "string"},
-    "id": {"type": "string", "format": "uuid"}
-  },
-  "methods": {
-    "update": {
-      "handler": "cogos.capabilities.files.update",
-      "args": {"content": "string"}
-    },
-    "versions": {
-      "handler": "cogos.capabilities.files.versions",
-      "args": {}
-    }
-  }
-}
-```
-
-The executor reads `methods`, constructs a proxy class, binds handler calls
-with the instance `context`, and injects the proxy into the variable table
-under the name the agent assigned it.
-
-## Scheduler
-
-The scheduler is a daemon process. It registers a handler for
-`scheduler:tick` events emitted by a cron job. Its prompt orchestrates
-scheduling by invoking capabilities.
-
-### Per-Tick Flow
-
-1. **Match events.** Find undelivered events. For each, find enabled
-   handlers with matching patterns. Create EventDelivery rows. Mark WAITING
-   processes with pending deliveries as RUNNABLE.
-
-2. **Age priorities.** Compute effective priority:
-   `effective = process.priority + f(now - process.runnable_since)`.
-
-3. **Check resources.** For each RUNNABLE process, verify required resources
-   have capacity. Insufficient -> BLOCKED.
-
-4. **Unblock.** Check BLOCKED processes. Resources now available -> RUNNABLE.
-
-5. **Preempt.** If a RUNNABLE process has higher effective priority than a
-   running preemptible process, suspend the running process (snapshot state)
-   and free its resources.
-
-6. **Select.** Softmax sample from RUNNABLE processes by effective priority,
-   up to available execution slots.
-
-7. **Dispatch.** Invoke the appropriate runner for each selected process.
-
-### Scheduler Capabilities
-
-```
-match_events()              match pending events to handlers
-select_processes()           softmax sample from runnable processes
-dispatch_process(proc_id)    send to executor
-check_resources()            query resource availability
-unblock_processes()          move BLOCKED -> RUNNABLE where possible
-suspend_process(proc_id)     snapshot and suspend a running process
-resume_process(proc_id)      resume from snapshot
-kill_process(proc_id)        force-terminate a running process
-```
-
-## Runners
-
-Both runners use the same sandbox library. The difference is the host
-environment and what additional capabilities are available.
-
-### Lambda
-
-Our executor controls the conversation loop directly.
-
-1. Load process, prompt from file store (resolve includes), capability
-   instructions.
-2. Build system prompt and user message (process content + event payload).
-3. Conversation loop: LLM calls `search` / `run_code`, executor handles
-   them, returns results, loops until done.
-4. Record run. Validate result against return schema.
-5. Transition process state (daemon -> WAITING, one_shot -> COMPLETED).
-
-Good for: reasoning, data operations, API calls, short-lived work.
-
-### ECS
-
-Claude Code CLI runs in a container. The sandbox is exposed as an MCP server.
-
-1. Launch container. MCP server starts, exposing `search` and `run_code`
-   based on the process's capability bindings.
-2. Claude Code CLI starts with the process's prompt as system instructions
-   and content as the initial message.
-3. Claude Code uses `run_code` for system interaction (files, processes,
-   events) and its native capabilities (bash, file editing, git) for
-   everything else.
-4. On completion, record run. Optionally persist session to S3.
-
-Good for: software engineering, filesystem work, git, long-running sessions.
-
-### Sandbox Library
-
-Shared by both runners:
-
-```
-sandbox/
-    executor.py     variable table, scope management, code execution
-    proxy.py        proxy generation from output schemas
-    server.py       MCP server wrapping search + run_code
-```
-
-## Preemption
-
-Preemptible processes can be suspended mid-execution to free resources for
-higher-priority work.
-
-### Snapshot
-
-When the scheduler suspends a process, the executor captures:
-
-- Conversation messages (system prompt + all turns so far)
-- Variable table (all scope entries with context)
-- Current turn index
-- Pending capability results
-
-This is stored on the Run record:
-
-```
-Run.snapshot    dict?       serialized execution state
-```
-
-### Resume
-
-When the scheduler resumes a suspended process:
-
-1. Executor loads the snapshot from the Run.
-2. Rebuilds conversation state and variable table.
-3. Continues the conversation loop from where it left off.
-
-### Rules
-
-- `preemptible: bool` on Process controls whether suspension is allowed.
-- Long-running ECS processes are generally not preemptible (stateful
-  filesystem, git operations).
-- Lambda processes are good candidates for preemption.
-- A process can only be suspended between capability calls, not mid-LLM-
-  generation.
-
-## Human-in-the-Loop
-
-No special mechanism needed. It falls out naturally from events:
-
-1. Process emits `approval:requested` event with details of the action.
-2. Process registers a handler for `approval:granted:{process_id}`.
-3. Process returns, goes to WAITING.
-4. Human reviews in dashboard or channel, approves or rejects.
-5. Approval event emitted, process wakes and proceeds (or handles
-   rejection).
-
-This pattern works for any human interaction: approvals, reviews, input
-requests, escalations.
-
-## Event Sockets
-
-Two mechanisms for event delivery:
-
-- **Handler** (table, static) — wakes a WAITING process, creates a new Run.
-- **Socket** (runtime, dynamic) — delivers events to a RUNNING process
-  mid-execution. No new Run.
-
-### Socket API
-
-Processes open sockets in `run_code` to receive events during execution:
-
-```python
-# Open a listener on an event pattern
-s = events.listen("github:pr-opened")
-
-# Register callback — runs in sandbox when event matches
-s.on_event(lambda e: print(f"New PR: {e.payload['title']}"))
-
-# Decorator style
-@events.on("github:pr-review-requested")
-def handle_review(event):
-    pr = github.get_pr(event.payload["pr_id"])
-    pr.add_comment("Looking at this now")
-
-# Close when done
-s.close()
-```
-
-### How Sockets Work
-
-`events.listen(pattern)` registers a SocketEntry in the variable table:
-
-```python
-@dataclass
-class SocketEntry:
-    pattern: str
-    callbacks: list[Callable]
-    active: bool
-```
-
-The executor loop checks sockets between turns:
-
-1. LLM writes code via `run_code()`.
-2. Sandbox executes (may open sockets, register callbacks).
-3. Return result to LLM.
-4. Check socket event queue.
-5. For each pending event matching an active socket:
-   - Execute callback in sandbox.
-   - Callback output becomes part of conversation context.
-6. LLM sees callback results on next turn.
-7. Loop.
-
-Events matched via sockets are tracked in EventDelivery with the `run` FK
-pointing to the current Run. Full audit trail.
-
-Sockets are scope entries like everything else — auto-cleaned at end of run.
-
-### ECS / Claude Code
-
-Claude Code has hooks that fire after tool calls. The MCP server uses a
-`PostToolUse` hook to check for pending socket events:
-
-```json
-{
-  "PostToolUse": [{
-    "command": "cogos-event-check --process-id $PROCESS_ID"
-  }]
-}
-```
-
-The hook script:
-1. Queries pending events matching active sockets for this process.
-2. Executes registered callbacks.
-3. Prints output to stdout — Claude Code sees it as hook feedback.
-
-Same delivery semantics as Lambda, no Claude Code modifications needed.
-
-## Model Routing
-
-Processes can specify model preferences. The scheduler routes to available
-models based on requirements and cost.
-
-```
-Process:
-  model             str?        preferred model (null = scheduler decides)
-  model_constraints  dict?      e.g. {"min_context": 128000, "max_cost_per_1k": 0.01}
-```
-
-The scheduler considers model availability, cost, and task complexity when
-dispatching. Cheap tasks go to smaller models. Complex tasks go to larger
-ones. Explicit `model` overrides scheduler choice.
-
-## Data Model
-
-### Process
-
-```
-Process
-  id                UUID            PK
-  name              str             unique
-  mode              enum            daemon | one_shot
-  content           str             process-specific payload (argv)
-  code              UUID            FK -> File (prompt template)
-  priority          float           softmax scheduling weight
-  resources         list[UUID]      FK -> Resource
-  runner            enum            lambda | ecs
-  status            enum            WAITING | RUNNABLE | RUNNING | BLOCKED
-                                    | SUSPENDED | COMPLETED | DISABLED
-  preemptible       bool            can be suspended for higher-priority work
-  runnable_since    datetime?       starvation tracking
-  parent_process    UUID?           FK -> Process
-  return_schema     dict?           JSON Schema for typed output
-  model             str?            preferred LLM model
-  model_constraints dict?           model requirements
-  max_duration_ms   int?            execution timeout
-  max_retries       int             default 0
-  retry_count       int             resets on success
-  retry_backoff_ms  int?            delay before retry
-  clear_context     bool            ECS: resume session or fresh
-  created_at        datetime
-  updated_at        datetime
-```
+**Built-in capabilities:**
+
+| Name | Purpose |
+|---|---|
+| `files` | Versioned file store (read, write, search) |
+| `procs` | Process management (list, get, spawn) |
+| `events` | Event log (emit, query) |
+| `resources` | Resource pool queries |
+| `me` | Scoped scratch/tmp/log storage per process and run |
+| `secrets` | AWS SSM / Secrets Manager retrieval |
+| `scheduler` | Event matching, process selection, dispatch (scheduler only) |
+| `discord` | Discord messaging, reactions, threads, DMs |
+| `email` | SES send/receive |
 
 ### ProcessCapability
+
+Binds a capability to a process with optional per-process scoping and delegation control.
 
 ```
 ProcessCapability
@@ -467,83 +161,60 @@ ProcessCapability
   delegatable     bool            passable to spawned children
 ```
 
+When a process spawns a child, only capabilities marked `delegatable=true` on the parent can be granted to the child.
+
+### Event
+
+An append-only log entry for inter-process communication.
+
+```
+Event
+  id              UUID            PK
+  event_type      str             hierarchical (e.g. "process:run:success")
+  source          str             originating process name
+  payload         dict
+  parent_event    UUID?           FK -> Event (causal chain)
+  created_at      datetime
+```
+
 ### Handler
+
+Binds a process to an event pattern. When a matching event arrives, the process becomes eligible to run.
 
 ```
 Handler
   id              UUID            PK
   process         UUID            FK -> Process
-  event_pattern  str             matched against Event.event_type
+  event_pattern   str             matched against Event.event_type
   enabled         bool
-```
-
-### Event
-
-```
-Event
-  id              UUID            PK
-  event_type     str             hierarchical, e.g. "process:completed:sync"
-  source          str             originating component
-  payload         dict
-  parent_event   UUID?           FK -> Event (causal chain)
-  created_at      datetime
+  fire_count      int             how many times this handler has fired
 ```
 
 ### EventDelivery
 
+Per-handler delivery tracking. One row per event per matching handler.
+
 ```
 EventDelivery
   id              UUID            PK
-  event          UUID            FK -> Event
+  event           UUID            FK -> Event
   handler         UUID            FK -> Handler
   status          enum            pending | delivered | skipped
   run             UUID?           FK -> Run
   created_at      datetime
 ```
 
-### File
-
-```
-File
-  id              UUID            PK
-  key             str             hierarchical path
-  created_at      datetime
-  updated_at      datetime
-
-FileVersion
-  id              UUID            PK
-  file            UUID            FK -> File
-  content         str
-  read_only       bool
-  source          str             "agent" | "human" | "system"
-  is_active       bool
-  created_at      datetime
-```
-
-### Capability
-
-```
-Capability
-  id              UUID            PK
-  name            str             hierarchical, e.g. "files/read"
-  handler         str             python dotted path
-  input_schema    dict            JSON Schema for arguments
-  output_schema   dict?           JSON Schema for return value + methods
-  instructions    str             guidance for LLM
-  iam_role_arn    str?            scoped IAM access
-  enabled         bool
-```
-
 ### Run
+
+Execution record for a single process invocation.
 
 ```
 Run
   id              UUID            PK
   process         UUID            FK -> Process
-  event          UUID?           FK -> Event (triggering event)
+  event           UUID?           FK -> Event (triggering event)
   conversation    UUID?           FK -> Conversation
-  status          enum            running | completed | failed
-                                  | timeout | suspended
+  status          enum            running | completed | failed | timeout | suspended
   snapshot        dict?           serialized state for preemption resume
   tokens_in       int
   tokens_out      int
@@ -557,6 +228,8 @@ Run
 ```
 
 ### Resource
+
+Pool (concurrency) and consumable (budget) limits.
 
 ```
 Resource
@@ -574,156 +247,317 @@ ResourceUsage
   created_at      datetime
 ```
 
-### Cron
+### Supporting Models
+
+- **Cron** -- scheduled event emitter (expression, event_type, payload, enabled)
+- **Conversation** -- multi-turn context routing for channels
+- **Channel** -- external integrations (Discord, GitHub, Gmail, Asana, CLI)
+- **Alert** -- algedonic system (warning / critical / emergency)
+- **Budget** -- token and cost accounting per period
+- **Trace** -- detailed execution audit (capability calls, file ops per run)
+
+## Execution Model
+
+### Two Meta-Capabilities
+
+Every process, regardless of runner, interacts with the system through two meta-capabilities exposed to the LLM:
 
 ```
-Cron
-  id              UUID            PK
-  expression      str             cron expression
-  event_type     str             event to emit
-  payload         dict
-  enabled         bool
+search(query: str) -> list[CapabilitySpec]
 ```
 
-### Conversation
+Discover available capabilities by keyword. Returns names, descriptions, and schemas. Keeps LLM context lean -- definitions are loaded on demand.
 
 ```
-Conversation
-  id              UUID            PK
-  context_key     str             unique identifier (user ID, thread ID)
-  channel_id      str             which channel
-  status          enum            active | idle | closed
-  cli_session_id  str?            for CLI sessions
-  created_at      datetime
-  updated_at      datetime
+run_code(code: str) -> Any
 ```
 
-### Channel
+Execute Python in a sandboxed environment with proxy objects pre-injected for all capabilities bound to the process.
 
-```
-Channel
-  id              UUID            PK
-  name            str
-  channel_type    str             discord | github | gmail | asana | cli
-  config          dict
-  secret_path     str             Secrets Manager path
-  enabled         bool
-```
+### Proxy Objects
 
-### Alert
+Inside `run_code`, capabilities appear as Python objects with methods. The LLM writes natural Python:
 
-```
-Alert
-  id              UUID            PK
-  severity        enum            warning | critical | emergency
-  source          str
-  message         str
-  resolved        bool
-  created_at      datetime
-  resolved_at     datetime?
-```
+```python
+# Static capabilities are top-level objects in the sandbox
+files       # .read(key) .write(key, content) .search(prefix)
+procs       # .list() .get(name) .spawn(name, content)
+events      # .emit(event_type, payload) .query(event_type?, limit?)
+resources   # .check()
+me          # .run() .process() -- scoped storage
 
-### Budget
+# Capability methods return dicts or proxy objects
+config = files.read("priorities")
+print(config["content"])
 
-```
-Budget
-  id              UUID            PK
-  period          enum            daily | weekly | monthly
-  token_limit     int
-  cost_limit_usd  float
-  tokens_used     int
-  cost_used_usd   float
-  period_start    datetime
+# Spawn a child process
+child = procs.spawn(
+    name="reindex",
+    content="Reindex after data-sync failure",
+)
+
+# Human-in-the-loop via events
+events.emit("approval:requested", {
+    "action": "delete staging data",
+    "process": "cleanup",
+})
 ```
 
-### Trace
+### Sandbox
+
+The `SandboxExecutor` manages a `VariableTable` of named objects. Capability proxies are injected at startup. A `CapabilitiesDirectory` is also injected for runtime discovery (`capabilities.list()`, `capabilities.search(query)`, `<name>.help()`).
+
+Code execution happens in a restricted namespace. The executor captures stdout and returns it as the tool result. Exceptions are caught and returned as error tracebacks.
+
+### Context Engine
+
+The `ContextEngine` resolves file includes to build the complete prompt for a process:
+
+1. For each file in `process.files` (or legacy `process.code`):
+   - Recursively resolve `file.includes` depth-first
+   - Concatenate with `--- key ---` section headers
+2. Append `process.content` last
+3. Prepend all files under `includes/` as global context
+
+This is used by both the Lambda executor (system prompt) and the dashboard (prompt preview).
+
+## Runners
+
+### Lambda Runner
+
+Our executor controls the full Bedrock converse API loop:
+
+1. Load process from DB
+2. Build system prompt via ContextEngine (resolve includes, prepend global includes)
+3. Build user message from `process.content` + event payload
+4. Inject `search` and `run_code` as Bedrock tool definitions
+5. Conversation loop (max N turns):
+   - LLM returns tool_use for `search` or `run_code`
+   - Execute in sandbox with proxy objects
+   - Return results to LLM
+   - Loop until stop_reason != tool_use
+6. Record Run (tokens, cost, duration, result, scope_log)
+7. Transition process: daemon -> WAITING, one_shot -> COMPLETED
+8. On failure: increment retry_count, backoff, or DISABLED
+
+Good for: reasoning, data operations, API calls, short-lived work.
+
+### ECS Runner
+
+Claude Code CLI runs in a container. Capabilities are exposed as an MCP server:
+
+1. Launch ECS task
+2. MCP server starts (`cogos.sandbox.server`), reads process's capability bindings
+3. Exposes `run_code` as an MCP tool with capability proxies pre-injected
+4. Claude Code CLI starts with the process's prompt as system instructions
+5. Claude Code uses `run_code` for CogOS interaction and its native tools (bash, file editing, git) for everything else
+6. On completion, record Run
+
+Good for: software engineering, filesystem work, git, long-running sessions.
+
+### Shared Sandbox Library
+
+Both runners use the same core library:
 
 ```
-Trace
-  id              UUID            PK
-  run             UUID            FK -> Run
-  capability_calls list[dict]
-  file_ops        list[dict]
-  created_at      datetime
+cogos/sandbox/
+    executor.py     # VariableTable, SandboxExecutor, code execution
+    server.py       # MCP server wrapping run_code (for ECS)
 ```
+
+## Scheduler
+
+The scheduler is itself a daemon process. It registers for `system:tick:minute` events and runs the scheduling loop using the `scheduler` capability.
+
+### Per-Tick Flow
+
+1. **match_events()** -- scan undelivered events, match to handlers by pattern, create EventDelivery rows. Mark WAITING processes with pending deliveries as RUNNABLE.
+
+2. **unblock_processes()** -- check BLOCKED processes. Resources now available -> RUNNABLE.
+
+3. **select_processes(slots)** -- softmax sample from RUNNABLE processes by effective priority. Priority aging prevents starvation.
+
+4. **dispatch_process(process_id)** -- transition to RUNNING, create a Run record, invoke the appropriate runner (Lambda invocation or ECS task start).
+
+### System Tick Events
+
+The dispatcher generates virtual tick events (not written to the event log):
+- `system:tick:minute` -- every invocation
+- `system:tick:hour` -- when minute == 0
+
+Processes can register handlers for these to run periodically.
+
+## Image System
+
+An image is a declarative snapshot of a cogent's entire configuration. Images are directories of Python scripts and files that define the initial state.
+
+### Image Structure
+
+```
+images/<name>/
+  init/
+    capabilities.py    # add_capability() calls
+    resources.py       # add_resource() calls
+    processes.py       # add_process() calls
+    cron.py            # add_cron() calls
+  files/
+    cogos/
+      scheduler.md     # file key = relative path from files/
+    whoami/
+      index.md
+    includes/
+      code_mode.md
+  README.md
+```
+
+Each `.py` in `init/` is exec'd with builder functions injected into its namespace:
+
+```python
+add_capability(name, *, handler, description="", instructions="", input_schema=None, output_schema=None, iam_role_arn=None, metadata=None, event_types=None)
+add_resource(name, *, type, capacity, metadata=None)
+add_process(name, *, mode="one_shot", content="", code_key=None, runner="lambda", model=None, priority=0.0, capabilities=None, handlers=None, output_events=None, metadata=None)
+add_cron(expression, *, event_type, payload=None, enabled=True)
+```
+
+All calls accumulate into an `ImageSpec` dataclass. `load_image(path) -> ImageSpec` handles execution.
+
+### Boot Sequence
+
+1. Run DB migrations
+2. If `--clean`: truncate all CogOS tables
+3. Upsert capabilities by name
+4. Upsert resources by name
+5. Upsert cron rules
+6. Upsert files via FileStore (creates if new, new version if changed, skips if unchanged)
+7. Upsert processes by name, bind capabilities, create handlers
+
+### Snapshot
+
+Captures running state into a new image directory. Queries all capabilities, resources, processes (with bindings + handlers), cron rules, and files (active version only). Generated images are immediately bootable.
+
+### What Gets Captured
+
+Config only:
+- Capabilities, resources, processes (with capability bindings and handler patterns)
+- Cron rules, files (active version content only)
+
+Not captured: events, runs, traces, conversations, file version history.
+
+## Human-in-the-Loop
+
+No special mechanism. It falls out naturally from events:
+
+1. Process emits `approval:requested` with action details
+2. Process registers handler for `approval:granted:{process_id}`
+3. Process returns, goes to WAITING
+4. Human reviews in dashboard or channel, approves or rejects
+5. Approval event emitted, process wakes and proceeds (or handles rejection)
+
+This pattern works for any human interaction: approvals, reviews, input requests, escalations.
+
+## Model Routing
+
+Processes can specify model preferences:
+
+```
+Process:
+  model             str?        preferred model (null = scheduler decides)
+  model_constraints  dict?      {"min_context": 128000, "max_cost_per_1k": 0.01}
+```
+
+The executor uses `process.model` if set, otherwise falls back to a configurable default (currently Sonnet). Cheap tasks can target Haiku; complex tasks target Opus.
+
+## Infrastructure
+
+### AWS Resources
+
+- **RDS PostgreSQL** -- all CogOS tables via RDS Data API
+- **Lambda** -- executor function for Lambda-runner processes
+- **ECS** -- Fargate tasks for ECS-runner processes
+- **ECR** -- container images for ECS tasks
+- **Secrets Manager / SSM** -- credential storage
+- **CloudWatch** -- logging and run monitoring
+
+### Database
+
+All state lives in PostgreSQL, accessed via RDS Data API. Tables are prefixed with `cogos_` (process, handler, event, event_delivery, file, file_version, capability, process_capability, run, resource, resource_usage, cron, conversation, channel, alert, budget, trace).
+
+Events are DB records matched by the scheduler -- no external event bus (EventBridge was eliminated).
 
 ## Source Structure
 
 ```
-cogos/
+src/cogos/
+  capabilities/
+    __init__.py         # BUILTIN_CAPABILITIES registry
+    base.py             # Capability base class with help() introspection
+    directory.py        # CapabilitiesDirectory for runtime discovery
+    files.py            # FilesCapability
+    procs.py            # ProcsCapability
+    events.py           # EventsCapability
+    resources.py        # ResourcesCapability
+    me.py               # MeCapability (scoped scratch/tmp/log)
+    secrets.py          # SecretsCapability (SSM/Secrets Manager)
+    scheduler.py        # SchedulerCapability
+  io/
+    discord/            # Discord bridge + DiscordCapability
+    email/              # SES integration + EmailCapability
+    github/             # GitHub integration (planned)
   db/
-    models/
-      __init__.py
-      process.py
-      process_capability.py
-      handler.py
-      file.py
-      capability.py
-      event.py
-      event_delivery.py
-      run.py
-      resource.py
-      cron.py
-      conversation.py
-      channel.py
-      alert.py
-      budget.py
-      trace.py
-    repository.py
+    models/             # Pydantic models (one per entity)
+    repository.py       # CRUD via RDS Data API
+    local_repository.py # JSON-file backend for local dev
+    migrations/         # SQL migration files
   executor/
-    handler.py              Lambda entry point
+    handler.py          # Lambda entry point + Bedrock converse loop
   sandbox/
-    executor.py             variable table, scope management
-    proxy.py                proxy generation from output schemas
-    server.py               MCP server for ECS runner
+    executor.py         # VariableTable, SandboxExecutor
+    server.py           # MCP server for ECS runner
   files/
-    store.py
-    context_engine.py
+    store.py            # FileStore (versioned operations)
+    context_engine.py   # Include resolution for prompts
+  image/
+    spec.py             # ImageSpec, load_image()
+    apply.py            # apply_image() (boot/upsert into DB)
+    design.md
   cli/
-    __main__.py
-    process.py              process commands
-    handler.py              handler commands
-    file.py                 file commands
-    capability.py           capability commands
-    event.py               event commands
-    resource.py             resource commands
-    cron.py                 cron commands
-  dashboard/
-    app.py
-    routers/
-      processes.py
-      handlers.py
-      files.py
-      capabilities.py
-      events.py
-      resources.py
-      runs.py
-      cron.py
-      conversations.py
-      channels.py
-      alerts.py
-      status.py
-    frontend/
-      ...
-  deploy/
-    cdk/                    AWS CDK infrastructure
-  channels/
-    discord.py
-    github.py
-    gmail.py
-    asana.py
-    cli.py
+    __main__.py         # CLI entry point (process, handler, file, capability, event, cron, image)
 ```
+
+## Security Model
+
+### Capability Isolation
+
+Processes can only invoke capabilities explicitly bound to them via ProcessCapability. There is no ambient authority. A process that needs to send Discord messages must have the `discord` capability bound; one that doesn't, can't.
+
+### Delegation Control
+
+When spawning child processes, parents can only delegate capabilities marked `delegatable=true`. This prevents privilege escalation through process spawning.
+
+### Sandbox Restrictions
+
+The `run_code` sandbox executes in a controlled namespace. Only capability proxy objects and basic Python builtins are available. No file system access, no network access, no imports beyond what capabilities expose.
+
+### Audit Trail
+
+Every capability call, file operation, and event emission is tracked:
+- `Run.scope_log` records scope changes during execution
+- `Trace` records detailed capability calls and file ops
+- `EventDelivery` tracks which events were delivered to which handlers
+- `FileVersion` maintains full history of every file change
+
+### Resource Limits
+
+Processes declare resource requirements. The scheduler enforces limits:
+- Pool resources (concurrency slots) prevent runaway parallelism
+- Consumable resources (token budgets) prevent cost overruns
+- `max_duration_ms` hard-kills processes that run too long
+- `max_retries` with backoff prevents infinite failure loops
 
 ## Open Questions
 
-1. **Event pattern syntax.** Simple glob (`process:completed:*`) or regex
-   or JSONPath filters on payload?
-2. **Scope persistence.** Should the variable table survive ECS session
-   resume, or start fresh each wake?
-3. **Capability versioning.** Should ProcessCapability pin a capability
-   version or always use latest?
-4. **Resource quantities.** Should `resources` on Process become a join table
-   with `amount` per resource?
-5. **Preemption granularity.** Can we snapshot mid-LLM-generation (requires
-   beam search tree serialization) or only between capability calls?
+1. **Event pattern syntax.** Currently simple string matching. Glob (`process:completed:*`)? Regex? JSONPath filters on payload?
+2. **Scope persistence.** Should the variable table survive ECS session resume, or start fresh each wake?
+3. **Capability versioning.** Should ProcessCapability pin a capability version or always use latest?
+4. **Preemption granularity.** Can we snapshot mid-LLM-generation, or only between capability calls?
+5. **Event sockets.** Design exists for runtime event delivery to RUNNING processes (listen/on_event pattern), not yet implemented.
