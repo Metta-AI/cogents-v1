@@ -273,7 +273,14 @@ class Repository:
             f"UPDATE cogos_process SET status = :status{extra}, updated_at = now() WHERE id = :id",
             [self._param("id", process_id), self._param("status", status.value)],
         )
-        return response.get("numberOfRecordsUpdated", 0) == 1
+        updated = response.get("numberOfRecordsUpdated", 0) == 1
+        if updated and status == ProcessStatus.RUNNABLE:
+            self.append_event(Event(
+                event_type="process:status:runnable",
+                source="system",
+                payload={"process_id": str(process_id)},
+            ))
+        return updated
 
     def get_runnable_processes(self, limit: int = 50) -> list[Process]:
         response = self._execute(
@@ -567,6 +574,64 @@ class Repository:
             [self._param("id", delivery_id), self._param("run", run_id)],
         )
         return response.get("numberOfRecordsUpdated", 0) == 1
+
+    # ═══════════════════════════════════════════════════════════
+    # CRON RULES
+    # ═══════════════════════════════════════════════════════════
+
+    def upsert_cron(self, c: Cron) -> UUID:
+        # Check for existing rule with same expression + event pattern
+        existing = self._first_row(self._execute(
+            "SELECT id FROM cron WHERE cron_expression = :expr AND event_pattern = :evt",
+            [self._param("expr", c.expression), self._param("evt", c.event_type)],
+        ))
+        if existing:
+            c.id = UUID(existing["id"])
+            self._execute(
+                """UPDATE cron SET metadata = :payload::jsonb, enabled = :enabled
+                   WHERE id = :id""",
+                [
+                    self._param("id", c.id),
+                    self._param("payload", c.payload),
+                    self._param("enabled", c.enabled),
+                ],
+            )
+            return c.id
+
+        response = self._execute(
+            """INSERT INTO cron (id, cron_expression, event_pattern, metadata, enabled)
+               VALUES (:id, :expression, :event_type, :payload::jsonb, :enabled)
+               RETURNING id, created_at""",
+            [
+                self._param("id", c.id),
+                self._param("expression", c.expression),
+                self._param("event_type", c.event_type),
+                self._param("payload", c.payload),
+                self._param("enabled", c.enabled),
+            ],
+        )
+        row = self._first_row(response)
+        if row:
+            c.created_at = self._ts(row, "created_at")
+            return UUID(row["id"])
+        return c.id
+
+    def list_cron_rules(self, *, enabled_only: bool = False) -> list[Cron]:
+        where = "WHERE enabled = TRUE" if enabled_only else ""
+        response = self._execute(
+            f"SELECT * FROM cron {where} ORDER BY cron_expression",
+        )
+        return [
+            Cron(
+                id=UUID(r["id"]),
+                expression=r["cron_expression"],
+                event_type=r["event_pattern"],
+                payload=self._json_field(r, "metadata", {}),
+                enabled=r.get("enabled", True),
+                created_at=self._ts(r, "created_at"),
+            )
+            for r in self._rows_to_dicts(response)
+        ]
 
     # ═══════════════════════════════════════════════════════════
     # FILES

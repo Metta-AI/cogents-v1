@@ -12,7 +12,7 @@ add_process(
         "scheduler/unblock_processes",
         "scheduler/kill_process",
     ],
-    handlers=["scheduler:tick"],
+    handlers=["scheduler:tick", "process:status:runnable"],
 )
 
 add_process(
