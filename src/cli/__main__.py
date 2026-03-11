@@ -6,7 +6,7 @@ import click
 from cli.dashboard import dashboard
 
 # Known top-level commands — used to detect cogent name argument
-_COMMANDS = {"dashboard", "brain", "memory", "mind", "run", "cogos", "status", "--help", "-h"}
+_COMMANDS = {"dashboard", "brain", "memory", "run", "cogos", "status", "--help", "-h"}
 
 
 def _preprocess_argv() -> None:
@@ -47,11 +47,6 @@ from memory.cli import memory  # noqa: E402
 
 main.add_command(memory)
 
-# Mind management CLI
-from mind.cli import mind  # noqa: E402
-
-main.add_command(mind)
-
 # Run management CLI
 from run.cli import run  # noqa: E402
 
@@ -69,11 +64,8 @@ def status(ctx: click.Context):
     """Show status of all subsystems for a cogent."""
     from brain.cli import status_cmd as brain_status
     from memory.cli import status_cmd as memory_status
-    from mind.cli import mind_status
 
     ctx.invoke(brain_status)
-    click.echo()
-    ctx.invoke(mind_status)
     click.echo()
     ctx.invoke(memory_status)
 

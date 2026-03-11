@@ -896,7 +896,7 @@ def status():
 
 @cogos.command()
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-def reset(yes: bool):
+def wipe(yes: bool):
     """Wipe all CogOS tables for a blank slate."""
     if not yes:
         click.confirm("This will DELETE ALL data. Continue?", abort=True)
@@ -910,6 +910,63 @@ def reset(yes: bool):
             except Exception:
                 pass
     click.echo("All tables cleared.")
+
+
+@cogos.command()
+@click.option("--image", "-i", default="cogent-v1", help="Image name to load (default: cogent-v1)")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def reload(ctx: click.Context, image: str, yes: bool):
+    """Wipe all tables and reload from an image."""
+    if not yes:
+        click.confirm(f"This will DELETE ALL data and reload from '{image}'. Continue?", abort=True)
+
+    from cogos.image.spec import load_image
+    from cogos.image.apply import apply_image
+
+    repo_root = Path(__file__).resolve().parents[3]
+    image_dir = repo_root / "images" / image
+    if not image_dir.is_dir():
+        click.echo(f"Image not found: {image_dir}")
+        return
+
+    repo = _repo()
+
+    # Run migrations
+    migrations_dir = Path(__file__).parent.parent / "db" / "migrations"
+    if migrations_dir.is_dir():
+        for migration in sorted(migrations_dir.glob("*.sql")):
+            sql = migration.read_text()
+            for stmt in sql.split(";"):
+                stmt = stmt.strip()
+                if stmt and not stmt.startswith("--"):
+                    try:
+                        repo.execute(stmt)
+                    except Exception as e:
+                        if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                            pass
+                        else:
+                            click.echo(f"  Warning ({migration.name}): {e}")
+        click.echo("Migrations applied.")
+
+    # Wipe
+    if hasattr(repo, "clear_all"):
+        repo.clear_all()
+    else:
+        for table in _ALL_TABLES:
+            try:
+                repo.execute(f"DELETE FROM {table}")
+            except Exception:
+                pass
+    click.echo("Tables cleared.")
+
+    # Load image
+    spec = load_image(image_dir)
+    counts = apply_image(spec, repo)
+    click.echo(
+        f"Reload complete: {counts['capabilities']} capabilities, "
+        f"{counts['files']} files, {counts['processes']} processes"
+    )
 
 
 # ═══════════════════════════════════════════════════════════
