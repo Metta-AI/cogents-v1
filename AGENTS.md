@@ -161,3 +161,15 @@ uv sync --all-extras          # Install dependencies
 uv run pytest                 # Run tests
 uv run polis status           # Check infrastructure
 ```
+
+## PR Writeups
+
+When writing PR titles, descriptions, or review comments:
+
+- Start with a `Problem` section that explains the prior behavior or source of churn, not just the code change.
+- Phrase the problem in operational terms: what was ambiguous, brittle, inconsistent, or targeting the wrong thing.
+- Use a `Summary` section for the concrete behavioral changes the diff makes.
+- Keep summary bullets specific about user-visible or operator-visible semantics, not file-by-file edits.
+- End with a `Testing` section listing the exact verification commands that were run.
+- Prefer wording like “this command could do X” or “this flow had no explicit way to choose Y” over vague claims like “cleanup” or “improves things.”
+- If the change fixes the wrong target or wrong environment being selected, say that explicitly in the problem statement.
