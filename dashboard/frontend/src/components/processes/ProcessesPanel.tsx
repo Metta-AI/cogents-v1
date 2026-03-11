@@ -283,6 +283,7 @@ function CapabilityEditor({
   onConfigChange,
   suggestions,
   cogentName,
+  templates,
 }: {
   items: string[];
   configs: Record<string, CapabilityConfig>;
@@ -290,6 +291,7 @@ function CapabilityEditor({
   onConfigChange: (configs: Record<string, CapabilityConfig>) => void;
   suggestions: string[];
   cogentName: string;
+  templates?: React.ReactNode;
 }) {
   const [query, setQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -457,6 +459,7 @@ function CapabilityEditor({
           })}
         </div>
       )}
+      {templates}
       <div className="relative">
         <input
           value={query}
@@ -1277,23 +1280,6 @@ function ProcessFormEditor({
       {/* Resources + Capabilities side by side */}
       <div className="flex gap-4">
         <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            {[
-              { label: "+ all", caps: capabilitySuggestions },
-              { label: "+ io", caps: ["files", "events", "secrets"] },
-            ].map((tpl) => (
-              <button
-                key={tpl.label}
-                onClick={() => {
-                  const available = tpl.caps.filter((c) => capabilitySuggestions.includes(c));
-                  onChange((prev) => ({ ...prev, capabilities: [...new Set([...prev.capabilities, ...available])] }));
-                }}
-                className="text-[10px] px-1.5 py-0 rounded bg-transparent border border-[var(--border)] text-[var(--accent)] cursor-pointer hover:border-[var(--accent)]"
-              >
-                {tpl.label}
-              </button>
-            ))}
-          </div>
           <CapabilityEditor
             items={form.capabilities}
             configs={form.capabilityConfigs}
@@ -1301,6 +1287,25 @@ function ProcessFormEditor({
             onConfigChange={(capabilityConfigs) => onChange((prev) => ({ ...prev, capabilityConfigs }))}
             suggestions={capabilitySuggestions}
             cogentName={cogentName}
+            templates={
+              <div className="flex items-center gap-2 mb-1">
+                {[
+                  { label: "+ all", caps: capabilitySuggestions },
+                  { label: "+ io", caps: ["files", "events", "secrets"] },
+                ].map((tpl) => (
+                  <button
+                    key={tpl.label}
+                    onClick={() => {
+                      const available = tpl.caps.filter((c: string) => capabilitySuggestions.includes(c));
+                      onChange((prev) => ({ ...prev, capabilities: [...new Set([...prev.capabilities, ...available])] }));
+                    }}
+                    className="text-[10px] px-1.5 py-0 rounded bg-transparent border border-[var(--border)] text-[var(--accent)] cursor-pointer hover:border-[var(--accent)]"
+                  >
+                    {tpl.label}
+                  </button>
+                ))}
+              </div>
+            }
           />
         </div>
         <div className="flex-1">
