@@ -12,6 +12,7 @@ import type {
   CogosHandler,
   CogosRun,
   EventType,
+  Resource,
   Alert,
 } from "./types";
 
@@ -302,6 +303,13 @@ export async function getCapabilityMethods(
   capName: string,
 ): Promise<CapabilityMethod[]> {
   return fetchJSON(`/api/cogents/${name}/capabilities/${encodeURIComponent(capName)}/methods`);
+}
+
+export async function getResources(name: string): Promise<Resource[]> {
+  const r = await fetchJSON<{ resources: Resource[] }>(
+    `/api/cogents/${name}/resources`,
+  );
+  return r.resources;
 }
 
 export async function getEventTypes(name: string): Promise<EventType[]> {

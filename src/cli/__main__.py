@@ -18,6 +18,8 @@ def _preprocess_argv() -> None:
     args = sys.argv[1:]
     if args and not args[0].startswith("-") and args[0] not in _COMMANDS:
         os.environ["COGENT_ID"] = args[0]
+        if args[0] == "local":
+            os.environ["USE_LOCAL_DB"] = "1"
         sys.argv = [sys.argv[0]] + args[1:]
 
 

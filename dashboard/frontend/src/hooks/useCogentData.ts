@@ -52,9 +52,10 @@ export function useCogentData(cogentName: string) {
       api.getEvents(cogentName, timeRange),
       api.getCrons(cogentName),
       api.getEventTypes(cogentName),
+      api.getResources(cogentName),
     ]);
-    // Only count core endpoints (exclude optional ones like eventTypes)
-    const coreResults = results.slice(0, -1);
+    // Only count core endpoints (exclude optional ones like eventTypes, resources)
+    const coreResults = results.slice(0, -2);
     const failCount = coreResults.filter((r) => r.status === "rejected").length;
     if (failCount === coreResults.length) {
       setError("All API requests failed — is the backend running?");
@@ -74,6 +75,7 @@ export function useCogentData(cogentName: string) {
       events: results[6].status === "fulfilled" ? results[6].value : [],
       crons: results[7].status === "fulfilled" ? results[7].value : [],
       eventTypes: results[8].status === "fulfilled" ? results[8].value : [],
+      resources: results[9].status === "fulfilled" ? results[9].value : [],
     }));
     setLoading(false);
   }, [cogentName, timeRange]);

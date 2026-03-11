@@ -50,7 +50,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
         for res_dict in spec.resources:
             r = Resource(
                 name=res_dict["name"],
-                resource_type=ResourceType(res_dict.get("type", "pool")),
+                resource_type=ResourceType(res_dict.get("resource_type", res_dict.get("type", "pool"))),
                 capacity=float(res_dict.get("capacity", 1.0)),
                 metadata=res_dict.get("metadata") or {},
             )

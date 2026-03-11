@@ -202,7 +202,8 @@ def boot(ctx: click.Context, name: str, clean: bool):
 
     click.echo(
         f"Boot complete: {counts['capabilities']} capabilities, "
-        f"{counts['files']} files, {counts['processes']} processes"
+        f"{counts['resources']} resources, {counts['files']} files, "
+        f"{counts['processes']} processes, {counts['cron']} cron"
     )
 
 
@@ -965,7 +966,8 @@ def reload(ctx: click.Context, image: str, yes: bool):
     counts = apply_image(spec, repo)
     click.echo(
         f"Reload complete: {counts['capabilities']} capabilities, "
-        f"{counts['files']} files, {counts['processes']} processes"
+        f"{counts['resources']} resources, {counts['files']} files, "
+        f"{counts['processes']} processes, {counts['cron']} cron"
     )
 
 
