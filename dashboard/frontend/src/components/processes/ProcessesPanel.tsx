@@ -1856,14 +1856,20 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                     <span className="text-[var(--text-muted)]">clear ctx: <span className="text-[var(--text-secondary)]">{proc.clear_context ? "yes" : "no"}</span></span>
                   </div>
 
-                  {/* Prompt tree — collapsible per-file rows */}
-                  {promptTree.length > 0 && (
+                  {/* Context — includes + prompt tree merged */}
+                  {(() => {
+                    const promptKeys = new Set(promptTree.map((e) => e.key));
+                    const includeEntries = detailIncludes
+                      .filter((inc) => !promptKeys.has(inc.key))
+                      .map((inc) => ({ key: inc.key, content: inc.content, is_direct: false }));
+                    const allEntries = [...includeEntries, ...promptTree];
+                    return allEntries.length > 0 && (
                     <div>
                       <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">
-                        Context ({promptTree.length} {promptTree.length === 1 ? "file" : "files"})
+                        Context ({allEntries.length} {allEntries.length === 1 ? "file" : "files"})
                       </div>
                       <div className="rounded overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-                        {promptTree.map((entry) => {
+                        {allEntries.map((entry) => {
                           const isExpanded = expandedPromptFiles.has(entry.key);
                           const isContent = entry.key === "<content>";
                           const isFileEditing = editingFileKey === entry.key;
@@ -1926,7 +1932,8 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                         })}
                       </div>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Resources + Capabilities side by side */}
                   {(proc.resources?.length > 0 || detailCapabilities.length > 0) && (
