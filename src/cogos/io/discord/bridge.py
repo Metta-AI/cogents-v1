@@ -147,8 +147,11 @@ class DiscordBridge:
 
         @self.client.event
         async def on_message(message: discord.Message):
-            logger.info("on_message from %s in %s: %s", message.author, message.channel, message.content[:80] if message.content else "(empty)")
+            logger.info("on_message from %s (bot=%s) in %s: %s", message.author, message.author.bot, message.channel, message.content[:80] if message.content else "(empty)")
+            # Ignore our own messages and any other bot messages
             if message.author == self.client.user:
+                return
+            if message.author.bot:
                 return
             await self._relay_to_db(message)
 
