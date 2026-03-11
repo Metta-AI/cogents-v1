@@ -1034,3 +1034,28 @@ class Repository:
             trace.created_at = self._ts(row, "created_at")
             return UUID(row["id"])
         return trace.id
+
+    # ═══════════════════════════════════════════════════════════
+    # META (key-value)
+    # ═══════════════════════════════════════════════════════════
+
+    def set_meta(self, key: str, value: str = "") -> None:
+        self._execute(
+            """INSERT INTO cogos_meta (key, value, updated_at)
+               VALUES (:key, :value, now())
+               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()""",
+            [self._param("key", key), self._param("value", value)],
+        )
+
+    def get_meta(self, key: str) -> dict[str, str] | None:
+        row = self._first_row(self._execute(
+            "SELECT key, value, updated_at FROM cogos_meta WHERE key = :key",
+            [self._param("key", key)],
+        ))
+        if not row:
+            return None
+        return {
+            "key": row["key"],
+            "value": row.get("value", ""),
+            "updated_at": str(self._ts(row, "updated_at")) if self._ts(row, "updated_at") else "",
+        }

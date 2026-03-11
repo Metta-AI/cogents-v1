@@ -123,6 +123,7 @@ export interface CogosStatus {
   capabilities: number;
   recent_events: number;
   recent_runs: Array<{ id: string; process_name: string; status: string; duration_ms: number | null; created_at: string }>;
+  scheduler_last_tick: string | null;
 }
 
 export interface Execution {

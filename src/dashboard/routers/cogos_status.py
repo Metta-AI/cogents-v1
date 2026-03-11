@@ -27,6 +27,7 @@ class CogosStatusResponse(BaseModel):
     capabilities: int
     recent_events: int
     recent_runs: list[dict]
+    scheduler_last_tick: str | None = None
 
 
 # ── Routes ──────────────────────────────────────────────────────────
@@ -69,10 +70,20 @@ def cogos_status(name: str) -> CogosStatusResponse:
         for r in runs
     ]
 
+    # Scheduler heartbeat
+    scheduler_tick = None
+    try:
+        meta = repo.get_meta("scheduler:last_tick")
+        if meta:
+            scheduler_tick = meta["updated_at"]
+    except Exception:
+        pass
+
     return CogosStatusResponse(
         processes=ProcessCounts(total=len(all_procs), by_status=counts),
         files=file_count,
         capabilities=cap_count,
         recent_events=recent_event_count,
         recent_runs=recent_runs,
+        scheduler_last_tick=scheduler_tick,
     )

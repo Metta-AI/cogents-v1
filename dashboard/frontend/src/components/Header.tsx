@@ -20,6 +20,26 @@ interface HeaderProps {
   loading: boolean;
   error: string | null;
   wsConnected: boolean;
+  schedulerLastTick: string | null;
+}
+
+function useTickAgo(schedulerLastTick: string | null): string | null {
+  const [ago, setAgo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!schedulerLastTick) { setAgo(null); return; }
+    const update = () => {
+      const ms = Date.now() - new Date(schedulerLastTick).getTime();
+      if (ms < 0) { setAgo(null); return; }
+      if (ms < 1000) setAgo("<1s");
+      else if (ms < 60_000) setAgo(`${Math.floor(ms / 1000)}s`);
+      else if (ms < 3_600_000) setAgo(`${Math.floor(ms / 60_000)}m`);
+      else setAgo(`${Math.floor(ms / 3_600_000)}h`);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [schedulerLastTick]);
+  return ago;
 }
 
 export function Header({
@@ -31,6 +51,7 @@ export function Header({
   loading,
   error,
   wsConnected,
+  schedulerLastTick,
 }: HeaderProps) {
   // Show spin for at least 400ms so the user sees feedback
   const [spinning, setSpinning] = useState(false);
@@ -40,6 +61,7 @@ export function Header({
     setTimeout(() => setSpinning(false), 400);
   }, [onRefresh]);
   const showSpin = loading || spinning;
+  const tickAgo = useTickAgo(schedulerLastTick);
 
   // Debounce WS connected state to avoid rapid flickering
   const [stableConnected, setStableConnected] = useState(false);
@@ -82,6 +104,20 @@ export function Header({
         >
           {statusText}
         </span>
+        {/* Scheduler heartbeat */}
+        {tickAgo != null && (
+          <span
+            title={`Last scheduler tick: ${schedulerLastTick}`}
+            style={{
+              fontSize: "10px",
+              fontFamily: "var(--font-mono)",
+              color: parseInt(tickAgo) > 10 ? "var(--warning)" : "var(--text-muted)",
+              opacity: 0.7,
+            }}
+          >
+            tick {tickAgo} ago
+          </span>
+        )}
         {/* WebSocket connection indicator */}
         <span
           title={stableConnected ? "Real-time connected" : "Real-time disconnected — polling for updates"}

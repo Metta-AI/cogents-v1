@@ -247,7 +247,7 @@ class ComputeConstruct(Construct):
             handler="brain.lambdas.dispatcher.handler.handler",
             code=lambda_code,
             memory_size=256,
-            timeout=Duration.seconds(60),
+            timeout=Duration.seconds(65),
             role=dispatcher_role,
             environment=env,
         )

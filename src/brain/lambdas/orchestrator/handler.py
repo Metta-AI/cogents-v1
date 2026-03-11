@@ -73,6 +73,10 @@ def handler(event: dict, context) -> dict:
         logger.exception("Failed to log event to database")
         return {"statusCode": 500, "body": "event_log_failed"}
 
+    # Run a CogOS scheduler tick so handler processes react immediately
+    _cogos_scheduler_tick(config)
+
+
     # Handle task:run events directly — look up task, dispatch its program
     if brain_event.event_type == "task:run":
         return _handle_task_run(config, repo, brain_event, event_id)
@@ -254,6 +258,30 @@ def _dispatch_lambda(config, lambda_client, payload: str, program_name: str):
         Payload=payload.encode(),
     )
     logger.info(f"Dispatched to Lambda: {program_name}")
+
+
+def _cogos_scheduler_tick(config) -> None:
+    """Run one CogOS scheduler tick inline so event-driven processes react immediately."""
+    try:
+        from brain.lambdas.dispatcher.handler import _tick
+
+        from cogos.db.repository import Repository as CogosRepo
+        from cogos.capabilities.scheduler import SchedulerCapability
+        cogos_repo = CogosRepo.create()
+
+        from uuid import UUID as _UUID
+        scheduler = SchedulerCapability(cogos_repo, _UUID("00000000-0000-0000-0000-000000000000"))
+
+        import os as _os
+        lambda_client = boto3.client("lambda", region_name=config.region)
+        safe_name = _os.environ.get("COGENT_NAME", "").replace(".", "-")
+        executor_fn = f"cogent-{safe_name}-executor"
+
+        dispatched = _tick(scheduler, cogos_repo, lambda_client, executor_fn)
+        if dispatched:
+            logger.info(f"CogOS: inline tick dispatched {dispatched} processes")
+    except Exception:
+        logger.debug("CogOS scheduler tick skipped", exc_info=True)
 
 
 def _dispatch_ecs(config, ecs_client, payload: str, program_name: str,
