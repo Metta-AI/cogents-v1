@@ -25,6 +25,34 @@ function statusVariant(value: boolean | null): "accent" | "warning" | "error" | 
   return "default";
 }
 
+function inboundWiringState(
+  status: DiscordSetupStatus | null,
+): { value: string; variant: "accent" | "warning" | "default" } {
+  if (!status) {
+    return { value: "Unknown", variant: "default" };
+  }
+
+  const wiringConfigured =
+    status.cogos_initialized &&
+    status.capability_enabled &&
+    status.dm_handler_enabled &&
+    status.mention_handler_enabled;
+  const bridgeRunning =
+    status.bridge_running_count == null ? null : status.bridge_running_count > 0;
+
+  if (!wiringConfigured) {
+    return { value: "Missing", variant: "warning" };
+  }
+  if (status.secret_configured == null || bridgeRunning == null) {
+    return { value: "Unknown", variant: "default" };
+  }
+  if (status.secret_configured !== true || bridgeRunning !== true) {
+    return { value: "Blocked", variant: "warning" };
+  }
+
+  return { value: "Ready", variant: "accent" };
+}
+
 function nextAction(status: DiscordSetupStatus | null, cogentName: string): { title: string; detail: string; command?: string } {
   if (!status) {
     return {
@@ -118,9 +146,9 @@ export function SetupPanel({ cogentName }: SetupPanelProps) {
     refresh();
   }, [refresh]);
 
-  const handlersReady = !!discord?.dm_handler_enabled && !!discord?.mention_handler_enabled;
-  const bridgeRunning = (discord?.bridge_running_count ?? 0) > 0;
+  const bridgeRunning = discord?.bridge_running_count == null ? null : discord.bridge_running_count > 0;
   const action = useMemo(() => nextAction(discord, cogentName), [discord, cogentName]);
+  const inboundWiring = useMemo(() => inboundWiringState(discord), [discord]);
 
   return (
     <div className="space-y-5">
@@ -173,12 +201,12 @@ export function SetupPanel({ cogentName }: SetupPanelProps) {
             <StatCard
               value={statusLabel(bridgeRunning, "Running", "Stopped", "Unknown")}
               label="Bridge Service"
-              variant={statusVariant(discord ? bridgeRunning : null)}
+              variant={statusVariant(bridgeRunning)}
             />
             <StatCard
-              value={statusLabel(handlersReady && !!discord?.capability_enabled, "Ready", "Missing")}
+              value={inboundWiring.value}
               label="Inbound Wiring"
-              variant={statusVariant(discord ? handlersReady && !!discord.capability_enabled : null)}
+              variant={inboundWiring.variant}
             />
           </div>
 
@@ -200,12 +228,16 @@ export function SetupPanel({ cogentName }: SetupPanelProps) {
           </div>
 
           <Step index={1} title="Create and invite the bot">
-            Create a Discord application, add a bot user, enable <span className="font-semibold text-[var(--text-primary)]">Message Content Intent</span>, then invite the bot into the server you want to test in.
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Badge variant="info">Direct messages work</Badge>
-              <Badge variant="info">@mentions work</Badge>
-              <Badge variant="warning">Plain channel messages do not</Badge>
-            </div>
+            Start in the{" "}
+            <a
+              href="https://discord.com/developers/applications"
+              target="_blank"
+              rel="noreferrer"
+              className="text-[var(--accent)] hover:underline"
+            >
+              Discord Developer Portal
+            </a>
+            , create a new application, open the <span className="font-semibold text-[var(--text-primary)]">Bot</span> page to confirm the bot user and enable <span className="font-semibold text-[var(--text-primary)]">Message Content Intent</span>, then invite it into the server you want to test from the <span className="font-semibold text-[var(--text-primary)]">Installation</span> page.
           </Step>
 
           <Step index={2} title="Store the bot token in polis secrets">
