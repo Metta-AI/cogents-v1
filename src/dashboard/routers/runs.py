@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
+import boto3
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
@@ -59,6 +60,19 @@ class RunsResponse(BaseModel):
     runs: list[RunSummary]
 
 
+class RunLogEntry(BaseModel):
+    timestamp: str
+    message: str
+    log_stream: str
+
+
+class RunLogsResponse(BaseModel):
+    log_group: str
+    log_stream: str | None = None
+    entries: list[RunLogEntry]
+    error: str | None = None
+
+
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
@@ -68,6 +82,31 @@ def _iso(dt: datetime | None) -> str | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.isoformat()
+
+
+def _utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _executor_log_group(name: str) -> str:
+    safe_name = name.replace(".", "-")
+    return f"/aws/lambda/cogent-{safe_name}-executor"
+
+
+def _log_window(run: Run) -> tuple[int, int]:
+    now = datetime.now(timezone.utc)
+    created_at = _utc(run.created_at) or now
+    completed_at = _utc(run.completed_at)
+    start = created_at - timedelta(minutes=2)
+    end_candidates = [now, created_at + timedelta(minutes=15)]
+    if completed_at is not None:
+        end_candidates.append(completed_at + timedelta(minutes=2))
+    end = max(end_candidates)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
 
 
 def _summary(
@@ -140,3 +179,75 @@ def get_run(name: str, run_id: str) -> RunDetail:
     if not r:
         raise HTTPException(status_code=404, detail="Run not found")
     return _detail(r)
+
+
+@router.get("/runs/{run_id}/logs", response_model=RunLogsResponse)
+def get_run_logs(
+    name: str,
+    run_id: str,
+    limit: int = Query(20, ge=1, le=100),
+) -> RunLogsResponse:
+    repo = get_repo()
+    run = repo.get_run(UUID(run_id))
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    log_group = _executor_log_group(name)
+    start_ms, end_ms = _log_window(run)
+    logs = boto3.client("logs", region_name="us-east-1")
+
+    try:
+        seed = logs.filter_log_events(
+            logGroupName=log_group,
+            startTime=start_ms,
+            endTime=end_ms,
+            filterPattern=run_id,
+            limit=20,
+        )
+    except logs.exceptions.ResourceNotFoundException:
+        return RunLogsResponse(log_group=log_group, entries=[])
+    except Exception as exc:
+        logger.warning("Failed to locate CloudWatch logs for run %s: %s", run_id, exc)
+        return RunLogsResponse(
+            log_group=log_group,
+            entries=[],
+            error="CloudWatch log preview is unavailable from this environment.",
+        )
+
+    stream_name = next(
+        (event.get("logStreamName") for event in seed.get("events", []) if event.get("logStreamName")),
+        None,
+    )
+    if not stream_name:
+        return RunLogsResponse(log_group=log_group, entries=[])
+
+    try:
+        stream_events = logs.filter_log_events(
+            logGroupName=log_group,
+            logStreamNames=[stream_name],
+            startTime=start_ms,
+            endTime=end_ms,
+            limit=limit,
+        )
+    except Exception as exc:
+        logger.warning("Failed to fetch CloudWatch log preview for run %s: %s", run_id, exc)
+        return RunLogsResponse(
+            log_group=log_group,
+            log_stream=stream_name,
+            entries=[],
+            error="CloudWatch log preview is unavailable from this environment.",
+        )
+
+    entries = [
+        RunLogEntry(
+            timestamp=datetime.fromtimestamp(event["timestamp"] / 1000, tz=timezone.utc).isoformat(),
+            message=event["message"].rstrip(),
+            log_stream=event["logStreamName"],
+        )
+        for event in sorted(
+            stream_events.get("events", []),
+            key=lambda event: (event["timestamp"], event.get("eventId", "")),
+        )
+    ]
+
+    return RunLogsResponse(log_group=log_group, log_stream=stream_name, entries=entries[:limit])

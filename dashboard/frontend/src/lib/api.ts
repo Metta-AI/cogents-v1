@@ -11,6 +11,7 @@ import type {
   CapabilityProcess,
   CogosHandler,
   CogosRun,
+  CogosRunLogsResponse,
   EventType,
   Resource,
   Alert,
@@ -336,6 +337,14 @@ export async function getRuns(name: string): Promise<CogosRun[]> {
     `/api/cogents/${name}/runs`,
   );
   return r.runs;
+}
+
+export async function getRunLogs(
+  name: string,
+  runId: string,
+  limit = 20,
+): Promise<CogosRunLogsResponse> {
+  return fetchJSON(`/api/cogents/${name}/runs/${runId}/logs?limit=${limit}`);
 }
 
 // ── Trigger management (stubs until backend routes exist) ────────────────────

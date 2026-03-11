@@ -340,6 +340,12 @@ class BrainStack(Stack):
                 resources=["*"],
             )
         )
+        task_def.task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["logs:FilterLogEvents"],
+                resources=["*"],
+            )
+        )
         self.storage.bucket.grant_read_write(task_def.task_role)
 
         # Fargate service

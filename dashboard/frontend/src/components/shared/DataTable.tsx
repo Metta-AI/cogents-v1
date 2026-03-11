@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { Fragment, useCallback, useState } from "react";
 
 export interface Column<T> {
   key: string;
@@ -14,6 +14,9 @@ interface DataTableProps<T> {
   rows: T[];
   onRowClick?: (row: T) => void;
   emptyMessage?: string;
+  getRowId?: (row: T, index: number) => string;
+  expandedRowIds?: Set<string>;
+  renderExpandedRow?: (row: T) => React.ReactNode;
 }
 
 type SortDir = "asc" | "desc";
@@ -23,6 +26,9 @@ export function DataTable<T extends Record<string, unknown>>({
   rows,
   onRowClick,
   emptyMessage = "No data",
+  getRowId,
+  expandedRowIds,
+  renderExpandedRow,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -91,28 +97,41 @@ export function DataTable<T extends Record<string, unknown>>({
               </td>
             </tr>
           ) : (
-            sorted.map((row, i) => (
-              <tr
-                key={i}
-                className={`border-b border-[var(--border)] hover:bg-[var(--bg-hover)] transition-colors ${
-                  onRowClick ? "cursor-pointer" : ""
-                }`}
-                onClick={() => onRowClick?.(row)}
-              >
-                {columns.map((col) => (
-                  <td
-                    key={col.key}
-                    className="px-3 py-2 font-mono text-[var(--text-secondary)]"
+            sorted.map((row, i) => {
+              const rowId = getRowId ? getRowId(row, i) : String(i);
+              const isExpanded = Boolean(renderExpandedRow && expandedRowIds?.has(rowId));
+
+              return (
+                <Fragment key={rowId}>
+                  <tr
+                    className={`border-b border-[var(--border)] hover:bg-[var(--bg-hover)] transition-colors ${
+                      onRowClick ? "cursor-pointer" : ""
+                    }`}
+                    onClick={() => onRowClick?.(row)}
                   >
-                    {col.render
-                      ? col.render(row)
-                      : (row[col.key] as React.ReactNode) ?? (
-                          <span className="text-[var(--text-muted)]">--</span>
-                        )}
-                  </td>
-                ))}
-              </tr>
-            ))
+                    {columns.map((col) => (
+                      <td
+                        key={col.key}
+                        className="px-3 py-2 font-mono text-[var(--text-secondary)]"
+                      >
+                        {col.render
+                          ? col.render(row)
+                          : (row[col.key] as React.ReactNode) ?? (
+                              <span className="text-[var(--text-muted)]">--</span>
+                            )}
+                      </td>
+                    ))}
+                  </tr>
+                  {isExpanded && (
+                    <tr className="border-b border-[var(--border)] bg-[var(--bg-deep)]">
+                      <td colSpan={columns.length} className="px-3 py-3">
+                        {renderExpandedRow?.(row)}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })
           )}
         </tbody>
       </table>

@@ -126,6 +126,19 @@ export interface CogosRun {
   created_at: string | null;
 }
 
+export interface CogosRunLogEntry {
+  timestamp: string;
+  message: string;
+  log_stream: string;
+}
+
+export interface CogosRunLogsResponse {
+  log_group: string;
+  log_stream: string | null;
+  entries: CogosRunLogEntry[];
+  error: string | null;
+}
+
 export interface CogosStatus {
   processes: { total: number; by_status: Record<string, number> };
   files: number;
