@@ -293,6 +293,9 @@ export function EventsPanel({ events, cogentName, triggers, timeRange, onTabChan
             onChange={(e) => setNewEventName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleAddEventType(); }}
             placeholder="event:name"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded px-2 py-1 text-[11px] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] font-mono"
             style={{ width: "180px" }}
           />

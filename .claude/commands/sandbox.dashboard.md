@@ -22,7 +22,7 @@ Launch the local dashboard (backend + frontend) in the background.
 4. Start the frontend:
    ```bash
    cd $REPO_ROOT/dashboard/frontend
-   nohup npx next dev -p $DASHBOARD_FE_PORT > /tmp/cogent-frontend.log 2>&1 & disown
+   nohup env DASHBOARD_BE_PORT=$DASHBOARD_BE_PORT npx next dev -p $DASHBOARD_FE_PORT > /tmp/cogent-frontend.log 2>&1 & disown
    ```
 
 5. Wait a few seconds, then verify both are responding:
