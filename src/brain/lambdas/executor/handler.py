@@ -65,6 +65,11 @@ CODE_MODE_TOOL_CONFIG = {"tools": [
 
 def handler(event: dict, context) -> dict:
     """Lambda entry point — parse payload and execute program."""
+    # Delegate to CogOS executor if this is a cogos process invocation
+    if event.get("process_id"):
+        from cogos.executor.handler import handler as cogos_handler
+        return cogos_handler(event, context)
+
     config = get_config()
     repo = get_repo()
 

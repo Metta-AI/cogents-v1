@@ -323,13 +323,17 @@ def _handle_search(tool_input: dict, process: Process, repo: Repository) -> str:
 def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Repository) -> None:
     """Inject capability proxy objects into the variable table.
 
-    For MVP, we set up simple namespace objects: files, procs, events.
-    These call through to the repository directly.
+    Dynamically loads all capabilities bound to this process via their
+    handler class path, falling back to built-in proxies for files/procs/events.
     """
+    import importlib
+    import inspect
+
     from cogos.files.store import FileStore
 
     file_store = FileStore(repo)
 
+    # Built-in proxies for core capabilities
     class FilesProxy:
         def read(self, key: str) -> dict | None:
             f = file_store.get(key)
@@ -373,3 +377,28 @@ def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Reposit
     vt.set("procs", ProcsProxy())
     vt.set("events", EventsProxy())
     vt.set("print", print)
+
+    # Dynamically load additional capabilities bound to this process
+    pcs = repo.list_process_capabilities(process.id)
+    for pc in pcs:
+        cap = repo.get_capability(pc.capability)
+        if cap is None or not cap.enabled:
+            continue
+        ns = cap.name.split("/")[0] if "/" in cap.name else cap.name
+        if ns in ("files", "procs", "events", "scheduler"):
+            continue  # already set up above
+        if ":" in cap.handler:
+            mod_path, attr_name = cap.handler.rsplit(":", 1)
+        elif "." in cap.handler:
+            mod_path, attr_name = cap.handler.rsplit(".", 1)
+        else:
+            continue
+        try:
+            mod = importlib.import_module(mod_path)
+            handler_cls = getattr(mod, attr_name)
+            if inspect.isclass(handler_cls):
+                vt.set(ns, handler_cls(repo, process.id))
+            else:
+                vt.set(ns, handler_cls)
+        except (ImportError, AttributeError) as exc:
+            logger.warning("Could not load capability %s (%s): %s", cap.name, cap.handler, exc)

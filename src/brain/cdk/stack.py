@@ -102,6 +102,11 @@ class BrainStack(Stack):
         # 7. Discord bridge (Fargate on shared cogent-polis cluster)
         self._create_discord_bridge(config, safe_name)
 
+        # Pass Discord reply queue URL to executor Lambda for cogos discord capability
+        self.compute.executor.add_environment(
+            "DISCORD_REPLY_QUEUE_URL", self.discord_reply_queue.queue_url,
+        )
+
         # 8. Dashboard (ALB + Fargate on shared cogent-polis cluster)
         if certificate_arn:
             self._create_dashboard(config, safe_name, certificate_arn)

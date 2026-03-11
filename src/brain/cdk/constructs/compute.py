@@ -71,6 +71,7 @@ class ComputeConstruct(Construct):
             "COGENT_NAME": config.cogent_name,
             "COGENT_ID": config.cogent_name,
             "DB_CLUSTER_ARN": db_cluster_arn,
+            "DB_RESOURCE_ARN": db_cluster_arn,
             "DB_SECRET_ARN": db_secret_arn,
             "DB_NAME": "cogent",
             "EVENT_BUS_NAME": event_bus_name,

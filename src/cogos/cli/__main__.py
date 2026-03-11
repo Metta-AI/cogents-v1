@@ -154,21 +154,22 @@ def boot(ctx: click.Context, name: str, clean: bool):
 
     repo = _repo()
 
-    # Run migration
-    migration = Path(__file__).parent.parent / "db" / "migrations" / "001_create_tables.sql"
-    if migration.exists():
-        sql = migration.read_text()
-        for stmt in sql.split(";"):
-            stmt = stmt.strip()
-            if stmt and not stmt.startswith("--"):
-                try:
-                    repo.execute(stmt)
-                except Exception as e:
-                    if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
-                        pass
-                    else:
-                        click.echo(f"  Warning: {e}")
-        click.echo("Migration applied.")
+    # Run migrations in order
+    migrations_dir = Path(__file__).parent.parent / "db" / "migrations"
+    if migrations_dir.is_dir():
+        for migration in sorted(migrations_dir.glob("*.sql")):
+            sql = migration.read_text()
+            for stmt in sql.split(";"):
+                stmt = stmt.strip()
+                if stmt and not stmt.startswith("--"):
+                    try:
+                        repo.execute(stmt)
+                    except Exception as e:
+                        if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                            pass
+                        else:
+                            click.echo(f"  Warning ({migration.name}): {e}")
+        click.echo("Migrations applied.")
 
     if clean:
         if hasattr(repo, "clear_all"):
