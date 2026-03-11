@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -117,6 +118,14 @@ class ProcessesResponse(BaseModel):
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
+def _iso(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
 def _summary(p: Process) -> ProcessSummary:
     return ProcessSummary(
         id=str(p.id),
@@ -129,8 +138,8 @@ def _summary(p: Process) -> ProcessSummary:
         preemptible=p.preemptible,
         retry_count=p.retry_count,
         max_retries=p.max_retries,
-        created_at=str(p.created_at) if p.created_at else None,
-        updated_at=str(p.updated_at) if p.updated_at else None,
+        created_at=_iso(p.created_at),
+        updated_at=_iso(p.updated_at),
     )
 
 
@@ -159,8 +168,8 @@ def _detail(p: Process) -> ProcessDetail:
         clear_context=p.clear_context,
         metadata=p.metadata,
         output_events=p.output_events,
-        created_at=str(p.created_at) if p.created_at else None,
-        updated_at=str(p.updated_at) if p.updated_at else None,
+        created_at=_iso(p.created_at),
+        updated_at=_iso(p.updated_at),
     )
 
 
@@ -319,8 +328,8 @@ def get_process(name: str, process_id: str) -> dict:
             "duration_ms": r.duration_ms,
             "error": r.error,
             "result": r.result,
-            "created_at": str(r.created_at) if r.created_at else None,
-            "completed_at": str(r.completed_at) if r.completed_at else None,
+            "created_at": _iso(r.created_at),
+            "completed_at": _iso(r.completed_at),
         }
         for r in runs
     ]

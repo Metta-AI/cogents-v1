@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -61,6 +62,14 @@ class RunsResponse(BaseModel):
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
+def _iso(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
 def _summary(
     r: Run,
     process_names: dict[UUID, str] | None = None,
@@ -80,8 +89,8 @@ def _summary(
         duration_ms=r.duration_ms,
         error=r.error,
         model_version=r.model_version,
-        created_at=str(r.created_at) if r.created_at else None,
-        completed_at=str(r.completed_at) if r.completed_at else None,
+        created_at=_iso(r.created_at),
+        completed_at=_iso(r.completed_at),
     )
 
 
@@ -100,8 +109,8 @@ def _detail(r: Run) -> RunDetail:
         model_version=r.model_version,
         result=r.result,
         scope_log=r.scope_log,
-        created_at=str(r.created_at) if r.created_at else None,
-        completed_at=str(r.completed_at) if r.completed_at else None,
+        created_at=_iso(r.created_at),
+        completed_at=_iso(r.completed_at),
     )
 
 
