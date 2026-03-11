@@ -213,6 +213,13 @@ class LocalRepository:
         self._maybe_reload()
         return self._processes.get(process_id)
 
+    def delete_process(self, process_id: UUID) -> bool:
+        if process_id in self._processes:
+            del self._processes[process_id]
+            self._save()
+            return True
+        return False
+
     def list_processes(self, *, status: ProcessStatus | None = None, limit: int = 200) -> list[Process]:
         self._maybe_reload()
         procs = list(self._processes.values())

@@ -1028,6 +1028,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
   const [form, setForm] = useState<ProcessForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [detailRuns, setDetailRuns] = useState<CogosProcessRun[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [resolvedPrompt, setResolvedPrompt] = useState<string>("");
@@ -1136,9 +1137,11 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
       }
       setEditingId(null);
       setForm(EMPTY_FORM);
+      setError(null);
       onRefresh();
     } catch (err) {
-      console.error("Failed to save process:", err);
+      setError(err instanceof Error ? err.message : "Failed to save process");
+      onRefresh();
     }
     setSaving(false);
   }, [form, editingId, cogentName, onRefresh]);
@@ -1149,14 +1152,22 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
       setConfirmDeleteId(null);
       setSelectedId(null);
       setEditingId(null);
+      setError(null);
       onRefresh();
     } catch (err) {
-      console.error("Failed to delete process:", err);
+      setError(err instanceof Error ? err.message : "Failed to delete process");
+      onRefresh();
     }
   }, [cogentName, onRefresh]);
 
   return (
     <div>
+      {error && (
+        <div className="mb-3 px-3 py-2 rounded text-[12px] bg-red-500/10 text-red-400 border border-red-500/30 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-300 bg-transparent border-0 cursor-pointer">✕</button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-[var(--text-primary)]">
@@ -1255,7 +1266,12 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                   background: isSelected ? "var(--bg-hover)" : "var(--bg-surface)",
                   borderBottom: "1px solid var(--border)",
                 }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Process ${proc.name}`}
+                aria-expanded={isSelected}
                 onClick={() => handleSelect(proc.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleSelect(proc.id); } }}
                 onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"; }}
                 onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-surface)"; }}
               >

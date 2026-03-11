@@ -368,6 +368,13 @@ class Repository:
             for r in self._rows_to_dicts(response)
         ]
 
+    def delete_process(self, process_id: UUID) -> bool:
+        response = self._execute(
+            "DELETE FROM cogos_process WHERE id = :id",
+            [self._param("id", process_id)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
     def delete_process_capability(self, pc_id: UUID) -> bool:
         response = self._execute(
             "DELETE FROM cogos_process_capability WHERE id = :id",

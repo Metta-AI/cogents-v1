@@ -11,9 +11,13 @@ Circular includes are detected and reported as errors in the output.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cogos.files.store import FileStore
+
+if TYPE_CHECKING:
+    from cogos.db.models import Process
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,37 @@ class ContextEngine:
         if file is None:
             raise ValueError(f"File not found: {file_id}")
         return self._resolve_key(file.key, visited=set())
+
+    def generate_full_prompt(self, process: Process) -> str:
+        """Build the complete prompt for a process.
+
+        Resolves all attached files (with their includes) and prepends
+        them before ``process.content``.  This is the single source of
+        truth used by both the executor and the dashboard.
+        """
+        sections: list[str] = []
+        visited: set[str] = set()
+
+        # Resolve each attached file (process.files)
+        for fid in process.files or []:
+            file = self._store.get_by_id(fid)
+            if not file or file.key in visited:
+                continue
+            visited.add(file.key)
+            sections.append(self._resolve_key(file.key, visited=set(visited)))
+
+        # Legacy: single code FK (only if no files list)
+        if process.code and not process.files:
+            file = self._store.get_by_id(process.code)
+            if file and file.key not in visited:
+                visited.add(file.key)
+                sections.append(self._resolve_key(file.key, visited=set(visited)))
+
+        # Append process.content last
+        if process.content:
+            sections.append(f"--- content ---\n{process.content}")
+
+        return "\n\n".join(sections) if sections else ""
 
     # ------------------------------------------------------------------
     # Internal

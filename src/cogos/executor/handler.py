@@ -197,14 +197,12 @@ def execute_process(
     """Execute process via Bedrock converse API with search + run_code tool loop."""
     bedrock = bedrock_client or boto3.client("bedrock-runtime", region_name=config.region)
 
-    # Load prompt from File if code FK is set
-    system_prompt = ""
-    if process.code:
-        from cogos.files.store import FileStore
-        file_store = FileStore(repo)
-        content = file_store.get_content_by_id(process.code)
-        if content:
-            system_prompt = content
+    # Build system prompt using the shared ContextEngine
+    from cogos.files.context_engine import ContextEngine
+    from cogos.files.store import FileStore
+    file_store = FileStore(repo)
+    ctx = ContextEngine(file_store)
+    system_prompt = ctx.generate_full_prompt(process)
 
     if not system_prompt:
         system_prompt = "You are a CogOS process. Follow your instructions and use capabilities to accomplish your task."
