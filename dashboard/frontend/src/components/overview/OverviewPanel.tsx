@@ -52,9 +52,9 @@ export function OverviewPanel({ data }: Props) {
         <StatCard value={cs ? cs.files : data.files.length || null} label="Files" />
         <StatCard value={cs ? cs.capabilities : data.capabilities.length || null} label="Capabilities" />
         <StatCard
-          value={s ? s.unresolved_alerts : null}
+          value={s ? s.unresolved_alerts : data.alerts.filter((a) => !a.resolved_at).length}
           label="Alerts"
-          variant={(s?.unresolved_alerts ?? 0) > 0 ? "error" : "default"}
+          variant={(s?.unresolved_alerts ?? data.alerts.filter((a) => !a.resolved_at).length) > 0 ? "error" : "default"}
         />
         <StatCard value={cs ? cs.recent_events : s ? s.recent_events : null} label="Recent Events" />
       </div>

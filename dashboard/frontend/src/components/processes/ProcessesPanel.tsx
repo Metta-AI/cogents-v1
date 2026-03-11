@@ -1904,9 +1904,9 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                                       setExpandedPromptFiles((prev) => new Set([...prev, entry.key]));
                                     }}
                                     className="text-[9px] text-[var(--text-muted)] hover:text-[var(--accent)] bg-transparent border-0 cursor-pointer p-0 leading-none"
-                                    title="Edit file"
+                                    title="Edit file contents"
                                   >
-                                    Edit
+                                    edit
                                   </button>
                                 )}
                               </div>
