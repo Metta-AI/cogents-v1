@@ -302,6 +302,7 @@ def get_process(name: str, process_id: str) -> dict:
     # Resolve full prompt: file content + includes
     ctx = ContextEngine(FileStore(repo))
     resolved_prompt = ctx.generate_full_prompt(p)
+    prompt_tree = ctx.resolve_prompt_tree(p)
 
     # Capabilities granted to this process
     pcs = repo.list_process_capabilities(p.id)
@@ -322,7 +323,6 @@ def get_process(name: str, process_id: str) -> dict:
             file_keys.append(f.key)
 
     # Includes — files under "includes/" prefix
-    from cogos.files.store import FileStore
     file_store = FileStore(repo)
     include_files = file_store.list_files(prefix="includes/")
     includes = []
@@ -342,6 +342,7 @@ def get_process(name: str, process_id: str) -> dict:
         "process": _detail(p).model_dump(),
         "runs": run_list,
         "resolved_prompt": resolved_prompt,
+        "prompt_tree": prompt_tree,
         "capabilities": cap_names,
         "capability_configs": cap_configs,
         "file_keys": file_keys,

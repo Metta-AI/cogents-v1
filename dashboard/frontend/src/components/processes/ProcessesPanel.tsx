@@ -806,7 +806,7 @@ function ProcessFormEditor({
   cogentName,
 }: {
   form: ProcessForm;
-  onChange: (form: ProcessForm) => void;
+  onChange: React.Dispatch<React.SetStateAction<ProcessForm>>;
   onSave: () => void;
   onCancel: () => void;
   saving: boolean;
@@ -940,7 +940,7 @@ function ProcessFormEditor({
               type="button"
               onClick={() => {
                 const scratch = `/scratch/process/${form.name.trim()}/index.md`;
-                if (!form.files.includes(scratch)) onChange({ ...form, files: [...form.files, scratch] });
+                if (!form.files.includes(scratch)) onChange((prev) => ({ ...prev, files: [...prev.files, scratch] }));
               }}
               className="text-[10px] px-1.5 py-0 rounded bg-transparent border border-[var(--border)] text-[var(--accent)] cursor-pointer hover:border-[var(--accent)]"
             >
@@ -951,7 +951,7 @@ function ProcessFormEditor({
         <TagListEditor
           label=""
           items={form.files}
-          onChange={(files) => onChange({ ...form, files })}
+          onChange={(files) => onChange((prev) => ({ ...prev, files }))}
           suggestions={fileSuggestions}
         />
       </div>
@@ -960,7 +960,7 @@ function ProcessFormEditor({
       <TagListEditor
         label="Resources"
         items={form.resources}
-        onChange={(resources) => onChange({ ...form, resources })}
+        onChange={(resources) => onChange((prev) => ({ ...prev, resources }))}
         suggestions={resourceSuggestions}
       />
 
@@ -976,8 +976,7 @@ function ProcessFormEditor({
               key={tpl.label}
               onClick={() => {
                 const available = tpl.caps.filter((c) => capabilitySuggestions.includes(c));
-                const merged = [...new Set([...form.capabilities, ...available])];
-                onChange({ ...form, capabilities: merged });
+                onChange((prev) => ({ ...prev, capabilities: [...new Set([...prev.capabilities, ...available])] }));
               }}
               className="text-[10px] px-1.5 py-0 rounded bg-transparent border border-[var(--border)] text-[var(--accent)] cursor-pointer hover:border-[var(--accent)]"
             >
@@ -988,8 +987,8 @@ function ProcessFormEditor({
         <CapabilityEditor
           items={form.capabilities}
           configs={form.capabilityConfigs}
-          onChange={(capabilities) => onChange({ ...form, capabilities })}
-          onConfigChange={(capabilityConfigs) => onChange({ ...form, capabilityConfigs })}
+          onChange={(capabilities) => onChange((prev) => ({ ...prev, capabilities }))}
+          onConfigChange={(capabilityConfigs) => onChange((prev) => ({ ...prev, capabilityConfigs }))}
           suggestions={capabilitySuggestions}
           cogentName={cogentName}
         />
@@ -1033,6 +1032,8 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [resolvedPrompt, setResolvedPrompt] = useState<string>("");
   const [showResolved, setShowResolved] = useState(false);
+  const [promptTree, setPromptTree] = useState<Array<{ key: string; content: string; is_direct: boolean }>>([]);
+  const [expandedPromptFiles, setExpandedPromptFiles] = useState<Set<string>>(new Set());
   const [detailFileKeys, setDetailFileKeys] = useState<string[]>([]);
   const [detailCapabilities, setDetailCapabilities] = useState<string[]>([]);
   const [detailCapConfigs, setDetailCapConfigs] = useState<Record<string, CapabilityConfig>>({});
@@ -1057,20 +1058,8 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
     return map;
   }, [runs]);
 
-  const handleSelect = useCallback(async (id: string) => {
-    if (selectedId === id) {
-      setSelectedId(null);
-      setDetailRuns([]);
-      setResolvedPrompt("");
-      setShowResolved(false);
-      setDetailIncludes([]);
-      setExpandedIncludes(new Set());
-      setDetailHandlers([]);
-      return;
-    }
-    setSelectedId(id);
+  const fetchDetail = useCallback(async (id: string) => {
     setLoadingDetail(true);
-    setShowResolved(false);
     try {
       const detail = await api.getProcessDetail(cogentName, id);
       setDetailRuns(detail.runs);
@@ -1081,6 +1070,8 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
       setDetailIncludes(detail.includes || []);
       setExpandedIncludes(new Set());
       setDetailHandlers(detail.handlers || []);
+      setPromptTree(detail.prompt_tree || []);
+      setExpandedPromptFiles(new Set());
     } catch {
       setDetailRuns([]);
       setResolvedPrompt("");
@@ -1090,9 +1081,29 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
       setDetailIncludes([]);
       setExpandedIncludes(new Set());
       setDetailHandlers([]);
+      setPromptTree([]);
+      setExpandedPromptFiles(new Set());
     }
     setLoadingDetail(false);
-  }, [selectedId, cogentName]);
+  }, [cogentName]);
+
+  const handleSelect = useCallback(async (id: string) => {
+    if (selectedId === id) {
+      setSelectedId(null);
+      setDetailRuns([]);
+      setResolvedPrompt("");
+      setShowResolved(false);
+      setDetailIncludes([]);
+      setExpandedIncludes(new Set());
+      setDetailHandlers([]);
+      setPromptTree([]);
+      setExpandedPromptFiles(new Set());
+      return;
+    }
+    setSelectedId(id);
+    setShowResolved(false);
+    await fetchDetail(id);
+  }, [selectedId, fetchDetail]);
 
   const handleNew = useCallback(() => {
     setEditingId("new");
@@ -1135,16 +1146,21 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
       } else {
         await api.updateProcess(cogentName, editingId!, body as Parameters<typeof api.updateProcess>[2]);
       }
+      const savedId = editingId;
       setEditingId(null);
       setForm(EMPTY_FORM);
       setError(null);
       onRefresh();
+      // Re-fetch detail so capabilities/files are fresh for next edit
+      if (savedId && savedId !== "new" && selectedId === savedId) {
+        await fetchDetail(savedId);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save process");
       onRefresh();
     }
     setSaving(false);
-  }, [form, editingId, cogentName, onRefresh]);
+  }, [form, editingId, cogentName, onRefresh, selectedId, fetchDetail]);
 
   const handleDelete = useCallback(async (id: string) => {
     try {
@@ -1377,24 +1393,70 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                     </div>
                   )}
 
-                  {/* Content with resolved prompt toggle */}
-                  {(proc.content || resolvedPrompt) && (
+                  {/* Prompt tree — collapsible per-file rows */}
+                  {promptTree.length > 0 && (
                     <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[10px] text-[var(--text-muted)] uppercase">
-                          {showResolved ? "Full Prompt" : "Content"}
-                        </span>
-                        {resolvedPrompt && resolvedPrompt !== proc.content && (
-                          <button
-                            onClick={() => setShowResolved((v) => !v)}
-                            className="text-[10px] px-1.5 py-0 rounded bg-transparent border border-[var(--border)] text-[var(--accent)] cursor-pointer hover:border-[var(--accent)]"
-                          >
-                            {showResolved ? "Show Raw" : "Show Full Prompt"}
-                          </button>
-                        )}
+                      <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">
+                        Prompt ({promptTree.length} {promptTree.length === 1 ? "section" : "sections"})
                       </div>
-                      <div className="text-[11px] text-[var(--text-secondary)] font-mono whitespace-pre-wrap p-2 rounded" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", maxHeight: "200px", overflowY: "auto" }}>
-                        {showResolved ? resolvedPrompt : (proc.content || "(empty)")}
+                      <div className="rounded overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                        {promptTree.map((entry) => {
+                          const isExpanded = expandedPromptFiles.has(entry.key);
+                          const isContent = entry.key === "<content>";
+                          return (
+                            <div key={entry.key} style={{ borderBottom: "1px solid var(--border)" }}>
+                              <div
+                                className="flex items-center gap-2 px-2 py-1 cursor-pointer text-[11px]"
+                                style={{ background: "var(--bg-surface)" }}
+                                onClick={() => setExpandedPromptFiles((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(entry.key)) next.delete(entry.key);
+                                  else next.add(entry.key);
+                                  return next;
+                                })}
+                              >
+                                <span className="text-[9px] text-[var(--text-muted)]" style={{ width: "10px" }}>
+                                  {isExpanded ? "▾" : "▸"}
+                                </span>
+                                <span className="font-mono text-[var(--text-secondary)] flex-1 truncate">
+                                  {isContent ? "content (inline)" : entry.key}
+                                </span>
+                                {!isContent && (
+                                  <span className="text-[9px] text-[var(--text-muted)]">
+                                    {entry.is_direct ? "direct" : "include"}
+                                  </span>
+                                )}
+                                {entry.is_direct && !isContent && (
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const newFiles = detailFileKeys.filter((k) => k !== entry.key);
+                                      try {
+                                        await api.updateProcess(cogentName, proc.id, { files: newFiles } as Parameters<typeof api.updateProcess>[2]);
+                                        onRefresh();
+                                        await fetchDetail(proc.id);
+                                      } catch (err) {
+                                        setError(err instanceof Error ? err.message : "Failed to remove file");
+                                      }
+                                    }}
+                                    className="text-[9px] text-[var(--text-muted)] hover:text-[var(--error)] bg-transparent border-0 cursor-pointer p-0 leading-none"
+                                    title="Remove from process"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                              {isExpanded && (
+                                <div
+                                  className="text-[11px] text-[var(--text-secondary)] font-mono whitespace-pre-wrap px-2 py-1.5"
+                                  style={{ background: "var(--bg-deep)", maxHeight: "300px", overflowY: "auto" }}
+                                >
+                                  {entry.content || "(empty)"}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

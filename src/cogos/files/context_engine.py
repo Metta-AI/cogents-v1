@@ -81,6 +81,79 @@ class ContextEngine:
 
         return "\n\n".join(sections) if sections else ""
 
+    def resolve_prompt_tree(self, process: Process) -> list[dict]:
+        """Build a structured dependency tree for the process prompt.
+
+        Returns a list of dicts in include-order (deepest deps first):
+        ``[{"key": str, "content": str, "is_direct": bool}, ...]``
+
+        Each file appears at most once.  ``is_direct`` is True for files
+        explicitly attached to the process (i.e. in ``process.files``).
+        The final entry (if ``process.content`` is set) has
+        ``key = "<content>"`` and ``is_direct = True``.
+        """
+        result: list[dict] = []
+        seen: set[str] = set()
+        direct_keys: set[str] = set()
+
+        # Collect direct file keys
+        for fid in process.files or []:
+            file = self._store.get_by_id(fid)
+            if file:
+                direct_keys.add(file.key)
+
+        # Legacy code FK
+        if process.code and not process.files:
+            file = self._store.get_by_id(process.code)
+            if file:
+                direct_keys.add(file.key)
+
+        # Resolve each direct file and its includes
+        for fid in process.files or []:
+            file = self._store.get_by_id(fid)
+            if not file or file.key in seen:
+                continue
+            self._collect_tree(file.key, seen, result, direct_keys)
+
+        if process.code and not process.files:
+            file = self._store.get_by_id(process.code)
+            if file and file.key not in seen:
+                self._collect_tree(file.key, seen, result, direct_keys)
+
+        # Append process.content last
+        if process.content:
+            result.append({
+                "key": "<content>",
+                "content": process.content,
+                "is_direct": True,
+            })
+
+        return result
+
+    def _collect_tree(
+        self,
+        key: str,
+        seen: set[str],
+        result: list[dict],
+        direct_keys: set[str],
+    ) -> None:
+        """Recursively collect files in dependency order (deps first)."""
+        if key in seen:
+            return
+        seen.add(key)
+
+        file = self._store.get(key)
+        if file is None:
+            result.append({"key": key, "content": f"[not found: {key}]", "is_direct": key in direct_keys})
+            return
+
+        # Resolve includes first (depth-first)
+        for include_key in file.includes:
+            self._collect_tree(include_key, seen, result, direct_keys)
+
+        content = self._store.get_content(key) or ""
+        result.append({"key": key, "content": content, "is_direct": key in direct_keys})
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

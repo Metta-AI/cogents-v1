@@ -300,10 +300,19 @@ class LocalRepository:
         """Upsert a process-capability binding by (process, capability) pair."""
         for existing in self._process_capabilities.values():
             if existing.process == pc.process and existing.capability == pc.capability:
+                existing.config = pc.config
+                self._save()
                 return existing.id
         self._process_capabilities[pc.id] = pc
         self._save()
         return pc.id
+
+    def delete_process_capability(self, pc_id: UUID) -> bool:
+        if pc_id in self._process_capabilities:
+            del self._process_capabilities[pc_id]
+            self._save()
+            return True
+        return False
 
     def list_process_capabilities(self, process_id: UUID) -> list[ProcessCapability]:
         self._maybe_reload()
