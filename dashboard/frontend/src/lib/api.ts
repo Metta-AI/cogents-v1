@@ -12,6 +12,7 @@ import type {
   CogosHandler,
   CogosRun,
   EventType,
+  Alert,
 } from "./types";
 
 function getApiKey(): string | null {
@@ -323,3 +324,51 @@ export async function getRuns(name: string): Promise<CogosRun[]> {
   );
   return r.runs;
 }
+
+// ── Trigger management (stubs until backend routes exist) ────────────────────
+
+export async function createTrigger(_name: string, _body: Record<string, unknown>): Promise<unknown> { return {}; }
+export async function updateTrigger(_name: string, _id: string, _body: Record<string, unknown>): Promise<unknown> { return {}; }
+export async function deleteTrigger(_name: string, _id: string): Promise<void> {}
+
+// ── Tool management (stubs until backend routes exist) ───────────────────────
+
+export async function updateTool(_name: string, _id: string, _body: Record<string, unknown>): Promise<unknown> { return {}; }
+export async function deleteTool(_name: string, _id: string): Promise<void> {}
+export async function toggleTools(_name: string, _ids: string[], _enabled: boolean): Promise<void> {}
+
+// ── Task management (stubs until backend routes exist) ───────────────────────
+
+export async function createTask(_name: string, _body: Record<string, unknown>): Promise<unknown> { return {}; }
+export async function updateTask(_name: string, _id: string, _body: Record<string, unknown>): Promise<unknown> { return {}; }
+export async function deleteTask(_name: string, _id: string): Promise<void> {}
+export async function getTaskDetail(_name: string, _id: string): Promise<{ runs: never[]; task: { content: string | null } }> { return { runs: [], task: { content: null } }; }
+
+// ── Memory management (stubs until backend routes exist) ─────────────────────
+
+export async function createMemory(
+  _name: string,
+  _body: { name: string; content: string; group?: string },
+): Promise<unknown> { return {}; }
+export async function updateMemory(
+  _name: string,
+  _key: string,
+  _body: { content: string },
+): Promise<{ versions: { version: number }[] }> { return { versions: [{ version: 1 }] }; }
+export async function deleteMemory(_name: string, _key: string): Promise<void> {}
+export async function activateVersion(_name: string, _key: string, _version: number): Promise<void> {}
+export async function updateVersionContent(
+  _name: string,
+  _key: string,
+  _version: number,
+  _content: string,
+): Promise<unknown> { return {}; }
+export async function deleteVersion(_name: string, _key: string, _version: number): Promise<void> {}
+
+// ── Alert management (stubs until backend routes exist) ─────────────────────
+
+export async function resolveAlert(_name: string, _id: string): Promise<void> {}
+export async function resolveAllAlerts(_name: string): Promise<void> {}
+export async function getResolvedAlerts(_name: string, _limit?: number): Promise<Alert[]> { return []; }
+export async function createAlert(_name: string, _alert: Partial<Alert>): Promise<void> {}
+export async function deleteAlert(_name: string, _id: string): Promise<void> {}

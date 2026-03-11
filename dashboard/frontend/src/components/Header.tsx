@@ -23,23 +23,31 @@ interface HeaderProps {
   schedulerLastTick: string | null;
 }
 
-function useTickAgo(schedulerLastTick: string | null): string | null {
-  const [ago, setAgo] = useState<string | null>(null);
+function useTickAgo(schedulerLastTick: string | null): { text: string; ms: number } | null {
+  const [state, setState] = useState<{ text: string; ms: number } | null>(null);
   useEffect(() => {
-    if (!schedulerLastTick) { setAgo(null); return; }
+    if (!schedulerLastTick) { setState(null); return; }
     const update = () => {
       const ms = Date.now() - new Date(schedulerLastTick).getTime();
-      if (ms < 0) { setAgo(null); return; }
-      if (ms < 1000) setAgo("<1s");
-      else if (ms < 60_000) setAgo(`${Math.floor(ms / 1000)}s`);
-      else if (ms < 3_600_000) setAgo(`${Math.floor(ms / 60_000)}m`);
-      else setAgo(`${Math.floor(ms / 3_600_000)}h`);
+      if (ms < 0) { setState(null); return; }
+      let text: string;
+      if (ms < 1000) text = "<1s";
+      else if (ms < 60_000) text = `${Math.floor(ms / 1000)}s`;
+      else if (ms < 3_600_000) text = `${Math.floor(ms / 60_000)}m`;
+      else text = `${Math.floor(ms / 3_600_000)}h`;
+      setState({ text, ms });
     };
     update();
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
   }, [schedulerLastTick]);
-  return ago;
+  return state;
+}
+
+function tickColor(ms: number): string {
+  if (ms < 60_000) return "var(--success)";
+  if (ms < 90_000) return "var(--warning)";
+  return "var(--error)";
 }
 
 export function Header({
@@ -61,7 +69,7 @@ export function Header({
     setTimeout(() => setSpinning(false), 400);
   }, [onRefresh]);
   const showSpin = loading || spinning;
-  const tickAgo = useTickAgo(schedulerLastTick);
+  const tick = useTickAgo(schedulerLastTick);
 
   // Debounce WS connected state to avoid rapid flickering
   const [stableConnected, setStableConnected] = useState(false);
@@ -73,6 +81,8 @@ export function Header({
       setStableConnected(false);
     }
   }, [wsConnected]);
+
+  const wsColor = stableConnected ? "var(--success)" : "var(--warning)";
 
   return (
     <header
@@ -105,32 +115,19 @@ export function Header({
           {statusText}
         </span>
         {/* Scheduler heartbeat */}
-        {tickAgo != null && (
+        {tick != null && (
           <span
             title={`Last scheduler tick: ${schedulerLastTick}`}
             style={{
               fontSize: "10px",
               fontFamily: "var(--font-mono)",
-              color: parseInt(tickAgo) > 10 ? "var(--warning)" : "var(--text-muted)",
+              color: tickColor(tick.ms),
               opacity: 0.7,
             }}
           >
-            tick {tickAgo} ago
+            tick {tick.text}
           </span>
         )}
-        {/* WebSocket connection indicator */}
-        <span
-          title={stableConnected ? "Real-time connected" : "Real-time disconnected — polling for updates"}
-          className={!stableConnected ? "ws-reconnecting" : ""}
-          style={{
-            display: "inline-block",
-            width: "6px",
-            height: "6px",
-            borderRadius: "50%",
-            background: stableConnected ? "var(--success)" : "var(--warning)",
-            flexShrink: 0,
-          }}
-        />
       </div>
 
       {/* Right: time range picker + refresh */}
@@ -183,9 +180,9 @@ export function Header({
             height: "32px",
             background: "var(--bg-surface)",
             border: "1px solid var(--border)",
-            color: showSpin ? "var(--accent)" : "var(--text-secondary)",
+            color: showSpin ? "var(--accent)" : wsColor,
           }}
-          title="Refresh data"
+          title={stableConnected ? "Real-time connected · Refresh" : "Real-time disconnected · Refresh"}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = "var(--bg-hover)";
           }}
