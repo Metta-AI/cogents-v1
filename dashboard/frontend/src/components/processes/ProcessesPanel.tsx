@@ -1281,7 +1281,6 @@ function ProcessFormEditor({
             {[
               { label: "+ all", caps: capabilitySuggestions },
               { label: "+ io", caps: ["files", "events", "secrets"] },
-              { label: "+ scratch", caps: ["files"] },
             ].map((tpl) => (
               <button
                 key={tpl.label}
