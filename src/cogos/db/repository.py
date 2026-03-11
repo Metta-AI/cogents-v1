@@ -633,6 +633,20 @@ class Repository:
             for r in self._rows_to_dicts(response)
         ]
 
+    def delete_cron(self, cron_id: UUID) -> bool:
+        response = self._execute(
+            "DELETE FROM cron WHERE id = :id",
+            [self._param("id", cron_id)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def update_cron_enabled(self, cron_id: UUID, enabled: bool) -> bool:
+        response = self._execute(
+            "UPDATE cron SET enabled = :enabled WHERE id = :id",
+            [self._param("id", cron_id), self._param("enabled", enabled)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
     # ═══════════════════════════════════════════════════════════
     # FILES
     # ═══════════════════════════════════════════════════════════

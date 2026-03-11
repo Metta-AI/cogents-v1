@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from dashboard.db import get_repo
+from cogos.db.models import Cron
+from dashboard.db import get_cogos_repo
 from dashboard.models import (
     CronCreate,
     CronItem,
@@ -17,55 +18,46 @@ from dashboard.models import (
 router = APIRouter(tags=["cron"])
 
 
+def _cron_to_item(c: Cron) -> CronItem:
+    return CronItem(
+        id=str(c.id),
+        cron_expression=c.expression,
+        event_pattern=c.event_type,
+        enabled=c.enabled,
+        metadata=c.payload or {},
+        created_at=str(c.created_at) if c.created_at else None,
+    )
+
+
 @router.get("/cron", response_model=CronsResponse)
 def list_cron(name: str) -> CronsResponse:
-    repo = get_repo()
-    db_crons = repo.list_cron(enabled_only=False)
-    items = [
-        CronItem(
-            id=str(c.id),
-            cron_expression=c.cron_expression,
-            event_pattern=c.event_pattern,
-            enabled=c.enabled,
-            metadata=c.metadata or {},
-            created_at=str(c.created_at) if c.created_at else None,
-        )
-        for c in db_crons
-    ]
+    repo = get_cogos_repo()
+    rules = repo.list_cron_rules(enabled_only=False)
+    items = [_cron_to_item(c) for c in rules]
     return CronsResponse(cogent_name=name, count=len(items), crons=items)
 
 
 @router.post("/cron", response_model=CronItem)
 def create_cron(name: str, body: CronCreate) -> CronItem:
-    from brain.db.models import Cron
-
-    repo = get_repo()
+    repo = get_cogos_repo()
     cron = Cron(
-        cron_expression=body.cron_expression,
-        event_pattern=body.event_pattern,
+        expression=body.cron_expression,
+        event_type=body.event_pattern,
         enabled=body.enabled,
-        metadata=body.metadata or {},
+        payload=body.metadata or {},
     )
-    repo.insert_cron(cron)
-    return CronItem(
-        id=str(cron.id),
-        cron_expression=cron.cron_expression,
-        event_pattern=cron.event_pattern,
-        enabled=cron.enabled,
-        metadata=cron.metadata,
-        created_at=str(cron.created_at) if cron.created_at else None,
-    )
+    repo.upsert_cron(cron)
+    return _cron_to_item(cron)
 
 
 @router.put("/cron/{cron_id}", response_model=CronItem)
 def update_cron(name: str, cron_id: str, body: CronUpdate) -> CronItem:
-    repo = get_repo()
+    repo = get_cogos_repo()
     uid = UUID(cron_id)
 
     # Find existing
-    existing = [c for c in repo.list_cron() if c.id == uid]
+    existing = [c for c in repo.list_cron_rules() if c.id == uid]
     if not existing:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Cron not found")
 
     cron = existing[0]
@@ -74,41 +66,31 @@ def update_cron(name: str, cron_id: str, body: CronUpdate) -> CronItem:
         repo.update_cron_enabled(uid, body.enabled)
         cron.enabled = body.enabled
 
-    # For expression/pattern/metadata updates, we delete and re-insert
     if body.cron_expression is not None or body.event_pattern is not None or body.metadata is not None:
-        from brain.db.models import Cron
-
         repo.delete_cron(uid)
         updated = Cron(
             id=uid,
-            cron_expression=body.cron_expression if body.cron_expression is not None else cron.cron_expression,
-            event_pattern=body.event_pattern if body.event_pattern is not None else cron.event_pattern,
+            expression=body.cron_expression if body.cron_expression is not None else cron.expression,
+            event_type=body.event_pattern if body.event_pattern is not None else cron.event_type,
             enabled=body.enabled if body.enabled is not None else cron.enabled,
-            metadata=body.metadata if body.metadata is not None else cron.metadata,
+            payload=body.metadata if body.metadata is not None else cron.payload,
         )
-        repo.insert_cron(updated)
+        repo.upsert_cron(updated)
         cron = updated
 
-    return CronItem(
-        id=str(cron.id),
-        cron_expression=cron.cron_expression,
-        event_pattern=cron.event_pattern,
-        enabled=cron.enabled,
-        metadata=cron.metadata,
-        created_at=str(cron.created_at) if cron.created_at else None,
-    )
+    return _cron_to_item(cron)
 
 
 @router.delete("/cron/{cron_id}")
 def delete_cron(name: str, cron_id: str) -> dict:
-    repo = get_repo()
+    repo = get_cogos_repo()
     deleted = repo.delete_cron(UUID(cron_id))
     return {"deleted": deleted}
 
 
 @router.post("/cron/toggle", response_model=ToggleResponse)
 def toggle_cron(name: str, body: ToggleRequest) -> ToggleResponse:
-    repo = get_repo()
+    repo = get_cogos_repo()
     count = 0
     for cid_str in body.ids:
         if repo.update_cron_enabled(UUID(cid_str), body.enabled):
