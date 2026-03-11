@@ -7,6 +7,7 @@ from cogos.db.models.conversation import Conversation, ConversationStatus
 from cogos.db.models.cron import Cron
 from cogos.db.models.event import Event
 from cogos.db.models.event_delivery import DeliveryStatus, EventDelivery
+from cogos.db.models.event_outbox import EventOutbox, EventOutboxStatus
 from cogos.db.models.event_type import EventType
 from cogos.db.models.file import File, FileVersion
 from cogos.db.models.handler import Handler
@@ -28,6 +29,8 @@ __all__ = [
     "DeliveryStatus",
     "Event",
     "EventDelivery",
+    "EventOutbox",
+    "EventOutboxStatus",
     "EventType",
     "File",
     "FileVersion",

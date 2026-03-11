@@ -24,6 +24,8 @@ from cogos.db.models import (
     DeliveryStatus,
     Event,
     EventDelivery,
+    EventOutbox,
+    EventOutboxStatus,
     EventType,
     File,
     FileVersion,
@@ -52,11 +54,18 @@ class Repository:
         resource_arn: str,
         secret_arn: str,
         database: str,
+        region: str = "us-east-1",
     ) -> None:
         self._client = client
         self._resource_arn = resource_arn
         self._secret_arn = secret_arn
         self._database = database
+        self._region = region
+        self._ingress_queue_url = os.environ.get("COGOS_INGRESS_QUEUE_URL", "")
+        self._ingress_wake_cooldown_seconds = int(
+            os.environ.get("COGOS_INGRESS_WAKE_COOLDOWN_SECONDS", "1"),
+        )
+        self._sqs_client: Any | None = None
 
     @classmethod
     def create(
@@ -79,7 +88,7 @@ class Repository:
             )
 
         client = boto3.client("rds-data", region_name=region)
-        return cls(client, resource_arn, secret_arn, database)
+        return cls(client, resource_arn, secret_arn, database, region)
 
     # ═══════════════════════════════════════════════════════════
     # HELPERS
@@ -169,6 +178,51 @@ class Repository:
     def _ts(row: dict, key: str) -> datetime | None:
         v = row.get(key)
         return datetime.fromisoformat(v) if v else None
+
+    def _get_sqs_client(self) -> Any:
+        if self._sqs_client is None:
+            self._sqs_client = boto3.client("sqs", region_name=self._region)
+        return self._sqs_client
+
+    def _request_ingress_wake(self) -> str | None:
+        row = self._first_row(self._execute(
+            """INSERT INTO cogos_ingress_wake (key, requested_at, enqueued_at, updated_at)
+               VALUES ('default', now(), now(), now())
+               ON CONFLICT (key) DO UPDATE SET
+                   requested_at = now(),
+                   enqueued_at = CASE
+                       WHEN cogos_ingress_wake.enqueued_at
+                            < now() - make_interval(secs => :cooldown_seconds)
+                       THEN now()
+                       ELSE cogos_ingress_wake.enqueued_at
+                   END,
+                   updated_at = now()
+               RETURNING requested_at, enqueued_at""",
+            [self._param("cooldown_seconds", self._ingress_wake_cooldown_seconds)],
+        ))
+        if not row:
+            return None
+        requested_at = self._ts(row, "requested_at")
+        enqueued_at = self._ts(row, "enqueued_at")
+        if requested_at and enqueued_at and requested_at == enqueued_at:
+            return str(int(requested_at.timestamp()))
+        return None
+
+    def _wake_ingress(self, event_id: UUID) -> None:
+        if not self._ingress_queue_url:
+            return
+        try:
+            wake_token = self._request_ingress_wake()
+            if wake_token is None:
+                return
+            self._get_sqs_client().send_message(
+                QueueUrl=self._ingress_queue_url,
+                MessageBody=json.dumps({"event_id": str(event_id), "wake_token": wake_token}),
+                MessageGroupId="ingress",
+                MessageDeduplicationId=f"wake-{wake_token}",
+            )
+        except Exception:
+            logger.exception("Failed to nudge CogOS ingress for event %s", event_id)
 
     # ═══════════════════════════════════════════════════════════
     # PROCESSES
@@ -510,8 +564,34 @@ class Repository:
         row = self._first_row(response)
         if row:
             event.created_at = self._ts(row, "created_at")
-            return UUID(row["id"])
+            event_id = UUID(row["id"])
+            self._wake_ingress(event_id)
+            return event_id
         raise RuntimeError("Failed to insert event")
+
+    def get_event(self, event_id: UUID) -> Event | None:
+        row = self._first_row(self._execute(
+            "SELECT * FROM cogos_event WHERE id = :id",
+            [self._param("id", event_id)],
+        ))
+        return self._event_from_row(row) if row else None
+
+    def get_events_by_ids(self, event_ids: list[UUID]) -> dict[UUID, Event]:
+        if not event_ids:
+            return {}
+
+        params = []
+        placeholders = []
+        for idx, event_id in enumerate(event_ids):
+            name = f"id_{idx}"
+            params.append(self._param(name, event_id))
+            placeholders.append(f":{name}")
+
+        rows = self._rows_to_dicts(self._execute(
+            f"SELECT * FROM cogos_event WHERE id IN ({', '.join(placeholders)})",
+            params,
+        ))
+        return {UUID(row["id"]): self._event_from_row(row) for row in rows}
 
     def get_events(
         self, *, event_type: str | None = None, limit: int = 100,
@@ -543,11 +623,21 @@ class Repository:
     # EVENT DELIVERY
     # ═══════════════════════════════════════════════════════════
 
-    def create_event_delivery(self, ed: EventDelivery) -> UUID:
+    def create_event_delivery(self, ed: EventDelivery) -> tuple[UUID, bool]:
         response = self._execute(
-            """INSERT INTO cogos_event_delivery (id, event, handler, status, run)
-               VALUES (:id, :event, :handler, :status, :run)
-               RETURNING id, created_at""",
+            """WITH inserted AS (
+                   INSERT INTO cogos_event_delivery (id, event, handler, status, run)
+                   VALUES (:id, :event, :handler, :status, :run)
+                   ON CONFLICT (event, handler) DO NOTHING
+                   RETURNING id, created_at, TRUE AS inserted
+               )
+               SELECT id, created_at, inserted FROM inserted
+               UNION ALL
+               SELECT id, created_at, FALSE AS inserted
+               FROM cogos_event_delivery
+               WHERE event = :event AND handler = :handler
+                 AND NOT EXISTS (SELECT 1 FROM inserted)
+               LIMIT 1""",
             [
                 self._param("id", ed.id),
                 self._param("event", ed.event),
@@ -559,8 +649,8 @@ class Repository:
         row = self._first_row(response)
         if row:
             ed.created_at = self._ts(row, "created_at")
-            return UUID(row["id"])
-        return ed.id
+            return UUID(row["id"]), bool(row.get("inserted", False))
+        return ed.id, False
 
     def get_pending_deliveries(self, process_id: UUID) -> list[EventDelivery]:
         response = self._execute(
@@ -582,12 +672,85 @@ class Repository:
             for r in self._rows_to_dicts(response)
         ]
 
+    def has_pending_deliveries(self, process_id: UUID) -> bool:
+        row = self._first_row(self._execute(
+            """SELECT 1
+               FROM cogos_event_delivery ed
+               JOIN cogos_handler h ON h.id = ed.handler
+               WHERE h.process = :process AND ed.status = 'pending'
+               LIMIT 1""",
+            [self._param("process", process_id)],
+        ))
+        return row is not None
+
     def mark_delivered(self, delivery_id: UUID, run_id: UUID) -> bool:
         response = self._execute(
             "UPDATE cogos_event_delivery SET status = 'delivered', run = :run WHERE id = :id",
             [self._param("id", delivery_id), self._param("run", run_id)],
         )
         return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def claim_event_outbox_batch(
+        self,
+        *,
+        limit: int = 25,
+        stale_after_seconds: int = 60,
+    ) -> list[EventOutbox]:
+        response = self._execute(
+            """WITH candidates AS (
+                   SELECT id
+                   FROM cogos_event_outbox
+                   WHERE status = 'pending'
+                      OR (status = 'processing' AND claimed_at < now() - make_interval(secs => :stale_after_seconds))
+                      OR status = 'failed'
+                   ORDER BY created_at ASC
+                   LIMIT :limit
+                   FOR UPDATE SKIP LOCKED
+               )
+               UPDATE cogos_event_outbox o
+               SET status = 'processing',
+                   attempt_count = o.attempt_count + 1,
+                   claimed_at = now(),
+                   last_error = NULL
+               FROM candidates
+               WHERE o.id = candidates.id
+               RETURNING o.*""",
+            [
+                self._param("limit", limit),
+                self._param("stale_after_seconds", stale_after_seconds),
+            ],
+        )
+        return [self._event_outbox_from_row(row) for row in self._rows_to_dicts(response)]
+
+    def mark_event_outbox_done(self, outbox_id: UUID) -> bool:
+        response = self._execute(
+            """UPDATE cogos_event_outbox
+               SET status = 'done', completed_at = now(), last_error = NULL
+               WHERE id = :id""",
+            [self._param("id", outbox_id)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def mark_event_outbox_failed(self, outbox_id: UUID, error: str) -> bool:
+        response = self._execute(
+            """UPDATE cogos_event_outbox
+               SET status = 'failed', last_error = :error
+               WHERE id = :id""",
+            [self._param("id", outbox_id), self._param("error", error[:4000])],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def _event_outbox_from_row(self, row: dict) -> EventOutbox:
+        return EventOutbox(
+            id=UUID(row["id"]),
+            event=UUID(row["event"]),
+            status=EventOutboxStatus(row["status"]),
+            attempt_count=row.get("attempt_count", 0),
+            claimed_at=self._ts(row, "claimed_at"),
+            completed_at=self._ts(row, "completed_at"),
+            last_error=row.get("last_error"),
+            created_at=self._ts(row, "created_at"),
+        )
 
     # ═══════════════════════════════════════════════════════════
     # CRON RULES

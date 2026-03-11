@@ -12,8 +12,10 @@ from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
+from aws_cdk import aws_lambda_event_sources as lambda_event_sources
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
 from brain.cdk.config import BrainConfig
@@ -67,6 +69,15 @@ class ComputeConstruct(Construct):
 
         safe_name = config.cogent_name.replace(".", "-")
 
+        self.ingress_queue = sqs.Queue(
+            self,
+            "CogosIngressQueue",
+            queue_name=f"cogent-{safe_name}-cogos-ingress.fifo",
+            fifo=True,
+            content_based_deduplication=False,
+            visibility_timeout=Duration.seconds(60),
+        )
+
         # Shared environment for Lambda functions
         env = {
             "COGENT_NAME": config.cogent_name,
@@ -77,6 +88,8 @@ class ComputeConstruct(Construct):
             "DB_NAME": "cogent",
             "EVENT_BUS_NAME": event_bus_name,
             "SESSIONS_BUCKET": sessions_bucket.bucket_name,
+            "COGOS_INGRESS_QUEUE_URL": self.ingress_queue.queue_url,
+            "EXECUTOR_FUNCTION_NAME": f"cogent-{safe_name}-executor",
         }
 
         # Shared policy statements for Data API access
@@ -223,6 +236,7 @@ class ComputeConstruct(Construct):
                 "SANDBOX_FUNCTION_NAME": f"cogent-{safe_name}-sandbox",
             },
         )
+        self.ingress_queue.grant_send_messages(executor_role)
 
         # Dispatcher Lambda — runs CogOS scheduler tick
         dispatcher_role = iam.Role(
@@ -239,6 +253,7 @@ class ComputeConstruct(Construct):
                 resources=[f"arn:aws:lambda:*:*:function:cogent-{safe_name}-executor"],
             )
         )
+        self.ingress_queue.grant_send_messages(dispatcher_role)
 
         self.dispatcher = lambda_.Function(
             self,
@@ -253,6 +268,42 @@ class ComputeConstruct(Construct):
             environment=env,
         )
 
+        ingress_role = iam.Role(
+            self,
+            "IngressRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[lambda_basic],
+        )
+        for stmt in data_api_statements:
+            ingress_role.add_to_policy(stmt)
+        ingress_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=[f"arn:aws:lambda:*:*:function:cogent-{safe_name}-executor"],
+            )
+        )
+
+        self.ingress = lambda_.Function(
+            self,
+            "Ingress",
+            function_name=f"cogent-{safe_name}-ingress",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="brain.lambdas.ingress.handler.handler",
+            code=lambda_code,
+            memory_size=256,
+            timeout=Duration.seconds(60),
+            reserved_concurrent_executions=1,
+            role=ingress_role,
+            environment=env,
+        )
+        self.ingress.add_event_source(
+            lambda_event_sources.SqsEventSource(
+                self.ingress_queue,
+                batch_size=10,
+                max_batching_window=Duration.seconds(1),
+            )
+        )
+
         # ECS Task Role (for long-running tasks on shared cogent-polis cluster)
         task_role = iam.Role(
             self,
@@ -262,6 +313,7 @@ class ComputeConstruct(Construct):
         for stmt in data_api_statements:
             task_role.add_to_policy(stmt)
         sessions_bucket.grant_read_write(task_role)
+        self.ingress_queue.grant_send_messages(task_role)
         task_role.add_to_policy(
             iam.PolicyStatement(
                 actions=[

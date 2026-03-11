@@ -21,6 +21,7 @@ import boto3
 
 from brain.lambdas.shared.config import get_config
 from brain.lambdas.shared.logging import setup_logging
+from cogos.runtime.ingress import dispatch_ready_processes, drain_outbox
 
 logger = setup_logging()
 
@@ -40,8 +41,10 @@ def handler(event: dict, context) -> dict:
 
     scheduler = SchedulerCapability(repo, UUID("00000000-0000-0000-0000-000000000000"))
     lambda_client = boto3.client("lambda", region_name=config.region)
-    safe_name = os.environ.get("COGENT_NAME", "").replace(".", "-")
-    executor_fn = f"cogent-{safe_name}-executor"
+    executor_fn = os.environ.get("EXECUTOR_FUNCTION_NAME")
+    if not executor_fn:
+        safe_name = os.environ.get("COGENT_NAME", "").replace(".", "-")
+        executor_fn = f"cogent-{safe_name}-executor"
 
     # Heartbeat — lets the dashboard show time-since-last-tick
     try:
@@ -52,55 +55,60 @@ def handler(event: dict, context) -> dict:
     # 1. Generate virtual system tick events (not written to event log)
     _apply_system_ticks(repo)
 
-    # 2. Match real events to handlers
+    # 2. Drain immediate-event outbox as the primary backstop path
+    try:
+        outbox_result = drain_outbox(repo, scheduler, batch_size=25)
+    except Exception:
+        logger.exception("Failed to drain CogOS event outbox")
+        from cogos.runtime.ingress import DrainResult
+        outbox_result = DrainResult()
+    dispatched = 0
+    if outbox_result.deliveries_created > 0:
+        logger.info(
+            "Dispatcher drained %s outbox rows and created %s deliveries",
+            outbox_result.outbox_rows,
+            outbox_result.deliveries_created,
+        )
+        dispatched += dispatch_ready_processes(
+            repo,
+            scheduler,
+            lambda_client,
+            executor_fn,
+            outbox_result.affected_processes,
+        )
+
+    # 3. Match remaining legacy/unreconciled events
     match_result = scheduler.match_events(limit=50)
     if match_result.deliveries_created > 0:
-        logger.info(f"Matched {match_result.deliveries_created} event deliveries")
+        logger.info("Matched %s event deliveries", match_result.deliveries_created)
+        dispatched += dispatch_ready_processes(
+            repo,
+            scheduler,
+            lambda_client,
+            executor_fn,
+            {UUID(info.process_id) for info in match_result.deliveries},
+        )
 
-    # 3. Select runnable processes
+    # 4. Select any remaining runnable processes
     select_result = scheduler.select_processes(slots=5)
     if not select_result.selected:
-        return {"statusCode": 200, "dispatched": 0}
+        return {"statusCode": 200, "dispatched": dispatched}
 
-    # 4. Dispatch each selected process
-    dispatched = 0
+    # 5. Dispatch each selected process
     for proc in select_result.selected:
-        dispatch_result = scheduler.dispatch_process(process_id=proc.id)
-        if hasattr(dispatch_result, "error"):
-            logger.warning(f"Dispatch failed for {proc.name}: {dispatch_result.error}")
-            continue
-
-        event_payload = {}
-        if dispatch_result.event_id:
-            rows = repo._rows_to_dicts(repo._execute(
-                "SELECT payload FROM cogos_event WHERE id = :id",
-                [repo._param("id", UUID(dispatch_result.event_id))],
-            ))
-            if rows:
-                raw = rows[0].get("payload", "{}")
-                event_payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
-
-        payload = {
-            "process_id": dispatch_result.process_id,
-            "run_id": dispatch_result.run_id,
-            "event_id": dispatch_result.event_id,
-            "event_type": event_payload.get("event_type", ""),
-            "payload": event_payload,
-        }
-
         try:
-            lambda_client.invoke(
-                FunctionName=executor_fn,
-                InvocationType="Event",
-                Payload=json.dumps(payload),
+            dispatched += dispatch_ready_processes(
+                repo,
+                scheduler,
+                lambda_client,
+                executor_fn,
+                {UUID(proc.id)},
             )
-            dispatched += 1
-            logger.info(f"Dispatched {proc.name} (run={dispatch_result.run_id})")
         except Exception:
-            logger.exception(f"Failed to invoke executor for {proc.name}")
+            logger.exception("Failed to invoke executor for %s", proc.name)
 
     if dispatched:
-        logger.info(f"Dispatcher: {dispatched} dispatched")
+        logger.info("Dispatcher: %s dispatched", dispatched)
 
     return {"statusCode": 200, "dispatched": dispatched}
 

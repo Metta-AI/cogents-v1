@@ -1,0 +1,1 @@
+"""CogOS ingress lambda package."""
