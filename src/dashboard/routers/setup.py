@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from enum import Enum
 
 import boto3
 from botocore.exceptions import ClientError
@@ -16,23 +17,41 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["setup"])
 
 
-class DiscordSetupResponse(BaseModel):
-    secret_path: str
-    service_name: str
-    cogos_initialized: bool
-    cogos_error: str | None = None
-    capability_enabled: bool
-    dm_handler_enabled: bool
-    mention_handler_enabled: bool
-    secret_configured: bool | None = None
-    secret_check_error: str | None = None
-    bridge_service_exists: bool | None = None
-    bridge_status: str | None = None
-    bridge_desired_count: int | None = None
-    bridge_running_count: int | None = None
-    bridge_pending_count: int | None = None
-    service_check_error: str | None = None
+class SetupStatus(str, Enum):
+    READY = "ready"
+    NEEDS_ACTION = "needs_action"
+    MANUAL = "manual"
+    UNKNOWN = "unknown"
+
+
+class SetupAction(BaseModel):
+    label: str
+    command: str | None = None
+    href: str | None = None
+
+
+class SetupStep(BaseModel):
+    key: str
+    title: str
+    description: str
+    status: SetupStatus
+    detail: str | None = None
+    action: SetupAction | None = None
+
+
+class ChannelSetup(BaseModel):
+    key: str
+    title: str
+    description: str
+    status: SetupStatus
+    summary: str
     ready_for_test: bool
+    steps: list[SetupStep]
+    diagnostics: list[str] = []
+
+
+class SetupResponse(BaseModel):
+    channels: list[ChannelSetup]
 
 
 def _discord_secret_status(name: str, region: str) -> tuple[bool | None, str | None]:
@@ -97,10 +116,11 @@ def _discord_service_status(name: str, region: str) -> tuple[dict[str, int | str
         }, type(exc).__name__
 
 
-@router.get("/setup/discord", response_model=DiscordSetupResponse)
-def discord_setup(name: str) -> DiscordSetupResponse:
+def _build_discord_setup(name: str) -> ChannelSetup:
     region = os.environ.get("AWS_REGION", "us-east-1")
     safe_name = name.replace(".", "-")
+    secret_path = f"cogent/{name}/discord"
+    service_name = f"cogent-{safe_name}-discord"
 
     cogos_initialized = True
     cogos_error = None
@@ -123,28 +143,215 @@ def discord_setup(name: str) -> DiscordSetupResponse:
 
     secret_configured, secret_check_error = _discord_secret_status(name, region)
     service_status, service_check_error = _discord_service_status(name, region)
-
-    ready_for_test = (
+    bridge_running = (
+        service_status["bridge_running_count"] is not None
+        and int(service_status["bridge_running_count"]) > 0
+    )
+    wiring_ready = (
         cogos_initialized
         and capability_enabled
         and dm_handler_enabled
         and mention_handler_enabled
-        and secret_configured is True
-        and service_status["bridge_running_count"] is not None
-        and int(service_status["bridge_running_count"]) > 0
+    )
+    ready_for_test = wiring_ready and secret_configured is True and bridge_running
+
+    diagnostics: list[str] = []
+    if cogos_error:
+        diagnostics.append(f"CogOS checks unavailable: {cogos_error}")
+    if secret_check_error:
+        diagnostics.append(f"Discord secret check unavailable: {secret_check_error}")
+    if service_check_error:
+        diagnostics.append(f"Discord service check unavailable: {service_check_error}")
+
+    if wiring_ready:
+        cogos_step = SetupStep(
+            key="cogos-defaults",
+            title="Load CogOS defaults",
+            description="Fresh brain bring-up needs the default CogOS image so the Discord capability and handlers exist.",
+            status=SetupStatus.READY,
+            detail="Discord capability, DM handler, and mention handler are loaded.",
+        )
+    else:
+        detail = "Reload the default CogOS image to restore the Discord capability and handlers."
+        if cogos_error:
+            detail = f"{detail} Latest check error: {cogos_error}."
+        cogos_step = SetupStep(
+            key="cogos-defaults",
+            title="Load CogOS defaults",
+            description="Fresh brain bring-up needs the default CogOS image so the Discord capability and handlers exist.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail=detail,
+            action=SetupAction(
+                label="Reload CogOS defaults",
+                command=f"uv run cogent {name} cogos reload --yes",
+            ),
+        )
+
+    if secret_configured is True:
+        create_bot_step = SetupStep(
+            key="create-bot",
+            title="Create and invite the bot",
+            description="Create a Discord application, confirm the bot user, enable Message Content Intent, and invite it into the server you want to test.",
+            status=SetupStatus.READY,
+            detail="A Discord token is already stored, which is a good sign the bot has been created.",
+            action=SetupAction(
+                label="Open Discord Developer Portal",
+                href="https://discord.com/developers/applications",
+            ),
+        )
+    elif secret_configured is False:
+        create_bot_step = SetupStep(
+            key="create-bot",
+            title="Create and invite the bot",
+            description="Create a Discord application, confirm the bot user, enable Message Content Intent, and invite it into the server you want to test.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail="This dashboard cannot verify Discord-side configuration, but there is no token stored yet.",
+            action=SetupAction(
+                label="Open Discord Developer Portal",
+                href="https://discord.com/developers/applications",
+            ),
+        )
+    else:
+        create_bot_step = SetupStep(
+            key="create-bot",
+            title="Create and invite the bot",
+            description="Create a Discord application, confirm the bot user, enable Message Content Intent, and invite it into the server you want to test.",
+            status=SetupStatus.UNKNOWN,
+            detail="Live token checks are unavailable, so this step cannot be confirmed from the dashboard.",
+            action=SetupAction(
+                label="Open Discord Developer Portal",
+                href="https://discord.com/developers/applications",
+            ),
+        )
+
+    if secret_configured is True:
+        secret_step = SetupStep(
+            key="store-token",
+            title="Store the bot token",
+            description="The Discord bridge reads the bot token from Secrets Manager.",
+            status=SetupStatus.READY,
+            detail=f"Token is present at {secret_path}.",
+        )
+    elif secret_configured is False:
+        secret_step = SetupStep(
+            key="store-token",
+            title="Store the bot token",
+            description="Write the bot token into polis secrets so the bridge can log in.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail=f"Expected secret path: {secret_path}.",
+            action=SetupAction(
+                label="Write Discord token",
+                command=f"""uv run polis secrets set {secret_path} --value '{{"access_token":"YOUR_BOT_TOKEN"}}'""",
+            ),
+        )
+    else:
+        secret_step = SetupStep(
+            key="store-token",
+            title="Store the bot token",
+            description="Write the bot token into polis secrets so the bridge can log in.",
+            status=SetupStatus.UNKNOWN,
+            detail=f"Expected secret path: {secret_path}. Latest check error: {secret_check_error}.",
+            action=SetupAction(
+                label="Write Discord token",
+                command=f"""uv run polis secrets set {secret_path} --value '{{"access_token":"YOUR_BOT_TOKEN"}}'""",
+            ),
+        )
+
+    if bridge_running:
+        bridge_step = SetupStep(
+            key="start-bridge",
+            title="Start the Discord bridge",
+            description="The Discord bridge runs as its own ECS service.",
+            status=SetupStatus.READY,
+            detail=f"{service_name} is running.",
+        )
+    elif service_status["bridge_service_exists"] is False:
+        bridge_step = SetupStep(
+            key="start-bridge",
+            title="Start the Discord bridge",
+            description="The Discord bridge runs as its own ECS service.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail=f"{service_name} does not exist yet.",
+            action=SetupAction(
+                label="Deploy brain stack",
+                command=f"uv run cogent {name} brain update stack",
+            ),
+        )
+    elif service_status["bridge_service_exists"] is True:
+        bridge_step = SetupStep(
+            key="start-bridge",
+            title="Start the Discord bridge",
+            description="The Discord bridge runs as its own ECS service.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail=f"{service_name} exists but is not running.",
+            action=SetupAction(
+                label="Start Discord bridge",
+                command=f"uv run cogent {name} cogos discord start",
+            ),
+        )
+    else:
+        bridge_step = SetupStep(
+            key="start-bridge",
+            title="Start the Discord bridge",
+            description="The Discord bridge runs as its own ECS service.",
+            status=SetupStatus.UNKNOWN,
+            detail=f"Service status checks are unavailable. Expected service name: {service_name}.",
+            action=SetupAction(
+                label="Check bridge status",
+                command=f"uv run cogent {name} cogos discord status",
+            ),
+        )
+
+    if ready_for_test:
+        test_step = SetupStep(
+            key="send-test-message",
+            title="Send a test message",
+            description="Once the bridge is live, DM the bot directly or @mention it in a server channel.",
+            status=SetupStatus.MANUAL,
+            detail="Plain channel chatter will not trigger it.",
+        )
+    else:
+        test_step = SetupStep(
+            key="send-test-message",
+            title="Send a test message",
+            description="Once the bridge is live, DM the bot directly or @mention it in a server channel.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail="Finish the earlier steps first. Plain channel chatter will not trigger it.",
+        )
+
+    status = (
+        SetupStatus.READY
+        if ready_for_test
+        else SetupStatus.UNKNOWN
+        if any(step.status == SetupStatus.UNKNOWN for step in (create_bot_step, secret_step, bridge_step))
+        else SetupStatus.NEEDS_ACTION
+    )
+    summary = (
+        "Discord is ready for end-to-end testing."
+        if ready_for_test
+        else "Some live checks were unavailable, but the setup steps below still apply."
+        if status == SetupStatus.UNKNOWN
+        else "Finish the remaining Discord setup steps, then DM the bot or @mention it."
     )
 
-    return DiscordSetupResponse(
-        secret_path=f"cogent/{name}/discord",
-        service_name=f"cogent-{safe_name}-discord",
-        cogos_initialized=cogos_initialized,
-        cogos_error=cogos_error,
-        capability_enabled=capability_enabled,
-        dm_handler_enabled=dm_handler_enabled,
-        mention_handler_enabled=mention_handler_enabled,
-        secret_configured=secret_configured,
-        secret_check_error=secret_check_error,
-        service_check_error=service_check_error,
+    return ChannelSetup(
+        key="discord",
+        title="Discord",
+        description="Configure the Discord bridge, token, and default inbound wiring for this cogent.",
+        status=status,
+        summary=summary,
         ready_for_test=ready_for_test,
-        **service_status,
+        steps=[
+            cogos_step,
+            create_bot_step,
+            secret_step,
+            bridge_step,
+            test_step,
+        ],
+        diagnostics=diagnostics,
     )
+
+
+@router.get("/setup", response_model=SetupResponse)
+def get_setup(name: str) -> SetupResponse:
+    return SetupResponse(channels=[_build_discord_setup(name)])

@@ -3,116 +3,32 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/shared/Badge";
-import { StatCard } from "@/components/shared/StatCard";
 import * as api from "@/lib/api";
-import type { DiscordSetupStatus } from "@/lib/types";
-
-type SetupSection = "discord";
+import type {
+  ChannelSetup,
+  SetupAction,
+  SetupResponse,
+  SetupStatus,
+  SetupStep,
+} from "@/lib/types";
 
 interface SetupPanelProps {
   cogentName: string;
 }
 
-function statusLabel(value: boolean | null, ok = "Ready", missing = "Missing", unknown = "Unknown"): string {
-  if (value === true) return ok;
-  if (value === false) return missing;
-  return unknown;
+function statusLabel(status: SetupStatus, readyForTest = false): string {
+  if (readyForTest) return "Ready to test";
+  if (status === "ready") return "Ready";
+  if (status === "manual") return "Manual";
+  if (status === "unknown") return "Checks unavailable";
+  return "Needs setup";
 }
 
-function statusVariant(value: boolean | null): "accent" | "warning" | "error" | "default" {
-  if (value === true) return "accent";
-  if (value === false) return "warning";
-  return "default";
-}
-
-function inboundWiringState(
-  status: DiscordSetupStatus | null,
-): { value: string; variant: "accent" | "warning" | "default" } {
-  if (!status) {
-    return { value: "Unknown", variant: "default" };
-  }
-
-  const wiringConfigured =
-    status.cogos_initialized &&
-    status.capability_enabled &&
-    status.dm_handler_enabled &&
-    status.mention_handler_enabled;
-  const bridgeRunning =
-    status.bridge_running_count == null ? null : status.bridge_running_count > 0;
-
-  if (!wiringConfigured) {
-    return { value: "Missing", variant: "warning" };
-  }
-  if (status.secret_configured == null || bridgeRunning == null) {
-    return { value: "Unknown", variant: "default" };
-  }
-  if (status.secret_configured !== true || bridgeRunning !== true) {
-    return { value: "Blocked", variant: "warning" };
-  }
-
-  return { value: "Ready", variant: "accent" };
-}
-
-function nextAction(status: DiscordSetupStatus | null, cogentName: string): { title: string; detail: string; command?: string } {
-  if (!status) {
-    return {
-      title: "Load Discord setup status",
-      detail: "The setup guide still applies even if live checks are unavailable.",
-    };
-  }
-  if (!status.cogos_initialized) {
-    return {
-      title: "Initialize CogOS defaults",
-      detail: "Fresh brain bring-up is not enough on its own. Load the default CogOS image first.",
-      command: `uv run cogent ${cogentName} cogos reload --yes`,
-    };
-  }
-  if (status.secret_configured !== true) {
-    return {
-      title: "Store the Discord bot token",
-      detail: "The bridge cannot log in until the bot token is present in polis secrets.",
-      command: `uv run polis secrets set cogent/${cogentName}/discord --value '{"access_token":"YOUR_BOT_TOKEN"}'`,
-    };
-  }
-  if (status.bridge_service_exists === false) {
-    return {
-      title: "Deploy the Discord bridge service",
-      detail: "This cogent does not have the Discord ECS service yet.",
-      command: `uv run cogent ${cogentName} brain update stack`,
-    };
-  }
-  if ((status.bridge_running_count ?? 0) === 0) {
-    return {
-      title: "Start the Discord bridge",
-      detail: "The Discord ECS service exists, but it is currently stopped.",
-      command: `uv run cogent ${cogentName} cogos discord start`,
-    };
-  }
-  if (!status.capability_enabled || !status.dm_handler_enabled || !status.mention_handler_enabled) {
-    return {
-      title: "Restore Discord defaults",
-      detail: "The bridge is running, but the default Discord capability or handlers are missing.",
-      command: `uv run cogent ${cogentName} cogos reload --yes`,
-    };
-  }
-  return {
-    title: "Send a test message",
-    detail: "DM the bot directly or @mention it in a server channel. Plain channel chatter will not trigger it.",
-  };
-}
-
-function Step({ index, title, children }: { index: number; title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="inline-flex w-5 h-5 items-center justify-center rounded-full bg-[var(--accent-glow)] text-[var(--accent)] text-[11px] font-semibold">
-          {index}
-        </span>
-        <h3 className="text-[13px] font-semibold text-[var(--text-primary)]">{title}</h3>
-      </div>
-      <div className="text-[13px] leading-6 text-[var(--text-secondary)]">{children}</div>
-    </div>
-  );
+function statusVariant(status: SetupStatus, readyForTest = false): "success" | "warning" | "info" | "neutral" {
+  if (readyForTest || status === "ready") return "success";
+  if (status === "manual") return "info";
+  if (status === "unknown") return "neutral";
+  return "warning";
 }
 
 function CodeBlock({ children }: { children: string }) {
@@ -123,17 +39,65 @@ function CodeBlock({ children }: { children: string }) {
   );
 }
 
+function ActionBlock({ action }: { action: SetupAction | null }) {
+  if (!action) return null;
+
+  return (
+    <div className="mt-3 space-y-2">
+      {action.href && (
+        <a
+          href={action.href}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center rounded-md border border-[var(--border)] px-3 py-2 text-[12px] text-[var(--accent)] hover:bg-[var(--bg-hover)] transition-colors"
+        >
+          {action.label}
+        </a>
+      )}
+      {action.command && (
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">{action.label}</div>
+          <CodeBlock>{action.command}</CodeBlock>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepCard({ index, step }: { index: number; step: SetupStep }) {
+  return (
+    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md p-4">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex w-5 h-5 items-center justify-center rounded-full bg-[var(--accent-glow)] text-[var(--accent)] text-[11px] font-semibold">
+              {index}
+            </span>
+            <h3 className="text-[13px] font-semibold text-[var(--text-primary)]">{step.title}</h3>
+          </div>
+          <p className="text-[13px] leading-6 text-[var(--text-secondary)]">{step.description}</p>
+          {step.detail && (
+            <p className="mt-2 text-[12px] leading-5 text-[var(--text-muted)]">{step.detail}</p>
+          )}
+          <ActionBlock action={step.action} />
+        </div>
+        <Badge variant={statusVariant(step.status)}>{statusLabel(step.status)}</Badge>
+      </div>
+    </div>
+  );
+}
+
 export function SetupPanel({ cogentName }: SetupPanelProps) {
-  const [section, setSection] = useState<SetupSection>("discord");
-  const [discord, setDiscord] = useState<DiscordSetupStatus | null>(null);
+  const [setup, setSetup] = useState<SetupResponse | null>(null);
+  const [activeChannelKey, setActiveChannelKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const next = await api.getDiscordSetup(cogentName);
-      setDiscord(next);
+      const next = await api.getSetup(cogentName);
+      setSetup(next);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load setup status");
@@ -146,9 +110,20 @@ export function SetupPanel({ cogentName }: SetupPanelProps) {
     refresh();
   }, [refresh]);
 
-  const bridgeRunning = discord?.bridge_running_count == null ? null : discord.bridge_running_count > 0;
-  const action = useMemo(() => nextAction(discord, cogentName), [discord, cogentName]);
-  const inboundWiring = useMemo(() => inboundWiringState(discord), [discord]);
+  useEffect(() => {
+    if (!setup?.channels.length) {
+      setActiveChannelKey(null);
+      return;
+    }
+    if (!activeChannelKey || !setup.channels.some((channel) => channel.key === activeChannelKey)) {
+      setActiveChannelKey(setup.channels[0].key);
+    }
+  }, [setup, activeChannelKey]);
+
+  const activeChannel = useMemo<ChannelSetup | null>(() => {
+    if (!setup?.channels.length) return null;
+    return setup.channels.find((channel) => channel.key === activeChannelKey) ?? setup.channels[0];
+  }, [setup, activeChannelKey]);
 
   return (
     <div className="space-y-5">
@@ -156,12 +131,14 @@ export function SetupPanel({ cogentName }: SetupPanelProps) {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <h2 className="text-[18px] font-semibold text-[var(--text-primary)]">Setup</h2>
-            <Badge variant={discord?.ready_for_test ? "success" : "warning"}>
-              {discord?.ready_for_test ? "Ready to test" : "Needs setup"}
-            </Badge>
+            {activeChannel && (
+              <Badge variant={statusVariant(activeChannel.status, activeChannel.ready_for_test)}>
+                {statusLabel(activeChannel.status, activeChannel.ready_for_test)}
+              </Badge>
+            )}
           </div>
           <p className="text-[13px] text-[var(--text-secondary)] max-w-[720px]">
-            Walk through first-run tasks that are easy to miss after a fresh cogent bring-up. Discord only responds to DMs and @mentions.
+            Walk through first-run tasks that are easy to miss after a fresh cogent bring-up.
           </p>
         </div>
         <button
@@ -172,92 +149,56 @@ export function SetupPanel({ cogentName }: SetupPanelProps) {
         </button>
       </div>
 
-      <div className="inline-flex rounded-md border border-[var(--border)] bg-[var(--bg-surface)] p-1">
-        <button
-          onClick={() => setSection("discord")}
-          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
-          style={{
-            background: section === "discord" ? "var(--accent-glow)" : "transparent",
-            color: section === "discord" ? "var(--accent)" : "var(--text-secondary)",
-          }}
-        >
-          Discord
-        </button>
-      </div>
+      {!!setup?.channels.length && (
+        <div className="inline-flex rounded-md border border-[var(--border)] bg-[var(--bg-surface)] p-1">
+          {setup.channels.map((channel) => (
+            <button
+              key={channel.key}
+              onClick={() => setActiveChannelKey(channel.key)}
+              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
+              style={{
+                background: activeChannel?.key === channel.key ? "var(--accent-glow)" : "transparent",
+                color: activeChannel?.key === channel.key ? "var(--accent)" : "var(--text-secondary)",
+              }}
+            >
+              {channel.title}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {section === "discord" && (
+      {!loading && !activeChannel && (
+        <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md p-4 text-[13px] text-[var(--text-secondary)]">
+          No setup tracks are available for this cogent yet.
+        </div>
+      )}
+
+      {activeChannel && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <StatCard
-              value={statusLabel(discord?.cogos_initialized ?? null, "Loaded", "Missing")}
-              label="CogOS Defaults"
-              variant={statusVariant(discord?.cogos_initialized ?? null)}
-            />
-            <StatCard
-              value={statusLabel(discord?.secret_configured ?? null, "Present", "Missing")}
-              label="Discord Secret"
-              variant={statusVariant(discord?.secret_configured ?? null)}
-            />
-            <StatCard
-              value={statusLabel(bridgeRunning, "Running", "Stopped", "Unknown")}
-              label="Bridge Service"
-              variant={statusVariant(bridgeRunning)}
-            />
-            <StatCard
-              value={inboundWiring.value}
-              label="Inbound Wiring"
-              variant={inboundWiring.variant}
-            />
-          </div>
-
           <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md p-4">
             <div className="flex items-center gap-2 mb-2">
-              <Badge variant={discord?.ready_for_test ? "success" : "warning"}>{action.title}</Badge>
-              {discord?.bridge_status && <Badge variant="neutral">{discord.bridge_status}</Badge>}
+              <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">{activeChannel.title}</h3>
+              <Badge variant={statusVariant(activeChannel.status, activeChannel.ready_for_test)}>
+                {statusLabel(activeChannel.status, activeChannel.ready_for_test)}
+              </Badge>
             </div>
-            <p className="text-[13px] text-[var(--text-secondary)]">{action.detail}</p>
-            {action.command && <CodeBlock>{action.command}</CodeBlock>}
-            {(error || discord?.cogos_error || discord?.secret_check_error || discord?.service_check_error) && (
+            <p className="text-[13px] text-[var(--text-secondary)]">{activeChannel.description}</p>
+            <p className="mt-2 text-[13px] text-[var(--text-muted)]">{activeChannel.summary}</p>
+            {(error || activeChannel.diagnostics.length > 0) && (
               <div className="mt-3 text-[12px] text-[var(--warning)] space-y-1">
                 {error && <div>Setup status request failed: {error}</div>}
-                {discord?.cogos_error && <div>CogOS checks unavailable: {discord.cogos_error}</div>}
-                {discord?.secret_check_error && <div>Discord secret check unavailable: {discord.secret_check_error}</div>}
-                {discord?.service_check_error && <div>Discord service check unavailable: {discord.service_check_error}</div>}
+                {activeChannel.diagnostics.map((diagnostic) => (
+                  <div key={diagnostic}>{diagnostic}</div>
+                ))}
               </div>
             )}
           </div>
 
-          <Step index={1} title="Create and invite the bot">
-            Start in the{" "}
-            <a
-              href="https://discord.com/developers/applications"
-              target="_blank"
-              rel="noreferrer"
-              className="text-[var(--accent)] hover:underline"
-            >
-              Discord Developer Portal
-            </a>
-            , create a new application, open the <span className="font-semibold text-[var(--text-primary)]">Bot</span> page to confirm the bot user and enable <span className="font-semibold text-[var(--text-primary)]">Message Content Intent</span>, then invite it into the server you want to test from the <span className="font-semibold text-[var(--text-primary)]">Installation</span> page.
-          </Step>
-
-          <Step index={2} title="Store the bot token in polis secrets">
-            The Discord bridge reads the bot token from <span className="font-mono text-[var(--text-primary)]">{discord?.secret_path ?? `cogent/${cogentName}/discord`}</span>.
-            <CodeBlock>{`uv run polis secrets set cogent/${cogentName}/discord --value '{"access_token":"YOUR_BOT_TOKEN"}'`}</CodeBlock>
-          </Step>
-
-          <Step index={3} title="Start the Discord bridge">
-            The bridge is its own ECS service and starts stopped by default.
-            <CodeBlock>{`uv run cogent ${cogentName} cogos discord start`}</CodeBlock>
-            <CodeBlock>{`uv run cogent ${cogentName} cogos discord status`}</CodeBlock>
-          </Step>
-
-          <Step index={4} title="Send a test message">
-            Once the secret is present and the bridge is running, test it in one of two ways:
-            <ul className="mt-2 list-disc pl-5">
-              <li>DM the bot directly</li>
-              <li>@mention the bot in a server channel</li>
-            </ul>
-          </Step>
+          <div className="space-y-3">
+            {activeChannel.steps.map((step, index) => (
+              <StepCard key={step.key} index={index + 1} step={step} />
+            ))}
+          </div>
         </>
       )}
     </div>

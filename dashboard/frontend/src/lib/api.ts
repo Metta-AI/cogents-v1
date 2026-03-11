@@ -14,7 +14,7 @@ import type {
   EventType,
   Resource,
   Alert,
-  DiscordSetupStatus,
+  SetupResponse,
 } from "./types";
 
 function getApiKey(): string | null {
@@ -118,8 +118,8 @@ export async function getCogosStatus(name: string): Promise<CogosStatus> {
   return fetchJSON(`/api/cogents/${name}/cogos-status`);
 }
 
-export async function getDiscordSetup(name: string): Promise<DiscordSetupStatus> {
-  return fetchJSON(`/api/cogents/${name}/setup/discord`);
+export async function getSetup(name: string): Promise<SetupResponse> {
+  return fetchJSON(`/api/cogents/${name}/setup`);
 }
 
 export async function getProcesses(name: string): Promise<CogosProcess[]> {
