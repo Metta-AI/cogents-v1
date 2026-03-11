@@ -12,7 +12,7 @@ add_process(
         "scheduler/unblock_processes",
         "scheduler/kill_process",
     ],
-    handlers=["scheduler:tick", "process:status:runnable"],
+    handlers=["scheduler:tick"],
     output_events=["process:run:success", "process:run:failed"],
 )
 
