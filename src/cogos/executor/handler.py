@@ -146,11 +146,13 @@ def handler(event: dict, context: Any = None) -> dict:
                      "process_name": process.name, "duration_ms": duration_ms},
         ))
 
-        # Transition process state: daemons go back to runnable, one-shots complete
-        if process.mode.value == "daemon":
-            repo.update_process_status(process.id, ProcessStatus.RUNNABLE)
-        else:
-            repo.update_process_status(process.id, ProcessStatus.COMPLETED)
+        # Transition process state — respect out-of-band status changes
+        current = repo.get_process(process.id)
+        if current and current.status not in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
+            if process.mode.value == "daemon":
+                repo.update_process_status(process.id, ProcessStatus.WAITING)
+            else:
+                repo.update_process_status(process.id, ProcessStatus.COMPLETED)
 
         logger.info(f"Run {run_id} completed in {duration_ms}ms")
         return {"statusCode": 200, "run_id": str(run_id)}
@@ -174,8 +176,11 @@ def handler(event: dict, context: Any = None) -> dict:
             payload={"run_id": str(run.id), "error": str(e)[:1000]},
         ))
 
-        # Retry logic
-        if process.retry_count < process.max_retries:
+        # Retry logic — respect out-of-band status changes
+        current = repo.get_process(process.id)
+        if current and current.status in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
+            pass  # someone disabled/suspended it while running
+        elif process.retry_count < process.max_retries:
             repo.increment_retry(process.id)
             repo.update_process_status(process.id, ProcessStatus.RUNNABLE)
         else:
