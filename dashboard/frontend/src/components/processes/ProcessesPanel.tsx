@@ -1274,42 +1274,44 @@ function ProcessFormEditor({
         />
       </div>
 
-      {/* Resources with typeahead */}
-      <TagListEditor
-        label="Resources"
-        items={form.resources}
-        onChange={(resources) => onChange((prev) => ({ ...prev, resources }))}
-        suggestions={resourceSuggestions}
-      />
-
-      {/* Capabilities with clickable methods + templates */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          {[
-            { label: "+ all", caps: capabilitySuggestions },
-            { label: "+ io", caps: ["files", "events", "secrets"] },
-            { label: "+ scratch", caps: ["files"] },
-          ].map((tpl) => (
-            <button
-              key={tpl.label}
-              onClick={() => {
-                const available = tpl.caps.filter((c) => capabilitySuggestions.includes(c));
-                onChange((prev) => ({ ...prev, capabilities: [...new Set([...prev.capabilities, ...available])] }));
-              }}
-              className="text-[10px] px-1.5 py-0 rounded bg-transparent border border-[var(--border)] text-[var(--accent)] cursor-pointer hover:border-[var(--accent)]"
-            >
-              {tpl.label}
-            </button>
-          ))}
+      {/* Resources + Capabilities side by side */}
+      <div className="flex gap-4">
+        <div className="flex-1">
+          <TagListEditor
+            label="Resources"
+            items={form.resources}
+            onChange={(resources) => onChange((prev) => ({ ...prev, resources }))}
+            suggestions={resourceSuggestions}
+          />
         </div>
-        <CapabilityEditor
-          items={form.capabilities}
-          configs={form.capabilityConfigs}
-          onChange={(capabilities) => onChange((prev) => ({ ...prev, capabilities }))}
-          onConfigChange={(capabilityConfigs) => onChange((prev) => ({ ...prev, capabilityConfigs }))}
-          suggestions={capabilitySuggestions}
-          cogentName={cogentName}
-        />
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            {[
+              { label: "+ all", caps: capabilitySuggestions },
+              { label: "+ io", caps: ["files", "events", "secrets"] },
+              { label: "+ scratch", caps: ["files"] },
+            ].map((tpl) => (
+              <button
+                key={tpl.label}
+                onClick={() => {
+                  const available = tpl.caps.filter((c) => capabilitySuggestions.includes(c));
+                  onChange((prev) => ({ ...prev, capabilities: [...new Set([...prev.capabilities, ...available])] }));
+                }}
+                className="text-[10px] px-1.5 py-0 rounded bg-transparent border border-[var(--border)] text-[var(--accent)] cursor-pointer hover:border-[var(--accent)]"
+              >
+                {tpl.label}
+              </button>
+            ))}
+          </div>
+          <CapabilityEditor
+            items={form.capabilities}
+            configs={form.capabilityConfigs}
+            onChange={(capabilities) => onChange((prev) => ({ ...prev, capabilities }))}
+            onConfigChange={(capabilityConfigs) => onChange((prev) => ({ ...prev, capabilityConfigs }))}
+            suggestions={capabilitySuggestions}
+            cogentName={cogentName}
+          />
+        </div>
       </div>
 
       {/* Save / Cancel */}
@@ -1787,17 +1789,33 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                     </div>
                   )}
 
-                  {/* Resources */}
-                  {proc.resources && proc.resources.length > 0 && (
-                    <div>
-                      <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Resources</div>
-                      <div className="flex flex-wrap gap-1">
-                        {proc.resources.map((r) => (
-                          <span key={r} className="px-1.5 py-0.5 rounded text-[11px] font-mono" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-                            {r}
-                          </span>
-                        ))}
-                      </div>
+                  {/* Resources + Capabilities side by side */}
+                  {(proc.resources?.length > 0 || detailCapabilities.length > 0) && (
+                    <div className="flex gap-6">
+                      {proc.resources && proc.resources.length > 0 && (
+                        <div>
+                          <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Resources</div>
+                          <div className="flex flex-wrap gap-1">
+                            {proc.resources.map((r) => (
+                              <span key={r} className="px-1.5 py-0.5 rounded text-[11px] font-mono" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+                                {r}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {detailCapabilities.length > 0 && (
+                        <div>
+                          <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Capabilities</div>
+                          <div className="flex flex-wrap gap-1">
+                            {detailCapabilities.map((c) => (
+                              <span key={c} className="px-1.5 py-0.5 rounded text-[11px] font-mono" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--accent)" }}>
+                                {c}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
