@@ -498,10 +498,7 @@ def update_dashboard(ctx: click.Context, docker: bool, skip_health: bool):
             body = resp.read().decode()
         click.echo(f"  Reload: {click.style('ok', fg='green')} ({time.monotonic() - t1:.1f}s)")
     except Exception as e:
-        click.echo(f"  Reload failed ({e}), falling back to ECS restart...")
-        ecs_client = session.client("ecs", region_name=DEFAULT_REGION)
-        service_arn = _find_dashboard_service(ecs_client, safe_name)
-        _restart_ecs_service(ecs_client, service_arn, skip_health, t0)
+        raise click.ClickException(f"Frontend reload failed: {e}")
 
     # 5. Purge Cloudflare cache so browsers get the new build
     click.echo("  Purging CDN cache...")
