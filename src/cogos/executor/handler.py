@@ -99,6 +99,7 @@ def handler(event: dict, context: Any = None) -> dict:
     config = get_config()
     repo = get_repo(config)
 
+    run_id_raw = event.get("run_id")
     process_id = event.get("process_id")
     event_id = event.get("event_id")
 
@@ -112,14 +113,22 @@ def handler(event: dict, context: Any = None) -> dict:
     # Mark as running
     repo.update_process_status(process.id, ProcessStatus.RUNNING)
 
-    # Create run record
-    run = Run(
-        process=process.id,
-        event=UUID(event_id) if event_id else None,
-        status=RunStatus.RUNNING,
-    )
-    run_id = repo.create_run(run)
-    logger.info(f"Starting run {run_id} for process {process.name}")
+    if run_id_raw:
+        run = repo.get_run(UUID(run_id_raw))
+        if not run:
+            return {"statusCode": 404, "error": f"Run not found: {run_id_raw}"}
+        if run.process != process.id:
+            return {"statusCode": 400, "error": f"Run {run_id_raw} does not belong to process {process_id}"}
+        run_id = run.id
+        logger.info(f"Resuming run {run_id} for process {process.name}")
+    else:
+        run = Run(
+            process=process.id,
+            event=UUID(event_id) if event_id else None,
+            status=RunStatus.RUNNING,
+        )
+        run_id = repo.create_run(run)
+        logger.info(f"Starting run {run_id} for process {process.name}")
 
     start_time = time.time()
     try:

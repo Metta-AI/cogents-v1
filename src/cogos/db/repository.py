@@ -460,6 +460,22 @@ class Repository:
             for r in self._rows_to_dicts(response)
         ]
 
+    def get_handler(self, handler_id: UUID) -> Handler | None:
+        response = self._execute(
+            "SELECT * FROM cogos_handler WHERE id = :id",
+            [self._param("id", handler_id)],
+        )
+        row = self._first_row(response)
+        if not row:
+            return None
+        return Handler(
+            id=UUID(row["id"]),
+            process=UUID(row["process"]),
+            event_pattern=row["event_pattern"],
+            enabled=row["enabled"],
+            created_at=self._ts(row, "created_at"),
+        )
+
     def delete_handler(self, handler_id: UUID) -> bool:
         response = self._execute(
             "DELETE FROM cogos_handler WHERE id = :id",
@@ -528,6 +544,14 @@ class Repository:
             )
         return [self._event_from_row(r) for r in self._rows_to_dicts(response)]
 
+    def get_event(self, event_id: UUID) -> Event | None:
+        response = self._execute(
+            "SELECT * FROM cogos_event WHERE id = :id",
+            [self._param("id", event_id)],
+        )
+        row = self._first_row(response)
+        return self._event_from_row(row) if row else None
+
     def _event_from_row(self, row: dict) -> Event:
         return Event(
             id=UUID(row["id"]),
@@ -587,6 +611,27 @@ class Repository:
             [self._param("id", delivery_id), self._param("run", run_id)],
         )
         return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def get_delivery_for_run(self, run_id: UUID) -> EventDelivery | None:
+        response = self._execute(
+            """SELECT ed.* FROM cogos_event_delivery ed
+               LEFT JOIN cogos_run r ON r.delivery = ed.id
+               WHERE ed.run = :run OR r.id = :run
+               ORDER BY ed.created_at DESC
+               LIMIT 1""",
+            [self._param("run", run_id)],
+        )
+        row = self._first_row(response)
+        if not row:
+            return None
+        return EventDelivery(
+            id=UUID(row["id"]),
+            event=UUID(row["event"]),
+            handler=UUID(row["handler"]),
+            status=DeliveryStatus(row["status"]),
+            run=UUID(row["run"]) if row.get("run") else None,
+            created_at=self._ts(row, "created_at"),
+        )
 
     # ═══════════════════════════════════════════════════════════
     # CRON RULES
@@ -914,10 +959,10 @@ class Repository:
     def create_run(self, run: Run) -> UUID:
         response = self._execute(
             """INSERT INTO cogos_run
-                   (id, process, event, conversation, status,
+                   (id, process, event, delivery, conversation, status,
                     tokens_in, tokens_out, cost_usd, duration_ms,
                     error, model_version, result, snapshot, scope_log)
-               VALUES (:id, :process, :event, :conversation, :status,
+               VALUES (:id, :process, :event, :delivery, :conversation, :status,
                        :tokens_in, :tokens_out, :cost_usd::numeric, :duration_ms,
                        :error, :model_version, :result::jsonb, :snapshot::jsonb, :scope_log::jsonb)
                RETURNING id, created_at""",
@@ -925,6 +970,7 @@ class Repository:
                 self._param("id", run.id),
                 self._param("process", run.process),
                 self._param("event", run.event),
+                self._param("delivery", run.delivery),
                 self._param("conversation", run.conversation),
                 self._param("status", run.status.value),
                 self._param("tokens_in", run.tokens_in),
@@ -1007,6 +1053,7 @@ class Repository:
             id=UUID(row["id"]),
             process=UUID(row["process"]),
             event=UUID(row["event"]) if row.get("event") else None,
+            delivery=UUID(row["delivery"]) if row.get("delivery") else None,
             conversation=UUID(row["conversation"]) if row.get("conversation") else None,
             status=RunStatus(row["status"]),
             tokens_in=row.get("tokens_in", 0),

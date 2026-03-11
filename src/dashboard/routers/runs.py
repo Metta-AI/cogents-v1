@@ -22,6 +22,7 @@ class RunSummary(BaseModel):
     process: str
     process_name: str | None = None
     event: str | None = None
+    delivery: str | None = None
     conversation: str | None = None
     status: str
     tokens_in: int
@@ -34,10 +35,29 @@ class RunSummary(BaseModel):
     completed_at: str | None = None
 
 
+class TriggerEvent(BaseModel):
+    id: str
+    event_type: str
+    source: str | None = None
+
+
+class TriggerHandler(BaseModel):
+    id: str
+    event_pattern: str
+    process: str
+
+
+class RunTrigger(BaseModel):
+    delivery: str
+    event: TriggerEvent | None = None
+    handler: TriggerHandler | None = None
+
+
 class RunDetail(BaseModel):
     id: str
     process: str
     event: str | None = None
+    delivery: str | None = None
     conversation: str | None = None
     status: str
     tokens_in: int
@@ -48,6 +68,7 @@ class RunDetail(BaseModel):
     model_version: str | None = None
     result: dict | None = None
     scope_log: list[dict]
+    trigger: RunTrigger | None = None
     created_at: str | None = None
     completed_at: str | None = None
 
@@ -66,6 +87,7 @@ def _summary(r: Run, process_names: dict[UUID, str] | None = None) -> RunSummary
         process=str(r.process),
         process_name=process_names.get(r.process) if process_names else None,
         event=str(r.event) if r.event else None,
+        delivery=str(r.delivery) if r.delivery else None,
         conversation=str(r.conversation) if r.conversation else None,
         status=r.status.value,
         tokens_in=r.tokens_in,
@@ -79,11 +101,33 @@ def _summary(r: Run, process_names: dict[UUID, str] | None = None) -> RunSummary
     )
 
 
-def _detail(r: Run) -> RunDetail:
+def _trigger(repo, r: Run) -> RunTrigger | None:
+    delivery = repo.get_delivery_for_run(r.id)
+    if not delivery:
+        return None
+    event = repo.get_event(delivery.event)
+    handler = repo.get_handler(delivery.handler)
+    return RunTrigger(
+        delivery=str(delivery.id),
+        event=TriggerEvent(
+            id=str(event.id),
+            event_type=event.event_type,
+            source=event.source,
+        ) if event else None,
+        handler=TriggerHandler(
+            id=str(handler.id),
+            event_pattern=handler.event_pattern,
+            process=str(handler.process),
+        ) if handler else None,
+    )
+
+
+def _detail(repo, r: Run) -> RunDetail:
     return RunDetail(
         id=str(r.id),
         process=str(r.process),
         event=str(r.event) if r.event else None,
+        delivery=str(r.delivery) if r.delivery else None,
         conversation=str(r.conversation) if r.conversation else None,
         status=r.status.value,
         tokens_in=r.tokens_in,
@@ -94,6 +138,7 @@ def _detail(r: Run) -> RunDetail:
         model_version=r.model_version,
         result=r.result,
         scope_log=r.scope_log,
+        trigger=_trigger(repo, r),
         created_at=str(r.created_at) if r.created_at else None,
         completed_at=str(r.completed_at) if r.completed_at else None,
     )
@@ -123,4 +168,4 @@ def get_run(name: str, run_id: str) -> RunDetail:
     r = repo.get_run(UUID(run_id))
     if not r:
         raise HTTPException(status_code=404, detail="Run not found")
-    return _detail(r)
+    return _detail(repo, r)

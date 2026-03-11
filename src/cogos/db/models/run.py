@@ -23,6 +23,7 @@ class Run(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     process: UUID  # FK -> Process.id
     event: UUID | None = None  # FK -> Event.id (triggering event)
+    delivery: UUID | None = None  # FK -> EventDelivery.id (event+handler that woke this run)
     conversation: UUID | None = None  # FK -> Conversation.id
     status: RunStatus = RunStatus.RUNNING
     tokens_in: int = 0

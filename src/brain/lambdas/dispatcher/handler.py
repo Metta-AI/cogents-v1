@@ -81,6 +81,7 @@ def handler(event: dict, context) -> dict:
                 event_payload = json.loads(raw) if isinstance(raw, str) else (raw or {})
 
         payload = {
+            "run_id": dispatch_result.run_id,
             "process_id": dispatch_result.process_id,
             "event_id": dispatch_result.event_id,
             "event_type": event_payload.get("event_type", ""),

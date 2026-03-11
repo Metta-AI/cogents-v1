@@ -7,6 +7,7 @@ import logging
 import os
 from datetime import datetime
 from decimal import Decimal
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -14,7 +15,9 @@ from uuid import UUID
 from cogos.db.models import (
     Capability,
     Cron,
+    DeliveryStatus,
     Event,
+    EventDelivery,
     EventType,
     File,
     FileVersion,
@@ -62,6 +65,7 @@ class LocalRepository:
         self._resources: dict[str, Resource] = {}  # keyed by name
         self._cron_rules: dict[UUID, Cron] = {}
         self._events: list[Event] = []
+        self._event_deliveries: dict[UUID, EventDelivery] = {}
         self._runs: dict[UUID, Run] = {}
         self._event_types: dict[str, EventType] = {}  # keyed by name
 
@@ -98,6 +102,7 @@ class LocalRepository:
         self._files.clear()
         self._file_versions.clear()
         self._events.clear()
+        self._event_deliveries.clear()
         self._runs.clear()
         self._event_types.clear()
 
@@ -127,6 +132,9 @@ class LocalRepository:
             self._file_versions.setdefault(ver.file_id, []).append(ver)
         for e in data.get("events", []):
             self._events.append(Event(**e))
+        for ed in data.get("event_deliveries", []):
+            delivery = EventDelivery(**ed)
+            self._event_deliveries[delivery.id] = delivery
         for r in data.get("runs", []):
             run = Run(**r)
             self._runs[run.id] = run
@@ -155,6 +163,7 @@ class LocalRepository:
             "resources": [r.model_dump(mode="json") for r in self._resources.values()],
             "cron_rules": [c.model_dump(mode="json") for c in self._cron_rules.values()],
             "events": [e.model_dump(mode="json") for e in self._events],
+            "event_deliveries": [ed.model_dump(mode="json") for ed in self._event_deliveries.values()],
             "runs": [r.model_dump(mode="json") for r in self._runs.values()],
             "event_types": [et.model_dump(mode="json") for et in self._event_types.values()],
         }
@@ -180,6 +189,7 @@ class LocalRepository:
         self._resources.clear()
         self._cron_rules.clear()
         self._events.clear()
+        self._event_deliveries.clear()
         self._runs.clear()
         self._event_types.clear()
         self._save()
@@ -235,6 +245,24 @@ class LocalRepository:
             procs = [p for p in procs if p.status == status]
         procs.sort(key=lambda p: p.name)
         return procs[:limit]
+
+    def update_process_status(self, process_id: UUID, status: ProcessStatus) -> bool:
+        proc = self._processes.get(process_id)
+        if proc is None:
+            return False
+        proc.status = status
+        if status == ProcessStatus.RUNNABLE:
+            proc.runnable_since = proc.runnable_since or datetime.utcnow()
+            self.append_event(Event(
+                event_type="process:status:runnable",
+                source="system",
+                payload={"process_id": str(process_id)},
+            ))
+        elif status in (ProcessStatus.RUNNING, ProcessStatus.WAITING, ProcessStatus.COMPLETED):
+            proc.runnable_since = None
+        proc.updated_at = datetime.utcnow()
+        self._save()
+        return True
 
     # ── Capabilities ─────────────────────────────────────────
 
@@ -295,12 +323,25 @@ class LocalRepository:
         handlers.sort(key=lambda h: h.event_pattern)
         return handlers
 
+    def get_handler(self, handler_id: UUID) -> Handler | None:
+        self._maybe_reload()
+        return self._handlers.get(handler_id)
+
     def delete_handler(self, handler_id: UUID) -> bool:
         if handler_id in self._handlers:
             del self._handlers[handler_id]
             self._save()
             return True
         return False
+
+    def match_handlers(self, event_type: str) -> list[Handler]:
+        self._maybe_reload()
+        matched = [
+            handler for handler in self._handlers.values()
+            if handler.enabled and fnmatchcase(event_type, handler.event_pattern)
+        ]
+        matched.sort(key=lambda h: h.event_pattern)
+        return matched
 
     # ── Process Capabilities ────────────────────────────────
 
@@ -490,6 +531,58 @@ class LocalRepository:
             events = [e for e in events if e.event_type == event_type]
         return events[:limit]
 
+    def get_event(self, event_id: UUID) -> Event | None:
+        self._maybe_reload()
+        for event in self._events:
+            if event.id == event_id:
+                return event
+        return None
+
+    # ── Event Delivery ───────────────────────────────────────
+
+    def create_event_delivery(self, ed: EventDelivery) -> UUID:
+        ed.created_at = datetime.utcnow()
+        self._event_deliveries[ed.id] = ed
+        self._save()
+        return ed.id
+
+    def get_pending_deliveries(self, process_id: UUID) -> list[EventDelivery]:
+        self._maybe_reload()
+        handler_ids = {
+            handler.id
+            for handler in self._handlers.values()
+            if handler.process == process_id
+        }
+        deliveries = [
+            delivery for delivery in self._event_deliveries.values()
+            if delivery.handler in handler_ids and delivery.status == DeliveryStatus.PENDING
+        ]
+        deliveries.sort(key=lambda d: d.created_at or datetime.min)
+        return deliveries
+
+    def mark_delivered(self, delivery_id: UUID, run_id: UUID) -> bool:
+        delivery = self._event_deliveries.get(delivery_id)
+        if delivery is None:
+            return False
+        delivery.status = DeliveryStatus.DELIVERED
+        delivery.run = run_id
+        self._save()
+        return True
+
+    def get_delivery_for_run(self, run_id: UUID) -> EventDelivery | None:
+        self._maybe_reload()
+        for delivery in sorted(
+            self._event_deliveries.values(),
+            key=lambda d: d.created_at or datetime.min,
+            reverse=True,
+        ):
+            if delivery.run == run_id:
+                return delivery
+        run = self._runs.get(run_id)
+        if run and run.delivery:
+            return self._event_deliveries.get(run.delivery)
+        return None
+
     # ── Runs ─────────────────────────────────────────────────
 
     def create_run(self, run: Run) -> UUID:
@@ -497,6 +590,35 @@ class LocalRepository:
         self._runs[run.id] = run
         self._save()
         return run.id
+
+    def complete_run(
+        self,
+        run_id: UUID,
+        *,
+        status,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        cost_usd: Decimal = Decimal("0"),
+        duration_ms: int | None = None,
+        error: str | None = None,
+        result: dict | None = None,
+        scope_log: list[dict] | None = None,
+    ) -> bool:
+        run = self._runs.get(run_id)
+        if run is None:
+            return False
+        run.status = status
+        run.tokens_in = tokens_in
+        run.tokens_out = tokens_out
+        run.cost_usd = cost_usd
+        run.duration_ms = duration_ms
+        run.error = error
+        run.result = result
+        if scope_log is not None:
+            run.scope_log = scope_log
+        run.completed_at = datetime.utcnow()
+        self._save()
+        return True
 
     def get_run(self, run_id: UUID) -> Run | None:
         self._maybe_reload()

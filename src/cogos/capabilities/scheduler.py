@@ -174,13 +174,18 @@ class SchedulerCapability(Capability):
         self.repo.update_process_status(target_id, ProcessStatus.RUNNING)
 
         deliveries = self.repo.get_pending_deliveries(target_id)
-        event_id = deliveries[0].event if deliveries else None
+        delivery = deliveries[0] if deliveries else None
+        event_id = delivery.event if delivery else None
 
-        run = Run(process=target_id, event=event_id)
+        run = Run(
+            process=target_id,
+            event=event_id,
+            delivery=delivery.id if delivery else None,
+        )
         run_id = self.repo.create_run(run)
 
-        if deliveries:
-            self.repo.mark_delivered(deliveries[0].id, run_id)
+        if delivery:
+            self.repo.mark_delivered(delivery.id, run_id)
 
         return DispatchResult(
             run_id=str(run_id),
