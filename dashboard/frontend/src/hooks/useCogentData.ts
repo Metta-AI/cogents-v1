@@ -53,11 +53,13 @@ export function useCogentData(cogentName: string) {
       api.getCrons(cogentName),
       api.getEventTypes(cogentName),
     ]);
-    const failCount = results.filter((r) => r.status === "rejected").length;
-    if (failCount === results.length) {
+    // Only count core endpoints (exclude optional ones like eventTypes)
+    const coreResults = results.slice(0, -1);
+    const failCount = coreResults.filter((r) => r.status === "rejected").length;
+    if (failCount === coreResults.length) {
       setError("All API requests failed — is the backend running?");
     } else if (failCount > 0) {
-      setError(`${failCount} of ${results.length} API requests failed`);
+      setError(`${failCount} of ${coreResults.length} API requests failed`);
     } else {
       setError(null);
     }
@@ -124,14 +126,14 @@ export function useCogentData(cogentName: string) {
     });
   }, [lastMessage]);
 
-  // Poll cogos-status every 30s to keep scheduler tick fresh
+  // Poll cogos-status every 5s to keep scheduler tick fresh
   useEffect(() => {
     const id = setInterval(async () => {
       try {
         const cs = await api.getCogosStatus(cogentName);
         setData((prev) => ({ ...prev, cogosStatus: cs }));
       } catch { /* ignore */ }
-    }, 30_000);
+    }, 5_000);
     return () => clearInterval(id);
   }, [cogentName]);
 
