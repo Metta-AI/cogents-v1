@@ -8,4 +8,5 @@ for cap in BUILTIN_CAPABILITIES:
         instructions=cap.get("instructions", ""),
         input_schema=cap.get("input_schema"),
         output_schema=cap.get("output_schema"),
+        event_types=cap.get("event_types"),
     )

@@ -134,6 +134,7 @@ BUILTIN_CAPABILITIES: list[dict] = [
         "name": "events",
         "description": "Append-only event log for inter-process communication.",
         "handler": "cogos.capabilities.events.EventsCapability",
+        "event_types": [],  # dynamic — processes define their own event types
         "instructions": (
             "Use events to emit and query the event log.\n"
             "- events.emit(event_type, payload?) — emit an event (e.g. 'task:completed')\n"
@@ -242,6 +243,7 @@ BUILTIN_CAPABILITIES: list[dict] = [
         "name": "email",
         "description": "Send and receive emails via AWS SES.",
         "handler": "cogos.io.email.capability.EmailCapability",
+        "event_types": ["email:received", "email:sent"],
         "instructions": (
             "Use email to send and receive emails.\n"
             "- email.send(to, subject, body, reply_to?) — send an email\n"
@@ -292,6 +294,7 @@ BUILTIN_CAPABILITIES: list[dict] = [
         "name": "discord",
         "description": "Send and receive Discord messages, reactions, threads, and DMs.",
         "handler": "cogos.io.discord.capability.DiscordCapability",
+        "event_types": ["discord:dm", "discord:mention", "discord:message"],
         "instructions": (
             "Use discord to interact with Discord channels.\n"
             "- discord.send(channel, content) — send a message to a channel\n"
@@ -408,6 +411,7 @@ BUILTIN_CAPABILITIES: list[dict] = [
         "name": "scheduler",
         "description": "Process scheduling — event matching, process selection, and dispatch.",
         "handler": "cogos.capabilities.scheduler.SchedulerCapability",
+        "event_types": ["process:run:success", "process:run:failed", "process:status:runnable"],
         "instructions": (
             "The scheduler runs the CogOS tick loop. Only the scheduler daemon should use this.\n"
             "- scheduler.match_events() — match undelivered events to handlers, create deliveries\n"

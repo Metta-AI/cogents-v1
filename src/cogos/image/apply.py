@@ -25,6 +25,8 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
     """Apply an image spec to the database. Returns counts of entities created/updated."""
     counts = {"capabilities": 0, "resources": 0, "files": 0, "processes": 0, "cron": 0}
 
+    all_event_names: list[tuple[str, str]] = []  # (name, source)
+
     # 1. Capabilities
     for cap_dict in spec.capabilities:
         cap = Capability(
@@ -36,8 +38,11 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
             output_schema=cap_dict.get("output_schema") or {},
             iam_role_arn=cap_dict.get("iam_role_arn"),
             metadata=cap_dict.get("metadata") or {},
+            event_types=cap_dict.get("event_types") or [],
         )
         repo.upsert_capability(cap)
+        for et in cap.event_types:
+            all_event_names.append((et, f"capability:{cap.name}"))
         counts["capabilities"] += 1
 
     # 2. Resources (skip if no table/method yet)
@@ -83,6 +88,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
                 code_id = f.id
 
         mode = ProcessMode(proc_dict.get("mode", "one_shot"))
+        output_events = proc_dict.get("output_events") or []
         p = Process(
             name=proc_dict["name"],
             mode=mode,
@@ -93,6 +99,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
             priority=float(proc_dict.get("priority", 0.0)),
             status=ProcessStatus.WAITING if mode == ProcessMode.DAEMON else ProcessStatus.RUNNABLE,
             metadata=proc_dict.get("metadata") or {},
+            output_events=output_events,
         )
         pid = repo.upsert_process(p)
 
@@ -107,7 +114,24 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
         for pattern in proc_dict.get("handlers", []):
             h = Handler(process=pid, event_pattern=pattern, enabled=True)
             repo.create_handler(h)
+            all_event_names.append((pattern, f"handler:{p.name}"))
+
+        for evt in output_events:
+            all_event_names.append((evt, f"process:{p.name}"))
 
         counts["processes"] += 1
+
+    # 6. Register all collected event types
+    if hasattr(repo, "upsert_event_type"):
+        from cogos.db.models import EventType
+        for cron_dict in spec.cron_rules:
+            et = cron_dict.get("event_type", "")
+            if et:
+                all_event_names.append((et, "cron"))
+        seen: set[str] = set()
+        for name, source in all_event_names:
+            if name not in seen:
+                repo.upsert_event_type(EventType(name=name, source=source))
+                seen.add(name)
 
     return counts

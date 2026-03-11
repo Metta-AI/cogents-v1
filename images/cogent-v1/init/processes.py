@@ -13,6 +13,7 @@ add_process(
         "scheduler/kill_process",
     ],
     handlers=["scheduler:tick", "process:status:runnable"],
+    output_events=["process:run:success", "process:run:failed"],
 )
 
 add_process(
@@ -32,4 +33,5 @@ Be helpful, concise, and friendly. If you don't know something, say so.
     priority=10.0,
     capabilities=["discord", "events", "files"],
     handlers=["discord:dm", "discord:mention"],
+    output_events=["discord:reply"],
 )
