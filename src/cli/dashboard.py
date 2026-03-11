@@ -99,6 +99,7 @@ def serve(ctx: click.Context, port: int | None, frontend_port: int | None, no_br
         "DASHBOARD_BE_PORT": str(port),
         "DASHBOARD_FE_PORT": str(frontend_port),
     }
+
     if local:
         env["USE_LOCAL_DB"] = "1"
     env = _ensure_db_env(name, env)
@@ -157,10 +158,10 @@ def create_pat(ctx: click.Context, force: bool):
     After creating, run 'brain update stack' to apply the ALB rule.
     """
     from cli import get_cogent_name
-    from polis.aws import get_polis_session, set_profile
+    from polis.aws import get_polis_session, set_org_profile
 
     name = get_cogent_name(ctx)
-    set_profile("softmax-org")
+    set_org_profile()
     session, _ = get_polis_session()
 
     from polis.secrets.store import SecretStore
@@ -203,10 +204,10 @@ def create_pat(ctx: click.Context, force: bool):
 def show_pat(ctx: click.Context):
     """Show the dashboard PAT (from polis secrets)."""
     from cli import get_cogent_name
-    from polis.aws import get_polis_session, set_profile
+    from polis.aws import get_polis_session, set_org_profile
 
     name = get_cogent_name(ctx)
-    set_profile("softmax-org")
+    set_org_profile()
     session, _ = get_polis_session()
 
     from polis.secrets.store import SecretStore
