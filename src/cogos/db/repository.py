@@ -19,6 +19,9 @@ from cogos.db.models import (
     Budget,
     BudgetPeriod,
     Capability,
+    Channel,
+    ChannelMessage,
+    ChannelType,
     Conversation,
     ConversationStatus,
     Cron,
@@ -40,6 +43,7 @@ from cogos.db.models import (
     ResourceUsage,
     Run,
     RunStatus,
+    Schema,
     Trace,
 )
 
@@ -526,22 +530,39 @@ class Repository:
     # ═══════════════════════════════════════════════════════════
 
     def create_handler(self, h: Handler) -> UUID:
-        response = self._execute(
-            """INSERT INTO cogos_handler (id, process, event_pattern, enabled)
-               VALUES (:id, :process, :event_pattern, :enabled)
-               ON CONFLICT (process, event_pattern) DO UPDATE SET enabled = EXCLUDED.enabled
-               RETURNING id, created_at""",
-            [
-                self._param("id", h.id),
-                self._param("process", h.process),
-                self._param("event_pattern", h.event_pattern),
-                self._param("enabled", h.enabled),
-            ],
-        )
+        if h.channel is not None:
+            # Channel-based handler: upsert by (process, channel)
+            response = self._execute(
+                """INSERT INTO cogos_handler (id, process, channel, enabled)
+                   VALUES (:id, :process, :channel, :enabled)
+                   ON CONFLICT (process, channel) DO UPDATE SET enabled = EXCLUDED.enabled
+                   RETURNING id, created_at""",
+                [
+                    self._param("id", h.id),
+                    self._param("process", h.process),
+                    self._param("channel", h.channel),
+                    self._param("enabled", h.enabled),
+                ],
+            )
+        else:
+            # Legacy event_pattern-based handler
+            response = self._execute(
+                """INSERT INTO cogos_handler (id, process, event_pattern, enabled)
+                   VALUES (:id, :process, :event_pattern, :enabled)
+                   ON CONFLICT (process, event_pattern) DO UPDATE SET enabled = EXCLUDED.enabled
+                   RETURNING id, created_at""",
+                [
+                    self._param("id", h.id),
+                    self._param("process", h.process),
+                    self._param("event_pattern", h.event_pattern),
+                    self._param("enabled", h.enabled),
+                ],
+            )
         row = self._first_row(response)
         if row:
             h.created_at = self._ts(row, "created_at")
-            self.register_event_types([h.event_pattern], source="handler")
+            if h.event_pattern:
+                self.register_event_types([h.event_pattern], source="handler")
             return UUID(row["id"])
         return h.id
 
@@ -557,19 +578,10 @@ class Repository:
             conditions.append("enabled = TRUE")
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         response = self._execute(
-            f"SELECT * FROM cogos_handler {where} ORDER BY event_pattern",
+            f"SELECT * FROM cogos_handler {where} ORDER BY COALESCE(event_pattern, '')",
             params or None,
         )
-        return [
-            Handler(
-                id=UUID(r["id"]),
-                process=UUID(r["process"]),
-                event_pattern=r["event_pattern"],
-                enabled=r["enabled"],
-                created_at=self._ts(r, "created_at"),
-            )
-            for r in self._rows_to_dicts(response)
-        ]
+        return [self._handler_from_row(r) for r in self._rows_to_dicts(response)]
 
     def delete_handler(self, handler_id: UUID) -> bool:
         response = self._execute(
@@ -586,19 +598,30 @@ class Repository:
         response = self._execute(
             """SELECT * FROM cogos_handler
                WHERE enabled = TRUE
+                 AND event_pattern IS NOT NULL
                  AND :event_type LIKE REPLACE(REPLACE(event_pattern, '*', '%'), '?', '_')""",
             [self._param("event_type", event_type)],
         )
-        return [
-            Handler(
-                id=UUID(r["id"]),
-                process=UUID(r["process"]),
-                event_pattern=r["event_pattern"],
-                enabled=r["enabled"],
-                created_at=self._ts(r, "created_at"),
-            )
-            for r in self._rows_to_dicts(response)
-        ]
+        return [self._handler_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def match_handlers_by_channel(self, channel_id: UUID) -> list[Handler]:
+        """Find enabled handlers subscribed to a specific channel."""
+        response = self._execute(
+            """SELECT * FROM cogos_handler
+               WHERE enabled = TRUE AND channel = :channel""",
+            [self._param("channel", channel_id)],
+        )
+        return [self._handler_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def _handler_from_row(self, r: dict) -> Handler:
+        return Handler(
+            id=UUID(r["id"]),
+            process=UUID(r["process"]),
+            event_pattern=r.get("event_pattern"),
+            channel=UUID(r["channel"]) if r.get("channel") else None,
+            enabled=r["enabled"],
+            created_at=self._ts(r, "created_at"),
+        )
 
     # ═══════════════════════════════════════════════════════════
     # EVENTS
@@ -1375,3 +1398,184 @@ class Repository:
             [self._param("name", name)],
         )
         return resp.get("numberOfRecordsUpdated", 0) > 0
+
+    # ═══════════════════════════════════════════════════════════
+    # SCHEMAS
+    # ═══════════════════════════════════════════════════════════
+
+    def upsert_schema(self, s: Schema) -> UUID:
+        response = self._execute(
+            """INSERT INTO cogos_schema (id, name, definition, file_id)
+               VALUES (:id, :name, :definition::jsonb, :file_id)
+               ON CONFLICT (name) DO UPDATE SET
+                   definition = EXCLUDED.definition,
+                   file_id = EXCLUDED.file_id
+               RETURNING id, created_at""",
+            [
+                self._param("id", s.id),
+                self._param("name", s.name),
+                self._param("definition", s.definition),
+                self._param("file_id", s.file_id),
+            ],
+        )
+        row = self._first_row(response)
+        if row:
+            s.created_at = self._ts(row, "created_at")
+            return UUID(row["id"])
+        raise RuntimeError("Failed to upsert schema")
+
+    def get_schema(self, schema_id: UUID) -> Schema | None:
+        response = self._execute(
+            "SELECT * FROM cogos_schema WHERE id = :id",
+            [self._param("id", schema_id)],
+        )
+        row = self._first_row(response)
+        return self._schema_from_row(row) if row else None
+
+    def get_schema_by_name(self, name: str) -> Schema | None:
+        response = self._execute(
+            "SELECT * FROM cogos_schema WHERE name = :name",
+            [self._param("name", name)],
+        )
+        row = self._first_row(response)
+        return self._schema_from_row(row) if row else None
+
+    def list_schemas(self) -> list[Schema]:
+        response = self._execute("SELECT * FROM cogos_schema ORDER BY name")
+        return [self._schema_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def _schema_from_row(self, row: dict) -> Schema:
+        return Schema(
+            id=UUID(row["id"]),
+            name=row["name"],
+            definition=self._json_field(row, "definition", {}),
+            file_id=UUID(row["file_id"]) if row.get("file_id") else None,
+            created_at=self._ts(row, "created_at"),
+        )
+
+    # ═══════════════════════════════════════════════════════════
+    # CHANNELS
+    # ═══════════════════════════════════════════════════════════
+
+    def upsert_channel(self, ch: Channel) -> UUID:
+        response = self._execute(
+            """INSERT INTO cogos_channel
+                   (id, name, owner_process, schema_id, inline_schema,
+                    channel_type, auto_close, closed_at)
+               VALUES (:id, :name, :owner_process, :schema_id, :inline_schema::jsonb,
+                       :channel_type, :auto_close, :closed_at)
+               ON CONFLICT (name) DO UPDATE SET
+                   owner_process = EXCLUDED.owner_process,
+                   schema_id = EXCLUDED.schema_id,
+                   inline_schema = EXCLUDED.inline_schema,
+                   channel_type = EXCLUDED.channel_type,
+                   auto_close = EXCLUDED.auto_close,
+                   closed_at = EXCLUDED.closed_at
+               RETURNING id, created_at""",
+            [
+                self._param("id", ch.id),
+                self._param("name", ch.name),
+                self._param("owner_process", ch.owner_process),
+                self._param("schema_id", ch.schema_id),
+                self._param("inline_schema", ch.inline_schema),
+                self._param("channel_type", ch.channel_type.value),
+                self._param("auto_close", ch.auto_close),
+                self._param("closed_at", ch.closed_at),
+            ],
+        )
+        row = self._first_row(response)
+        if row:
+            ch.created_at = self._ts(row, "created_at")
+            return UUID(row["id"])
+        raise RuntimeError("Failed to upsert channel")
+
+    def get_channel(self, channel_id: UUID) -> Channel | None:
+        response = self._execute(
+            "SELECT * FROM cogos_channel WHERE id = :id",
+            [self._param("id", channel_id)],
+        )
+        row = self._first_row(response)
+        return self._channel_from_row(row) if row else None
+
+    def get_channel_by_name(self, name: str) -> Channel | None:
+        response = self._execute(
+            "SELECT * FROM cogos_channel WHERE name = :name",
+            [self._param("name", name)],
+        )
+        row = self._first_row(response)
+        return self._channel_from_row(row) if row else None
+
+    def list_channels(self, *, owner_process: UUID | None = None) -> list[Channel]:
+        if owner_process is not None:
+            response = self._execute(
+                "SELECT * FROM cogos_channel WHERE owner_process = :owner ORDER BY name",
+                [self._param("owner", owner_process)],
+            )
+        else:
+            response = self._execute(
+                "SELECT * FROM cogos_channel ORDER BY name",
+            )
+        return [self._channel_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def close_channel(self, channel_id: UUID) -> bool:
+        response = self._execute(
+            "UPDATE cogos_channel SET closed_at = now() WHERE id = :id AND closed_at IS NULL",
+            [self._param("id", channel_id)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def _channel_from_row(self, row: dict) -> Channel:
+        return Channel(
+            id=UUID(row["id"]),
+            name=row["name"],
+            owner_process=UUID(row["owner_process"]),
+            schema_id=UUID(row["schema_id"]) if row.get("schema_id") else None,
+            inline_schema=self._json_field(row, "inline_schema"),
+            channel_type=ChannelType(row["channel_type"]),
+            auto_close=row.get("auto_close", False),
+            closed_at=self._ts(row, "closed_at"),
+            created_at=self._ts(row, "created_at"),
+        )
+
+    # ═══════════════════════════════════════════════════════════
+    # CHANNEL MESSAGES
+    # ═══════════════════════════════════════════════════════════
+
+    def append_channel_message(self, msg: ChannelMessage) -> UUID:
+        response = self._execute(
+            """INSERT INTO cogos_channel_message (id, channel, sender_process, payload)
+               VALUES (:id, :channel, :sender_process, :payload::jsonb)
+               RETURNING id, created_at""",
+            [
+                self._param("id", msg.id),
+                self._param("channel", msg.channel),
+                self._param("sender_process", msg.sender_process),
+                self._param("payload", msg.payload),
+            ],
+        )
+        row = self._first_row(response)
+        if row:
+            msg.created_at = self._ts(row, "created_at")
+            return UUID(row["id"])
+        raise RuntimeError("Failed to append channel message")
+
+    def list_channel_messages(
+        self, channel_id: UUID, *, limit: int = 100,
+    ) -> list[ChannelMessage]:
+        response = self._execute(
+            """SELECT * FROM cogos_channel_message
+               WHERE channel = :channel
+               ORDER BY created_at ASC
+               LIMIT :limit""",
+            [self._param("channel", channel_id), self._param("limit", limit)],
+        )
+        return [
+            ChannelMessage(
+                id=UUID(r["id"]),
+                channel=UUID(r["channel"]),
+                sender_process=UUID(r["sender_process"]),
+                payload=self._json_field(r, "payload", {}),
+                created_at=self._ts(r, "created_at"),
+            )
+            for r in self._rows_to_dicts(response)
+        ]
