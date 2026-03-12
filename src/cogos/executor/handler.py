@@ -329,88 +329,61 @@ def _handle_search(tool_input: dict, process: Process, repo: Repository) -> str:
 
 
 def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Repository, *, run_id: UUID | None = None) -> None:
-    """Inject capability proxy objects into the variable table.
+    """Inject capability instances into the variable table.
 
-    Dynamically loads all capabilities bound to this process via their
-    handler class path, falling back to built-in proxies for files/procs/events.
+    Uses real capability classes (not inline proxies). Applies scope from
+    ProcessCapability.config when present.
     """
     import importlib
     import inspect
 
-    from cogos.files.store import FileStore
-
-    file_store = FileStore(repo)
-
-    # Built-in proxies for core capabilities
-    class FilesProxy:
-        def read(self, key: str) -> dict | None:
-            f = file_store.get(key)
-            if f is None:
-                return None
-            fv = repo.get_active_file_version(f.id)
-            return {"id": str(f.id), "key": f.key, "content": fv.content if fv else ""}
-
-        def write(self, key: str, content: str) -> dict:
-            result = file_store.upsert(key, content)
-            if hasattr(result, "key"):
-                return {"id": str(result.id), "key": result.key}
-            return {"status": "updated"}
-
-        def search(self, query: str) -> list[dict]:
-            files = file_store.list_files(prefix=query)
-            return [{"id": str(f.id), "key": f.key} for f in files]
-
-    class ProcsProxy:
-        def list(self) -> list[dict]:
-            procs = repo.list_processes()
-            return [{"id": str(p.id), "name": p.name, "status": p.status.value} for p in procs]
-
-        def get(self, name: str) -> dict | None:
-            p = repo.get_process_by_name(name)
-            if p is None:
-                return None
-            return {"id": str(p.id), "name": p.name, "status": p.status.value, "mode": p.mode.value}
-
-    class EventsProxy:
-        def emit(self, event_type: str, payload: dict | None = None) -> str:
-            evt = Event(event_type=event_type, source=process.name, payload=payload or {})
-            eid = repo.append_event(evt)
-            return str(eid)
-
-        def query(self, event_type: str | None = None, limit: int = 20) -> list[dict]:
-            evts = repo.get_events(event_type=event_type, limit=limit)
-            return [{"id": str(e.id), "type": e.event_type, "payload": e.payload} for e in evts]
-
-    vt.set("files", FilesProxy())
-    vt.set("procs", ProcsProxy())
-    vt.set("events", EventsProxy())
-    vt.set("print", print)
-
-    # "me" capability — needs run_id, injected separately
+    from cogos.capabilities.events import EventsCapability
+    from cogos.capabilities.files import FilesCapability
     from cogos.capabilities.me import MeCapability
+    from cogos.capabilities.procs import ProcsCapability
+
+    # Core capabilities — always available
+    vt.set("files", FilesCapability(repo, process.id))
+    vt.set("procs", ProcsCapability(repo, process.id))
+    vt.set("events", EventsCapability(repo, process.id))
     vt.set("me", MeCapability(repo, process.id, run_id=run_id))
+    vt.set("print", print)
 
     # Dynamically load additional capabilities bound to this process
     pcs = repo.list_process_capabilities(process.id)
     for pc in pcs:
-        cap = repo.get_capability(pc.capability)
-        if cap is None or not cap.enabled:
+        cap_model = repo.get_capability(pc.capability)
+        if cap_model is None or not cap_model.enabled:
             continue
-        ns = cap.name.split("/")[0] if "/" in cap.name else cap.name
-        if ns in ("file", "dir", "files", "procs", "events", "scheduler", "me"):
-            continue  # already set up above
-        if ":" in cap.handler:
-            mod_path, attr_name = cap.handler.rsplit(":", 1)
-        elif "." in cap.handler:
-            mod_path, attr_name = cap.handler.rsplit(".", 1)
+
+        # Determine namespace — use grant name from ProcessCapability
+        ns = pc.name or (cap_model.name.split("/")[0] if "/" in cap_model.name else cap_model.name)
+
+        # Skip core caps that are already set up (unless they have a custom grant name)
+        if ns in ("files", "procs", "events", "me") and not pc.config:
+            continue
+
+        # Load the handler class
+        handler_path = cap_model.handler
+        if not handler_path:
+            continue
+        if ":" in handler_path:
+            mod_path, attr_name = handler_path.rsplit(":", 1)
+        elif "." in handler_path:
+            mod_path, attr_name = handler_path.rsplit(".", 1)
         else:
             continue
+
         try:
             mod = importlib.import_module(mod_path)
             handler_cls = getattr(mod, attr_name)
-            if inspect.isclass(handler_cls):
-                vt.set(ns, handler_cls(repo, process.id))
-            else:
+            if not inspect.isclass(handler_cls):
                 vt.set(ns, handler_cls)
+                continue
+            instance = handler_cls(repo, process.id)
+            # Apply scope from config if present
+            if pc.config:
+                instance = instance.scope(**pc.config)
+            vt.set(ns, instance)
         except (ImportError, AttributeError) as exc:
-            logger.warning("Could not load capability %s (%s): %s", cap.name, cap.handler, exc)
+            logger.warning("Could not load capability %s (%s): %s", cap_model.name, handler_path, exc)
