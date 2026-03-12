@@ -64,25 +64,25 @@ def create_app() -> FastAPI:
 
     from dashboard.routers import (
         capabilities,
-        cogos_events,
+        channels,
         cogos_status,
         cron,
-        event_types,
         events,
         files,
         handlers,
         processes,
         resources,
         runs,
+        schemas,
         setup,
     )
     app.include_router(processes.router, prefix="/api/cogents/{name}")
     app.include_router(handlers.router, prefix="/api/cogents/{name}")
     app.include_router(files.router, prefix="/api/cogents/{name}")
     app.include_router(capabilities.router, prefix="/api/cogents/{name}")
-    app.include_router(event_types.router, prefix="/api/cogents/{name}")
+    app.include_router(channels.router, prefix="/api/cogents/{name}")
+    app.include_router(schemas.router, prefix="/api/cogents/{name}")
     app.include_router(runs.router, prefix="/api/cogents/{name}")
-    app.include_router(cogos_events.router, prefix="/api/cogents/{name}")
     app.include_router(cogos_status.router, prefix="/api/cogents/{name}")
     app.include_router(events.router, prefix="/api/cogents/{name}")
     app.include_router(cron.router, prefix="/api/cogents/{name}")
