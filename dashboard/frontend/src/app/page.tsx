@@ -93,6 +93,7 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
         error={error}
         wsConnected={connected}
         schedulerLastTick={cs?.scheduler_last_tick ?? null}
+        ages={cs?.ages ?? null}
       />
       <main
         className="fixed overflow-y-auto p-5 pb-16"

@@ -49,6 +49,7 @@ def handler(event: dict, context) -> dict:
     # Heartbeat — lets the dashboard show time-since-last-tick
     try:
         repo.set_meta("scheduler:last_tick")
+        repo.set_meta("state:modified_at")
     except Exception:
         pass
 

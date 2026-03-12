@@ -189,6 +189,15 @@ def update_lambda(ctx: click.Context, profile: str | None):
         except Exception as e:
             click.echo(f"  {fn_name}: {click.style(str(e), fg='red')}")
 
+    # Record content deploy timestamp
+    try:
+        _ensure_db_env(name)
+        from cogos.db.repository import Repository
+        repo = Repository.create()
+        repo.set_meta("content:deployed_at")
+    except Exception:
+        pass
+
     click.echo(f"  Lambda: {time.monotonic() - t0:.1f}s")
 
 
@@ -268,6 +277,13 @@ def update_rds(ctx: click.Context, profile: str | None, force: bool):
         region=os.environ.get("AWS_DEFAULT_REGION", DEFAULT_REGION),
     )
     statements = apply_cogos_sql_migrations(repo)
+
+    # Record schema migration timestamp
+    try:
+        repo.set_meta("schema:migrated_at", str(version))
+    except Exception:
+        pass
+
     click.echo(f"  Schema at version {version}.")
     click.echo(f"  CogOS SQL migrations applied ({statements} statements). ({time.monotonic() - t0:.1f}s)")
 
@@ -789,4 +805,14 @@ def update_stack(ctx: click.Context, profile: str | None):
             )
         elif discord_action == ("autostarted", 1):
             click.echo(f"Starting Discord bridge for cogent-{name} because a token is configured...")
+
+    # Record stack update timestamp
+    try:
+        _ensure_db_env(name)
+        from cogos.db.repository import Repository
+        repo = Repository.create()
+        repo.set_meta("stack:updated_at")
+    except Exception:
+        pass
+
     click.echo(f"Stack update for cogent-{name} completed.")

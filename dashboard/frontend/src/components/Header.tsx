@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useEffect } from "react";
-import type { TimeRange } from "@/lib/types";
+import type { TimeRange, AgeInfo } from "@/lib/types";
 
 const TIME_RANGES: { value: TimeRange; label: string }[] = [
   { value: "1m", label: "1m" },
@@ -21,6 +21,7 @@ interface HeaderProps {
   error: string | null;
   wsConnected: boolean;
   schedulerLastTick: string | null;
+  ages: AgeInfo | null;
 }
 
 function useTickAgo(schedulerLastTick: string | null): { text: string; ms: number } | null {
@@ -50,6 +51,24 @@ function tickColor(ms: number): string {
   return "var(--error)";
 }
 
+function fmtAge(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return null;
+  if (ms < 60_000) return "<1m";
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h`;
+  return `${Math.floor(ms / 86_400_000)}d`;
+}
+
+function ageColor(iso: string | null | undefined): string {
+  if (!iso) return "var(--text-muted)";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 3_600_000) return "var(--success)";   // < 1h
+  if (ms < 86_400_000) return "var(--warning)";   // < 1d
+  return "var(--error)";
+}
+
 export function Header({
   cogentName,
   statusText,
@@ -60,6 +79,7 @@ export function Header({
   error,
   wsConnected,
   schedulerLastTick,
+  ages,
 }: HeaderProps) {
   // Show spin for at least 400ms so the user sees feedback
   const [spinning, setSpinning] = useState(false);
@@ -127,6 +147,39 @@ export function Header({
           >
             tick {tick.text}
           </span>
+        )}
+        {/* Age badges */}
+        {ages && (
+          <div className="flex items-center gap-1" style={{ marginLeft: "4px" }}>
+            {(
+              [
+                ["image", ages.image],
+                ["content", ages.content],
+                ["stack", ages.stack],
+                ["schema", ages.schema],
+                ["state", ages.state],
+              ] as const
+            ).map(([label, ts]) => {
+              const age = fmtAge(ts);
+              return (
+                <span
+                  key={label}
+                  title={ts ? `${label}: ${new Date(ts).toLocaleString()}` : `${label}: unknown`}
+                  style={{
+                    fontSize: "9px",
+                    fontFamily: "var(--font-mono)",
+                    color: ageColor(ts),
+                    opacity: age ? 0.8 : 0.4,
+                    padding: "1px 4px",
+                    borderRadius: "3px",
+                    border: `1px solid ${age ? ageColor(ts) : "var(--border)"}`,
+                  }}
+                >
+                  {label} {age ?? "?"}
+                </span>
+              );
+            })}
+          </div>
         )}
       </div>
 

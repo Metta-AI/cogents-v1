@@ -158,4 +158,8 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
 
         counts["processes"] += 1
 
+    # Record image boot timestamp
+    if hasattr(repo, "set_meta"):
+        repo.set_meta("image:booted_at")
+
     return counts

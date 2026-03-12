@@ -56,7 +56,7 @@ export function OverviewPanel({ data }: Props) {
           label="Alerts"
           variant={(s?.unresolved_alerts ?? data.alerts.filter((a) => !a.resolved_at).length) > 0 ? "error" : "default"}
         />
-        <StatCard value={cs ? cs.recent_events : s ? s.recent_events : null} label="Recent Events" />
+        <StatCard value={cs ? cs.recent_channels : s ? s.recent_events : null} label="Channels" />
       </div>
 
       {/* Three-column layout */}

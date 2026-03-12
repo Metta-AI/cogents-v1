@@ -138,13 +138,22 @@ export interface CogosRunLogsResponse {
   error: string | null;
 }
 
+export interface AgeInfo {
+  image: string | null;
+  content: string | null;
+  stack: string | null;
+  schema: string | null;
+  state: string | null;
+}
+
 export interface CogosStatus {
   processes: { total: number; by_status: Record<string, number> };
   files: number;
   capabilities: number;
-  recent_events: number;
+  recent_channels: number;
   recent_runs: Array<{ id: string; process_name: string; status: string; duration_ms: number | null; created_at: string }>;
   scheduler_last_tick: string | null;
+  ages: AgeInfo | null;
 }
 
 export interface Execution {
