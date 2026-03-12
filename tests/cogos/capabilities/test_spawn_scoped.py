@@ -26,6 +26,17 @@ def test_spawn_with_scoped_capabilities():
         return {"files": files_cap_model, "events": events_cap_model}.get(name)
     repo.get_capability_by_name.side_effect = lookup
 
+    # Parent holds unscoped grants for both capability types
+    parent_files_grant = MagicMock()
+    parent_files_grant.capability = files_cap_model.id
+    parent_files_grant.config = None
+
+    parent_events_grant = MagicMock()
+    parent_events_grant.capability = events_cap_model.id
+    parent_events_grant.config = None
+
+    repo.list_process_capabilities.return_value = [parent_files_grant, parent_events_grant]
+
     procs = ProcsCapability(repo, uuid4())
     files = FilesCapability(repo, uuid4())
     events = EventsCapability(repo, uuid4())
