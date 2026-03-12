@@ -138,10 +138,14 @@ class Capability:
     def _narrow(self, existing: dict, requested: dict) -> dict:
         """Compute the new scope from existing and requested constraints.
 
-        Default implementation: merge dicts (requested overrides existing).
-        Subclasses should override for intersection / validation logic.
+        Subclasses MUST override with intersection logic to prevent
+        scope widening.  The base class raises NotImplementedError so
+        that forgetting to override is a loud failure, not a silent
+        privilege escalation.
         """
-        return {**existing, **requested}
+        raise NotImplementedError(
+            f"{type(self).__name__} must override _narrow() with intersection logic"
+        )
 
     def _check(self, op: str, **context: object) -> None:
         """Verify that *op* is allowed under the current scope.

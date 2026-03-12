@@ -83,16 +83,11 @@ class TestNarrow:
         s3 = s2.scope(ops={"read"})
         assert s3._scope["ops"] == {"read"}
 
-    def test_base_narrow_merges(self, repo, pid):
-        """Base Capability._narrow simply merges dicts."""
+    def test_base_narrow_raises_not_implemented(self, repo, pid):
+        """Base Capability._narrow raises NotImplementedError to force subclasses to override."""
         cap = Capability(repo, pid)
-        result = cap._narrow({"a": 1}, {"b": 2})
-        assert result == {"a": 1, "b": 2}
-
-    def test_base_narrow_overrides(self, repo, pid):
-        cap = Capability(repo, pid)
-        result = cap._narrow({"a": 1}, {"a": 99})
-        assert result == {"a": 99}
+        with pytest.raises(NotImplementedError, match="must override _narrow"):
+            cap._narrow({"a": 1}, {"b": 2})
 
 
 class TestCheck:
