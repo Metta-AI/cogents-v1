@@ -8,7 +8,8 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from cogos.capabilities.base import Capability
-from cogos.db.models import Process, ProcessCapability, ProcessMode, ProcessStatus
+from cogos.capabilities.process_handle import ProcessHandle
+from cogos.db.models import Channel, ChannelType, Process, ProcessCapability, ProcessMode, ProcessStatus
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ class ProcsCapability(Capability):
             for p in processes
         ]
 
-    def get(self, name: str | None = None, id: str | None = None) -> ProcessDetail | ProcessError:
+    def get(self, name: str | None = None, id: str | None = None) -> ProcessHandle | ProcessError:
         self._check("get")
         if id:
             proc = self.repo.get_process(UUID(id))
@@ -103,22 +104,20 @@ class ProcsCapability(Capability):
         if proc is None:
             return ProcessError(error="process not found")
 
-        return ProcessDetail(
-            id=str(proc.id),
-            name=proc.name,
-            mode=proc.mode.value,
-            status=proc.status.value,
-            priority=proc.priority,
-            runner=proc.runner,
-            content=proc.content,
-            code=str(proc.code) if proc.code else None,
-            parent_process=str(proc.parent_process) if proc.parent_process else None,
-            preemptible=proc.preemptible,
-            model=proc.model,
-            max_retries=proc.max_retries,
-            retry_count=proc.retry_count,
-            created_at=proc.created_at.isoformat() if proc.created_at else None,
-            updated_at=proc.updated_at.isoformat() if proc.updated_at else None,
+        # Look for spawn channels (if caller is parent or child)
+        send_ch = self.repo.get_channel_by_name(f"spawn:{self.process_id}\u2192{proc.id}")
+        recv_ch = self.repo.get_channel_by_name(f"spawn:{proc.id}\u2192{self.process_id}")
+
+        # If no spawn channels, try implicit process channel for reading
+        if recv_ch is None:
+            recv_ch = self.repo.get_channel_by_name(f"process:{proc.name}")
+
+        return ProcessHandle(
+            repo=self.repo,
+            caller_process_id=self.process_id,
+            process=proc,
+            send_channel=send_ch,
+            recv_channel=recv_ch,
         )
 
     def spawn(
@@ -130,7 +129,8 @@ class ProcsCapability(Capability):
         runner: str = "lambda",
         model: str | None = None,
         capabilities: dict[str, "Capability | None"] | None = None,
-    ) -> SpawnResult | ProcessError:
+        schema: dict | None = None,
+    ) -> ProcessHandle | ProcessError:
         """Spawn a child process. Capabilities are NOT inherited — pass them explicitly.
 
         capabilities is a dict mapping namespace name to capability instance:
@@ -212,11 +212,38 @@ class ProcsCapability(Capability):
             )
             self.repo.create_process_capability(pc)
 
-        return SpawnResult(
-            id=str(child_id),
-            name=name,
-            status=ProcessStatus.RUNNABLE.value,
-            parent_process=str(self.process_id),
+        # Create spawn channels
+        schema_id = None
+        inline_schema = None
+        if schema is not None:
+            if isinstance(schema, dict):
+                inline_schema = {"fields": schema} if "fields" not in schema else schema
+
+        send_ch = Channel(
+            name=f"spawn:{self.process_id}\u2192{child_id}",
+            owner_process=self.process_id,
+            channel_type=ChannelType.SPAWN,
+            inline_schema=inline_schema,
+            schema_id=schema_id,
+        )
+        self.repo.upsert_channel(send_ch)
+
+        recv_ch = Channel(
+            name=f"spawn:{child_id}\u2192{self.process_id}",
+            owner_process=child_id,
+            channel_type=ChannelType.SPAWN,
+            inline_schema=inline_schema,
+            schema_id=schema_id,
+        )
+        self.repo.upsert_channel(recv_ch)
+
+        child = self.repo.get_process(child_id)
+        return ProcessHandle(
+            repo=self.repo,
+            caller_process_id=self.process_id,
+            process=child,
+            send_channel=send_ch,
+            recv_channel=recv_ch,
         )
 
     def __repr__(self) -> str:

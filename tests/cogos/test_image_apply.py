@@ -124,7 +124,8 @@ def test_spawn_with_named_scoped_capabilities(tmp_path):
         capabilities={"dir": None},
     )
     assert result.name == "child_worker"
-    assert result.parent_process == str(parent.id)
+    child_proc = repo.get_process_by_name("child_worker")
+    assert str(child_proc.parent_process) == str(parent.id)
 
     # Verify the grant
     child = repo.get_process(UUID(result.id))
