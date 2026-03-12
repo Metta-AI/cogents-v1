@@ -1371,7 +1371,7 @@ class Repository:
         return Channel(
             id=UUID(row["id"]),
             name=row["name"],
-            owner_process=UUID(row["owner_process"]),
+            owner_process=UUID(row["owner_process"]) if row.get("owner_process") else None,
             schema_id=UUID(row["schema_id"]) if row.get("schema_id") else None,
             inline_schema=self._json_field(row, "inline_schema"),
             channel_type=ChannelType(row["channel_type"]),
