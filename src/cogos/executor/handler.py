@@ -376,25 +376,18 @@ def _handle_search(tool_input: dict, process: Process, repo: Repository) -> str:
 def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Repository, *, run_id: UUID | None = None) -> None:
     """Inject capability instances into the variable table.
 
-    Uses real capability classes (not inline proxies). Applies scope from
-    ProcessCapability.config when present.
+    Only capabilities explicitly bound to the process via ProcessCapability
+    are injected. Applies scope from ProcessCapability.config when present.
+    No ambient/unconditional capabilities — if a process needs files, procs,
+    or events, it must have a binding.
     """
     import importlib
     import inspect
 
-    from cogos.capabilities.events import EventsCapability
-    from cogos.capabilities.files import FilesCapability
     from cogos.capabilities.me import MeCapability
-    from cogos.capabilities.procs import ProcsCapability
 
-    # Core capabilities — always available
-    vt.set("files", FilesCapability(repo, process.id))
-    vt.set("procs", ProcsCapability(repo, process.id))
-    vt.set("events", EventsCapability(repo, process.id))
-    vt.set("me", MeCapability(repo, process.id, run_id=run_id))
     vt.set("print", print)
 
-    # Dynamically load additional capabilities bound to this process
     pcs = repo.list_process_capabilities(process.id)
     for pc in pcs:
         cap_model = repo.get_capability(pc.capability)
@@ -403,10 +396,6 @@ def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Reposit
 
         # Determine namespace — use grant name from ProcessCapability
         ns = pc.name or (cap_model.name.split("/")[0] if "/" in cap_model.name else cap_model.name)
-
-        # Skip core caps that are already set up (unless they have a custom grant name)
-        if ns in ("files", "procs", "events", "me") and not pc.config:
-            continue
 
         # Load the handler class
         handler_path = cap_model.handler
@@ -425,7 +414,11 @@ def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Reposit
             if not inspect.isclass(handler_cls):
                 vt.set(ns, handler_cls)
                 continue
-            instance = handler_cls(repo, process.id)
+            # MeCapability needs run_id injected
+            if issubclass(handler_cls, MeCapability):
+                instance = handler_cls(repo, process.id, run_id=run_id)
+            else:
+                instance = handler_cls(repo, process.id)
             # Apply scope from config if present
             if pc.config:
                 instance = instance.scope(**pc.config)

@@ -22,52 +22,83 @@ def _make_process():
     )
 
 
-def _make_repo():
+def _make_cap_model(name, handler):
+    cap = MagicMock()
+    cap.id = uuid4()
+    cap.name = name
+    cap.enabled = True
+    cap.handler = handler
+    return cap
+
+
+def _make_pc(cap_model, name=None, config=None):
+    pc = MagicMock()
+    pc.capability = cap_model.id
+    pc.name = name or cap_model.name
+    pc.config = config
+    return pc
+
+
+def _make_repo(cap_models=None, pcs=None):
     repo = MagicMock()
-    repo.list_process_capabilities.return_value = []
+    pcs = pcs or []
+    repo.list_process_capabilities.return_value = pcs
+
+    models_by_id = {c.id: c for c in (cap_models or [])}
+    repo.get_capability.side_effect = lambda cid: models_by_id.get(cid)
     return repo
 
 
-class TestSetupCapabilityProxies:
-    def test_files_is_real_capability(self):
+class TestNoAmbientCapabilities:
+    def test_no_bindings_means_no_capabilities(self):
+        """A process with no capability bindings gets nothing except print."""
         vt = VariableTable()
         _setup_capability_proxies(vt, _make_process(), _make_repo())
+        assert vt.get("files") is None
+        assert vt.get("procs") is None
+        assert vt.get("events") is None
+        assert vt.get("me") is None
+        assert vt.get("print") is print
+
+
+class TestBoundCapabilities:
+    def test_files_from_binding(self):
+        cap = _make_cap_model("files", "cogos.capabilities.files.FilesCapability")
+        pc = _make_pc(cap)
+        vt = VariableTable()
+        _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]))
         assert isinstance(vt.get("files"), FilesCapability)
 
-    def test_procs_is_real_capability(self):
+    def test_procs_from_binding(self):
+        cap = _make_cap_model("procs", "cogos.capabilities.procs.ProcsCapability")
+        pc = _make_pc(cap)
         vt = VariableTable()
-        _setup_capability_proxies(vt, _make_process(), _make_repo())
+        _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]))
         assert isinstance(vt.get("procs"), ProcsCapability)
 
-    def test_events_is_real_capability(self):
+    def test_events_from_binding(self):
+        cap = _make_cap_model("events", "cogos.capabilities.events.EventsCapability")
+        pc = _make_pc(cap)
         vt = VariableTable()
-        _setup_capability_proxies(vt, _make_process(), _make_repo())
+        _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]))
         assert isinstance(vt.get("events"), EventsCapability)
 
-    def test_me_is_real_capability(self):
+    def test_me_from_binding(self):
+        cap = _make_cap_model("me", "cogos.capabilities.me.MeCapability")
+        pc = _make_pc(cap)
+        run_id = uuid4()
         vt = VariableTable()
-        _setup_capability_proxies(vt, _make_process(), _make_repo())
-        assert isinstance(vt.get("me"), MeCapability)
+        _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]), run_id=run_id)
+        me = vt.get("me")
+        assert isinstance(me, MeCapability)
+        assert me.run_id == run_id
 
     def test_scoped_capability_from_config(self):
         """When ProcessCapability has config, the injected instance should be scoped."""
-        repo = _make_repo()
-        proc = _make_process()
-
-        pc = MagicMock()
-        pc.capability = uuid4()
-        pc.name = "workspace"
-        pc.config = {"prefix": "/workspace/", "ops": ["list", "read"]}
-        repo.list_process_capabilities.return_value = [pc]
-
-        cap_model = MagicMock()
-        cap_model.name = "files"
-        cap_model.enabled = True
-        cap_model.handler = "cogos.capabilities.files:FilesCapability"
-        repo.get_capability.return_value = cap_model
-
+        cap = _make_cap_model("files", "cogos.capabilities.files.FilesCapability")
+        pc = _make_pc(cap, name="workspace", config={"prefix": "/workspace/", "ops": ["list", "read"]})
         vt = VariableTable()
-        _setup_capability_proxies(vt, proc, repo)
+        _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]))
 
         workspace = vt.get("workspace")
         assert isinstance(workspace, FilesCapability)

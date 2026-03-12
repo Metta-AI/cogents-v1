@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _build_capability_proxies(repo: Repository, process_id: UUID) -> dict[str, object]:
+def _build_capability_proxies(repo: Repository, process_id: UUID, *, run_id: UUID | None = None) -> dict[str, object]:
     """Load capabilities bound to a process and build proxy objects.
 
     Each capability class is instantiated with (repo, process_id) and
@@ -68,7 +68,11 @@ def _build_capability_proxies(repo: Repository, process_id: UUID) -> dict[str, o
 
         # Class capabilities get instantiated with repo and process_id
         if inspect.isclass(handler):
-            instance = handler(repo, process_id)
+            from cogos.capabilities.me import MeCapability
+            if issubclass(handler, MeCapability):
+                instance = handler(repo, process_id, run_id=run_id)
+            else:
+                instance = handler(repo, process_id)
             # Apply scope config if present
             if pc.config and hasattr(instance, "scope"):
                 instance = instance.scope(**pc.config)
