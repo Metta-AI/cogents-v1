@@ -300,7 +300,6 @@ class ComputeConstruct(Construct):
             lambda_event_sources.SqsEventSource(
                 self.ingress_queue,
                 batch_size=10,
-                max_batching_window=Duration.seconds(1),
             )
         )
 
