@@ -13,13 +13,13 @@ cogos/                      CogOS system files
     sandbox.md                  Sandbox execution model
     capabilities.md             Capability system and scoping
     fs.md                       File store — versioned key-value storage
-    events.md                   Event system — append-only log
+    channels.md                  Channel system — typed message streams
     process.md                  Process lifecycle and modes
     cron.md                     Cron and scheduled events
   includes/                   Per-subsystem method references (auto-injected)
     code_mode.md                How to use search() and run_code()
     files.md                    files/dir/file_version API
-    events.md                   events API
+    channels.md                  channels API
     procs.md                    procs API
     discord.md                  discord API
     email.md                    email API

@@ -25,7 +25,7 @@ print(p.name, p.status, p.model, p.content)
 p = procs.get(id="some-uuid")
 ```
 
-Returns `ProcessDetail` — includes content, code, model, retry info, timestamps.
+Returns `ProcessHandle` — the universal interface for process interaction.
 
 ## spawn(name, content?, capabilities?, ...)
 
@@ -35,26 +35,78 @@ child = procs.spawn("subtask-42", content="Process items 420-429")
 
 # With capabilities (NOT inherited — must pass explicitly)
 child = procs.spawn("worker", content="Do the thing", capabilities={
-    "events": events,                                       # pass as-is
-    "workspace": dir.scope("/workspace/", ops=["read"]),    # narrowed
-    "email_ops": email.scope(to=["ops@company.com"]),       # scoped email
+    "channels": channels.scope(names=["metrics*"]),
+    "workspace": dir.scope("/workspace/", ops=["read"]),
+    "email_ops": email.scope(to=["ops@company.com"]),
 })
 
-# With model override
+# With model override and schema for spawn channel
 child = procs.spawn("quick-task", content="Classify this",
     model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
-    capabilities={"events": events})
+    schema={"result": "string", "score": "number"},
+    capabilities={"channels": channels.scope(names=["metrics*"])})
 ```
 
 Parameters:
 - `name` (required) — unique process name
 - `content` — prompt/instructions for the child
+- `schema` — schema for the spawn channel (inline dict or named schema)
 - `capabilities` — dict of grant_name → capability instance (or None for unscoped lookup)
 - `priority` — scheduling priority (default 0.0)
 - `runner` — "lambda" or "ecs" (default "lambda")
 - `model` — model override
 
-Returns `SpawnResult` — id, name, status, parent_process.
+Returns `ProcessHandle`.
+
+## Process Handles
+
+Spawning or looking up a process returns a ProcessHandle — the universal interface for process interaction.
+
+```python
+# Spawn returns a handle
+child = procs.spawn("worker", content="process this data",
+    schema={"result": "string", "score": "number"},
+    capabilities={"channels": channels.scope(names=["metrics*"])}
+)
+
+# Send to child via spawn channel
+child.send({"task": "analyze", "data": [1, 2, 3]})
+
+# Read child's responses
+msgs = child.recv(limit=5)
+
+# Check status
+print(child.status())  # "running", "completed", etc.
+
+# Kill a child process
+child.kill()
+
+# Wait for child to complete (event-driven, ends current run)
+child.wait()
+```
+
+### Coordination
+
+```python
+h1 = procs.spawn("task_a", content="...", capabilities={...})
+h2 = procs.spawn("task_b", content="...", capabilities={...})
+
+# Wait for first child to complete
+Process.wait_any([h1, h2])
+
+# Wait for all children to complete
+Process.wait_all([h1, h2])
+```
+
+### Looking up processes
+
+```python
+handle = procs.get(name="worker")
+handle = procs.get(id="<uuid>")
+
+# Same interface: send, recv, kill, status, wait
+print(handle.status())
+```
 
 ## Scoping
 
