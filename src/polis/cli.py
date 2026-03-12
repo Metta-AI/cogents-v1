@@ -25,6 +25,7 @@ from polis.aws import (
     set_profile,
 )
 from polis.config import PolisConfig
+from polis.quotas import QuotaEnsureResult, ensure_service_quota_targets
 from polis.secrets.store import SecretStore
 from polis.status import coalesce_status_items, expected_stack_name
 
@@ -77,6 +78,7 @@ def create(ctx: click.Context):
 
     # Cloudflare Access
     polis_session, _ = get_polis_session()
+    _ensure_polis_quotas(polis_session, config)
     _ensure_cloudflare_access(polis_session, config.domain)
 
     console.print("[green]Polis created successfully.[/green]")
@@ -95,6 +97,7 @@ def update(ctx: click.Context):
     # Cloudflare Access
     config: PolisConfig = ctx.obj["config"]
     polis_session, _ = get_polis_session()
+    _ensure_polis_quotas(polis_session, config)
     _ensure_cloudflare_access(polis_session, config.domain)
 
     console.print("[green]Polis updated.[/green]")
@@ -373,6 +376,25 @@ def status():
             size_mb = f"{img.get('imageSizeInBytes', 0) / 1024 / 1024:.0f}"
             it.add_row(tags, pushed_str, size_mb)
         console.print(it)
+
+
+# ---------------------------------------------------------------------------
+# Quotas
+# ---------------------------------------------------------------------------
+
+
+@polis.group()
+def quotas():
+    """Manage account-level quota requests."""
+
+
+@quotas.command("ensure")
+@click.pass_context
+def quotas_ensure(ctx: click.Context):
+    """Ensure configured Bedrock quota requests exist in the polis account."""
+    config: PolisConfig = ctx.obj["config"]
+    polis_session, _ = get_polis_session()
+    _ensure_polis_quotas(polis_session, config, fail_on_error=True)
 
 
 # ---------------------------------------------------------------------------
@@ -782,6 +804,52 @@ def _ensure_cloudflare_access(session, domain: str = "softmax-cogents.com") -> N
         console.print(f"  Cloudflare Access: [green]ok[/green] ({app['id']})")
     except Exception as e:
         console.print(f"  [yellow]Cloudflare Access: {e}[/yellow]")
+
+
+def _ensure_polis_quotas(
+    session,
+    config: PolisConfig,
+    *,
+    fail_on_error: bool = False,
+) -> list[QuotaEnsureResult]:
+    """Ensure Bedrock quota requests exist for the shared polis account."""
+    if not config.bedrock_quotas:
+        return []
+
+    console.print("  Ensuring Bedrock quotas...")
+    results = ensure_service_quota_targets(session, config.bedrock_quotas)
+
+    failures = []
+    for result in results:
+        current = "-" if result.current_value is None else f"{result.current_value:g}"
+        desired = f"{result.desired_value:g}"
+        if result.status == "satisfied":
+            console.print(
+                f"    [green]ok[/green] {result.quota_name}: current {current} >= desired {desired}"
+            )
+        elif result.status == "requested":
+            detail = f"request {result.request_id}" if result.request_id else "request submitted"
+            console.print(
+                f"    [yellow]requested[/yellow] {result.quota_name}: current {current} -> desired {desired} ({detail})"
+            )
+        elif result.status == "pending":
+            request_id = result.request_id or "pending"
+            console.print(
+                f"    [cyan]pending[/cyan] {result.quota_name}: "
+                f"current {current}, desired {desired} ({request_id})"
+            )
+        else:
+            failures.append(result)
+            note = f" ({result.note})" if result.note else ""
+            console.print(
+                f"    [yellow]{result.status}[/yellow] {result.quota_name}: current {current}, desired {desired}{note}"
+            )
+
+    if fail_on_error and failures:
+        names = ", ".join(result.quota_code for result in failures)
+        raise click.ClickException(f"Quota ensure did not fully succeed: {names}")
+
+    return results
 
 
 def _cdk_deploy(org_id: str, profile: str | None = None):

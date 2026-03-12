@@ -192,6 +192,25 @@ class PolisStack(cdk.Stack):
                 resources=["*"],
             )
         )
+        self.admin_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "servicequotas:GetAWSDefaultServiceQuota",
+                    "servicequotas:GetServiceQuota",
+                    "servicequotas:ListRequestedServiceQuotaChangeHistoryByQuota",
+                    "servicequotas:ListServiceQuotas",
+                    "servicequotas:RequestServiceQuotaIncrease",
+                ],
+                resources=["*"],
+            )
+        )
+        self.admin_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["iam:CreateServiceLinkedRole"],
+                resources=["*"],
+                conditions={"StringLike": {"iam:AWSServiceName": "servicequotas.amazonaws.com"}},
+            )
+        )
         self.status_table.grant_read_write_data(self.admin_role)
         self.admin_role.add_to_policy(
             iam.PolicyStatement(
