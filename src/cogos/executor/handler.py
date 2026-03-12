@@ -110,19 +110,40 @@ def handler(event: dict, context: Any = None) -> dict:
     if not process:
         return {"statusCode": 404, "error": f"Process not found: {process_id}"}
 
-    # Use existing run from dispatcher, or create a new one as fallback
+    # Use existing run from dispatcher, or create a new one for legacy callers.
     if run_id_str:
-        run = repo.get_run(UUID(run_id_str))
+        dispatch_run_id = UUID(run_id_str)
+        run = None
+        for attempt in range(5):
+            run = repo.get_run(dispatch_run_id)
+            if run:
+                break
+            if attempt < 4:
+                time.sleep(0.2)
         if not run:
-            logger.warning(f"Run {run_id_str} not found, creating new run")
-            run = Run(process=process.id, event=UUID(event_id) if event_id else None, status=RunStatus.RUNNING)
-            repo.create_run(run)
+            logger.warning("Dispatch run %s not found for process %s; recreating it", run_id_str, process.name)
+            run = Run(
+                id=dispatch_run_id,
+                process=process.id,
+                event=UUID(event_id) if event_id else None,
+                status=RunStatus.RUNNING,
+            )
+            try:
+                repo.create_run(run)
+            except Exception:
+                logger.exception("Failed to recreate dispatch run %s; falling back to a new run", run_id_str)
+                run = repo.get_run(dispatch_run_id)
+                if run is None:
+                    run = Run(process=process.id, event=UUID(event_id) if event_id else None, status=RunStatus.RUNNING)
+                    repo.create_run(run)
         run_id = run.id
     else:
         # Legacy: no run_id in payload — create one (and mark process running)
         repo.update_process_status(process.id, ProcessStatus.RUNNING)
         run = Run(process=process.id, event=UUID(event_id) if event_id else None, status=RunStatus.RUNNING)
         run_id = repo.create_run(run)
+
+    repo.mark_run_deliveries_delivered(run.id)
     logger.info(f"Starting run {run_id} for process {process.name}")
 
     start_time = time.time()
@@ -141,6 +162,7 @@ def handler(event: dict, context: Any = None) -> dict:
             result=run.result,
             scope_log=run.scope_log,
         )
+        _log_run_completion_latency(run, process.name, duration_ms)
 
         # Emit completion event
         repo.append_event(Event(
@@ -154,7 +176,12 @@ def handler(event: dict, context: Any = None) -> dict:
         current = repo.get_process(process.id)
         if current and current.status not in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
             if process.mode.value == "daemon":
-                repo.update_process_status(process.id, ProcessStatus.WAITING)
+                next_status = (
+                    ProcessStatus.RUNNABLE
+                    if repo.has_pending_deliveries(process.id)
+                    else ProcessStatus.WAITING
+                )
+                repo.update_process_status(process.id, next_status)
             else:
                 repo.update_process_status(process.id, ProcessStatus.COMPLETED)
 
@@ -173,6 +200,7 @@ def handler(event: dict, context: Any = None) -> dict:
             duration_ms=duration_ms,
             error=str(e)[:4000],
         )
+        _log_run_completion_latency(run, process.name, duration_ms)
 
         repo.append_event(Event(
             event_type=f"process:failed:{process.name}",
@@ -308,6 +336,23 @@ def _load_includes(repo: Repository) -> str:
         if fv and fv.content:
             parts.append(fv.content)
     return "\n\n".join(parts)
+
+
+def _log_run_completion_latency(run: Run, process_name: str, duration_ms: int) -> None:
+    if not run.created_at:
+        return
+    if run.created_at.tzinfo is None:
+        completed_at = datetime.utcnow()
+    else:
+        completed_at = datetime.now(run.created_at.tzinfo)
+    latency_ms = int((completed_at - run.created_at).total_seconds() * 1000)
+    logger.info(
+        "CogOS latency run->completion=%sms run=%s process=%s executor_duration_ms=%s",
+        latency_ms,
+        run.id,
+        process_name,
+        duration_ms,
+    )
 
 
 def _handle_search(tool_input: dict, process: Process, repo: Repository) -> str:

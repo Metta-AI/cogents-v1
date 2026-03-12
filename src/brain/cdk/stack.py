@@ -102,6 +102,8 @@ class BrainStack(Stack):
             config=config,
             orchestrator_fn=self.compute.orchestrator,
             executor_fn=self.compute.executor,
+            ingress_fn=self.compute.ingress,
+            ingress_queue=self.compute.ingress_queue,
         )
 
         # 7. Discord bridge (Fargate on shared cogent-polis cluster)
@@ -202,6 +204,7 @@ class BrainStack(Stack):
                 "DB_SECRET_ARN": self.database.secret.secret_arn if self.database.secret else "",
                 "DB_NAME": "cogent",
                 "DISCORD_REPLY_QUEUE_URL": self.discord_reply_queue.queue_url,
+                "COGOS_INGRESS_QUEUE_URL": self.compute.ingress_queue.queue_url,
                 "AWS_REGION": config.region,
             },
             secrets={
@@ -227,6 +230,7 @@ class BrainStack(Stack):
 
         # IAM: SQS reply queue (receive for polling, send for capability)
         self.discord_reply_queue.grant_consume_messages(task_def.task_role)
+        self.compute.ingress_queue.grant_send_messages(task_def.task_role)
 
         # Grant the executor/orchestrator lambdas permission to send to the reply queue
         self.discord_reply_queue.grant_send_messages(self.compute.orchestrator)

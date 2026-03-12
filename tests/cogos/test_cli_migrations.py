@@ -28,3 +28,11 @@ def test_run_migrations_executes_comment_prefixed_sql_blocks(monkeypatch):
         "CREATE TABLE IF NOT EXISTS cogos_meta" in stmt
         for stmt in repo.statements
     )
+    assert any(
+        "CREATE TABLE IF NOT EXISTS cogos_event_outbox" in stmt
+        for stmt in repo.statements
+    )
+    assert any(
+        "CREATE TABLE IF NOT EXISTS cogos_ingress_wake" in stmt
+        for stmt in repo.statements
+    )

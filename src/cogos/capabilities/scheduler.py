@@ -49,6 +49,7 @@ class DispatchResult(BaseModel):
     process_name: str
     runner: str
     event_id: str | None = None
+    delivery_id: str | None = None
 
 
 class UnblockInfo(BaseModel):
@@ -91,31 +92,35 @@ class SchedulerCapability(Capability):
 
         created = []
         for event in events:
-            existing = self.repo.query(
-                "SELECT id FROM cogos_event_delivery WHERE event = :event_id",
-                {"event_id": event.id},
-            )
-            if existing:
-                continue
-
-            handlers = self.repo.match_handlers(event.event_type)
-            for handler in handlers:
-                delivery = EventDelivery(event=event.id, handler=handler.id)
-                delivery_id = self.repo.create_event_delivery(delivery)
-
-                proc = self.repo.get_process(handler.process)
-                if proc and proc.status == ProcessStatus.WAITING:
-                    self.repo.update_process_status(handler.process, ProcessStatus.RUNNABLE)
-
-                created.append(DeliveryInfo(
-                    delivery_id=str(delivery_id),
-                    event_id=str(event.id),
-                    event_type=event.event_type,
-                    handler_id=str(handler.id),
-                    process_id=str(handler.process),
-                ))
+            created.extend(self.deliver_event(event))
 
         return MatchResult(deliveries_created=len(created), deliveries=created)
+
+    def deliver_event(self, event) -> list[DeliveryInfo]:
+        handlers = self.repo.match_handlers(event.event_type)
+        created: list[DeliveryInfo] = []
+
+        for handler in handlers:
+            delivery = EventDelivery(event=event.id, handler=handler.id)
+            delivery_id, inserted = self.repo.create_event_delivery(delivery)
+            if not inserted:
+                continue
+
+            self._log_event_to_delivery_latency(event, delivery)
+
+            proc = self.repo.get_process(handler.process)
+            if proc and proc.status == ProcessStatus.WAITING:
+                self.repo.update_process_status(handler.process, ProcessStatus.RUNNABLE)
+
+            created.append(DeliveryInfo(
+                delivery_id=str(delivery_id),
+                event_id=str(event.id),
+                event_type=event.event_type,
+                handler_id=str(handler.id),
+                process_id=str(handler.process),
+            ))
+
+        return created
 
     def select_processes(self, slots: int = 1) -> SelectResult:
         now_ts = time.time()
@@ -175,12 +180,14 @@ class SchedulerCapability(Capability):
 
         deliveries = self.repo.get_pending_deliveries(target_id)
         event_id = deliveries[0].event if deliveries else None
+        delivery_id = deliveries[0].id if deliveries else None
 
         run = Run(process=target_id, event=event_id)
         run_id = self.repo.create_run(run)
 
-        if deliveries:
-            self.repo.mark_delivered(deliveries[0].id, run_id)
+        if delivery_id:
+            self.repo.mark_queued(delivery_id, run_id)
+            self._log_delivery_to_run_latency(deliveries[0], run)
 
         return DispatchResult(
             run_id=str(run_id),
@@ -188,6 +195,7 @@ class SchedulerCapability(Capability):
             process_name=proc.name,
             runner=proc.runner,
             event_id=str(event_id) if event_id else None,
+            delivery_id=str(delivery_id) if delivery_id else None,
         )
 
     def unblock_processes(self) -> UnblockResult:
@@ -257,6 +265,30 @@ class SchedulerCapability(Capability):
             wait_seconds = now_ts - proc.runnable_since.timestamp()
             base += 0.1 * (wait_seconds / 60.0)
         return base
+
+    @staticmethod
+    def _log_event_to_delivery_latency(event, delivery: EventDelivery) -> None:
+        if event.created_at and delivery.created_at:
+            latency_ms = int((delivery.created_at - event.created_at).total_seconds() * 1000)
+            logger.info(
+                "CogOS latency event->delivery=%sms event=%s handler=%s event_type=%s",
+                latency_ms,
+                event.id,
+                delivery.handler,
+                event.event_type,
+            )
+
+    @staticmethod
+    def _log_delivery_to_run_latency(delivery: EventDelivery, run: Run) -> None:
+        if delivery.created_at and run.created_at:
+            latency_ms = int((run.created_at - delivery.created_at).total_seconds() * 1000)
+            logger.info(
+                "CogOS latency delivery->run=%sms delivery=%s run=%s event=%s",
+                latency_ms,
+                delivery.id,
+                run.id,
+                delivery.event,
+            )
 
     def __repr__(self) -> str:
         return "<SchedulerCapability match_events() select_processes() dispatch_process() unblock_processes() kill_process()>"
