@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from polis.config import ServiceQuotaTarget
+from polis.config import PolisConfig, ServiceQuotaTarget
 from polis.quotas import ensure_service_quota_targets
 
 
@@ -121,3 +121,17 @@ def test_ensure_service_quota_targets_skips_when_current_value_is_sufficient():
     assert client.requests == []
     assert results[0].status == "satisfied"
     assert results[0].current_value == 750
+
+
+def test_default_polis_config_tracks_claude_45_and_46_rpm_targets():
+    quotas = {quota.quota_code: quota.desired_value for quota in PolisConfig().bedrock_quotas}
+
+    assert quotas["L-559DCC33"] == 500
+    assert quotas["L-CCA5DF70"] == 10_001
+    assert quotas["L-27989F42"] == 10_001
+    assert quotas["L-11DFF789"] == 10_001
+    assert quotas["L-410BCACA"] == 1_001
+    assert quotas["L-4A6BFAB1"] == 10_001
+    assert quotas["L-A052927A"] == 1_001
+    assert quotas["L-00FF3314"] == 10_001
+    assert quotas["L-47DE5258"] == 1_001
