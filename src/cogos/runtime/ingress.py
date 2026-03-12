@@ -88,13 +88,21 @@ def dispatch_ready_processes(
         }
 
         try:
-            lambda_client.invoke(
+            response = lambda_client.invoke(
                 FunctionName=executor_function_name,
                 InvocationType="Event",
                 Payload=json.dumps(payload),
             )
+            if response.get("StatusCode") != 202:
+                raise RuntimeError(f"unexpected lambda invoke status {response.get('StatusCode')}")
             dispatched += 1
-        except Exception:
+        except Exception as exc:
+            repo.rollback_dispatch(
+                process_id,
+                UUID(dispatch_result.run_id),
+                UUID(dispatch_result.delivery_id) if dispatch_result.delivery_id else None,
+                error=str(exc),
+            )
             logger.exception("Failed to invoke executor for process %s", process_id)
 
     return dispatched

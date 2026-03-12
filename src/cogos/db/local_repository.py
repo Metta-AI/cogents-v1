@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from fnmatch import fnmatchcase
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -58,6 +58,12 @@ class LocalRepository:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._file = self._data_dir / "cogos_data.json"
         self._file_mtime: float = 0.0
+        self._event_outbox_failed_retry_backoff_seconds = int(
+            os.environ.get("COGOS_EVENT_OUTBOX_FAILED_RETRY_BACKOFF_SECONDS", "60"),
+        )
+        self._event_outbox_failed_max_attempts = int(
+            os.environ.get("COGOS_EVENT_OUTBOX_FAILED_MAX_ATTEMPTS", "10"),
+        )
 
         self._processes: dict[UUID, Process] = {}
         self._capabilities: dict[UUID, Capability] = {}
@@ -556,10 +562,11 @@ class LocalRepository:
     def append_event(self, event: Event) -> UUID:
         event.created_at = datetime.utcnow()
         self._events.append(event)
-        self._event_outbox[event.id] = EventOutbox(
+        outbox_item = EventOutbox(
             event=event.id,
             created_at=event.created_at,
         )
+        self._event_outbox[outbox_item.id] = outbox_item
         self._save()
         return event.id
 
@@ -620,6 +627,49 @@ class LocalRepository:
         self._save()
         return True
 
+    def mark_queued(self, delivery_id: UUID, run_id: UUID) -> bool:
+        delivery = self._event_deliveries.get(delivery_id)
+        if delivery is None:
+            return False
+        delivery.status = DeliveryStatus.QUEUED
+        delivery.run = run_id
+        self._save()
+        return True
+
+    def requeue_delivery(self, delivery_id: UUID) -> bool:
+        delivery = self._event_deliveries.get(delivery_id)
+        if delivery is None:
+            return False
+        delivery.status = DeliveryStatus.PENDING
+        delivery.run = None
+        self._save()
+        return True
+
+    def mark_run_deliveries_delivered(self, run_id: UUID) -> int:
+        updated = 0
+        for delivery in self._event_deliveries.values():
+            if delivery.run == run_id and delivery.status == DeliveryStatus.QUEUED:
+                delivery.status = DeliveryStatus.DELIVERED
+                updated += 1
+        if updated:
+            self._save()
+        return updated
+
+    def rollback_dispatch(
+        self,
+        process_id: UUID,
+        run_id: UUID,
+        delivery_id: UUID | None = None,
+        *,
+        error: str | None = None,
+    ) -> None:
+        if delivery_id is not None:
+            self.requeue_delivery(delivery_id)
+        self.complete_run(run_id, status=RunStatus.FAILED, error=(error or "executor invoke failed")[:4000])
+        current = self._processes.get(process_id)
+        if current and current.status not in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
+            self.update_process_status(process_id, ProcessStatus.RUNNABLE)
+
     def claim_event_outbox_batch(
         self,
         *,
@@ -635,7 +685,14 @@ class LocalRepository:
                 and item.claimed_at is not None
                 and (now - item.claimed_at).total_seconds() > stale_after_seconds
             )
-            if item.status in (EventOutboxStatus.PENDING, EventOutboxStatus.FAILED) or stale:
+            failed_retry_ready = (
+                item.status == EventOutboxStatus.FAILED
+                and item.attempt_count < self._event_outbox_failed_max_attempts
+                and now - (item.claimed_at or item.created_at or now) >= timedelta(
+                    seconds=self._event_outbox_failed_retry_backoff_seconds * (2 ** max(item.attempt_count - 1, 0)),
+                )
+            )
+            if item.status == EventOutboxStatus.PENDING or stale or failed_retry_ready:
                 item.status = EventOutboxStatus.PROCESSING
                 item.claimed_at = now
                 item.attempt_count += 1

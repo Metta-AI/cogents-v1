@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -45,6 +46,13 @@ from cogos.db.models import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class _IngressWakeRequest:
+    token: str
+    enqueued_at: datetime
+    previous_enqueued_at: datetime | None
+
+
 class Repository:
     """Synchronous CogOS repository using RDS Data API."""
 
@@ -64,6 +72,12 @@ class Repository:
         self._ingress_queue_url = os.environ.get("COGOS_INGRESS_QUEUE_URL", "")
         self._ingress_wake_cooldown_seconds = int(
             os.environ.get("COGOS_INGRESS_WAKE_COOLDOWN_SECONDS", "1"),
+        )
+        self._event_outbox_failed_retry_backoff_seconds = int(
+            os.environ.get("COGOS_EVENT_OUTBOX_FAILED_RETRY_BACKOFF_SECONDS", "60"),
+        )
+        self._event_outbox_failed_max_attempts = int(
+            os.environ.get("COGOS_EVENT_OUTBOX_FAILED_MAX_ATTEMPTS", "10"),
         )
         self._sqs_client: Any | None = None
 
@@ -184,44 +198,86 @@ class Repository:
             self._sqs_client = boto3.client("sqs", region_name=self._region)
         return self._sqs_client
 
-    def _request_ingress_wake(self) -> str | None:
+    def _request_ingress_wake_state(self) -> _IngressWakeRequest | None:
         row = self._first_row(self._execute(
-            """INSERT INTO cogos_ingress_wake (key, requested_at, enqueued_at, updated_at)
-               VALUES ('default', now(), now(), now())
-               ON CONFLICT (key) DO UPDATE SET
-                   requested_at = now(),
-                   enqueued_at = CASE
-                       WHEN cogos_ingress_wake.enqueued_at
-                            < now() - make_interval(secs => :cooldown_seconds)
-                       THEN now()
-                       ELSE cogos_ingress_wake.enqueued_at
-                   END,
-                   updated_at = now()
-               RETURNING requested_at, enqueued_at""",
+            """WITH prior AS (
+                   SELECT enqueued_at AS previous_enqueued_at
+                   FROM cogos_ingress_wake
+                   WHERE key = 'default'
+               ),
+               upserted AS (
+                   INSERT INTO cogos_ingress_wake (key, requested_at, enqueued_at, updated_at)
+                   VALUES ('default', now(), now(), now())
+                   ON CONFLICT (key) DO UPDATE SET
+                       requested_at = now(),
+                       enqueued_at = CASE
+                           WHEN cogos_ingress_wake.enqueued_at
+                                < now() - make_interval(secs => :cooldown_seconds)
+                           THEN now()
+                           ELSE cogos_ingress_wake.enqueued_at
+                       END,
+                       updated_at = now()
+                   RETURNING requested_at, enqueued_at
+               )
+               SELECT requested_at,
+                      enqueued_at,
+                      (SELECT previous_enqueued_at FROM prior) AS previous_enqueued_at
+               FROM upserted""",
             [self._param("cooldown_seconds", self._ingress_wake_cooldown_seconds)],
         ))
         if not row:
             return None
         requested_at = self._ts(row, "requested_at")
         enqueued_at = self._ts(row, "enqueued_at")
+        previous_enqueued_at = self._ts(row, "previous_enqueued_at")
         if requested_at and enqueued_at and requested_at == enqueued_at:
-            return str(int(requested_at.timestamp()))
+            return _IngressWakeRequest(
+                token=str(int(requested_at.timestamp())),
+                enqueued_at=enqueued_at,
+                previous_enqueued_at=previous_enqueued_at,
+            )
         return None
+
+    def _request_ingress_wake(self) -> str | None:
+        request = self._request_ingress_wake_state()
+        return request.token if request else None
+
+    def _rollback_ingress_wake_request(self, request: _IngressWakeRequest) -> None:
+        previous_enqueued_at = request.previous_enqueued_at or (
+            request.enqueued_at - timedelta(seconds=self._ingress_wake_cooldown_seconds + 1)
+        )
+        self._execute(
+            """UPDATE cogos_ingress_wake
+               SET enqueued_at = :previous_enqueued_at,
+                   updated_at = now()
+               WHERE key = 'default'
+                 AND enqueued_at = :failed_enqueued_at""",
+            [
+                self._param("previous_enqueued_at", previous_enqueued_at),
+                self._param("failed_enqueued_at", request.enqueued_at),
+            ],
+        )
 
     def _wake_ingress(self, event_id: UUID) -> None:
         if not self._ingress_queue_url:
             return
+        request = None
         try:
-            wake_token = self._request_ingress_wake()
-            if wake_token is None:
+            request = self._request_ingress_wake_state()
+            if request is None:
                 return
             self._get_sqs_client().send_message(
                 QueueUrl=self._ingress_queue_url,
-                MessageBody=json.dumps({"event_id": str(event_id), "wake_token": wake_token}),
+                MessageBody=json.dumps({"event_id": str(event_id), "wake_token": request.token}),
                 MessageGroupId="ingress",
-                MessageDeduplicationId=f"wake-{wake_token}",
+                MessageDeduplicationId=f"wake-{request.token}",
             )
         except Exception:
+            if request is not None:
+                try:
+                    self._rollback_ingress_wake_request(request)
+                except Exception:
+                    logger.exception("Failed to roll back CogOS ingress wake gate for event %s", event_id)
             logger.exception("Failed to nudge CogOS ingress for event %s", event_id)
 
     # ═══════════════════════════════════════════════════════════
@@ -690,6 +746,44 @@ class Repository:
         )
         return response.get("numberOfRecordsUpdated", 0) == 1
 
+    def mark_queued(self, delivery_id: UUID, run_id: UUID) -> bool:
+        response = self._execute(
+            "UPDATE cogos_event_delivery SET status = 'queued', run = :run WHERE id = :id",
+            [self._param("id", delivery_id), self._param("run", run_id)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def requeue_delivery(self, delivery_id: UUID) -> bool:
+        response = self._execute(
+            "UPDATE cogos_event_delivery SET status = 'pending', run = NULL WHERE id = :id",
+            [self._param("id", delivery_id)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def mark_run_deliveries_delivered(self, run_id: UUID) -> int:
+        response = self._execute(
+            """UPDATE cogos_event_delivery
+               SET status = 'delivered'
+               WHERE run = :run AND status = 'queued'""",
+            [self._param("run", run_id)],
+        )
+        return response.get("numberOfRecordsUpdated", 0)
+
+    def rollback_dispatch(
+        self,
+        process_id: UUID,
+        run_id: UUID,
+        delivery_id: UUID | None = None,
+        *,
+        error: str | None = None,
+    ) -> None:
+        if delivery_id is not None:
+            self.requeue_delivery(delivery_id)
+        self.complete_run(run_id, status=RunStatus.FAILED, error=(error or "executor invoke failed")[:4000])
+        current = self.get_process(process_id)
+        if current and current.status not in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
+            self.update_process_status(process_id, ProcessStatus.RUNNABLE)
+
     def claim_event_outbox_batch(
         self,
         *,
@@ -702,7 +796,15 @@ class Repository:
                    FROM cogos_event_outbox
                    WHERE status = 'pending'
                       OR (status = 'processing' AND claimed_at < now() - make_interval(secs => :stale_after_seconds))
-                      OR status = 'failed'
+                      OR (
+                          status = 'failed'
+                          AND attempt_count < :failed_max_attempts
+                          AND COALESCE(claimed_at, created_at) < now() - (
+                              :failed_retry_backoff_seconds
+                              * power(2, GREATEST(attempt_count - 1, 0))
+                              * interval '1 second'
+                          )
+                      )
                    ORDER BY created_at ASC
                    LIMIT :limit
                    FOR UPDATE SKIP LOCKED
@@ -718,6 +820,8 @@ class Repository:
             [
                 self._param("limit", limit),
                 self._param("stale_after_seconds", stale_after_seconds),
+                self._param("failed_retry_backoff_seconds", self._event_outbox_failed_retry_backoff_seconds),
+                self._param("failed_max_attempts", self._event_outbox_failed_max_attempts),
             ],
         )
         return [self._event_outbox_from_row(row) for row in self._rows_to_dicts(response)]

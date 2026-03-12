@@ -112,22 +112,38 @@ def handler(event: dict, context: Any = None) -> dict:
 
     # Use existing run from dispatcher, or create a new one for legacy callers.
     if run_id_str:
+        dispatch_run_id = UUID(run_id_str)
         run = None
         for attempt in range(5):
-            run = repo.get_run(UUID(run_id_str))
+            run = repo.get_run(dispatch_run_id)
             if run:
                 break
             if attempt < 4:
                 time.sleep(0.2)
         if not run:
-            logger.error("Dispatch run %s not found for process %s", run_id_str, process.name)
-            return {"statusCode": 409, "error": f"Run not found: {run_id_str}"}
+            logger.warning("Dispatch run %s not found for process %s; recreating it", run_id_str, process.name)
+            run = Run(
+                id=dispatch_run_id,
+                process=process.id,
+                event=UUID(event_id) if event_id else None,
+                status=RunStatus.RUNNING,
+            )
+            try:
+                repo.create_run(run)
+            except Exception:
+                logger.exception("Failed to recreate dispatch run %s; falling back to a new run", run_id_str)
+                run = repo.get_run(dispatch_run_id)
+                if run is None:
+                    run = Run(process=process.id, event=UUID(event_id) if event_id else None, status=RunStatus.RUNNING)
+                    repo.create_run(run)
         run_id = run.id
     else:
         # Legacy: no run_id in payload — create one (and mark process running)
         repo.update_process_status(process.id, ProcessStatus.RUNNING)
         run = Run(process=process.id, event=UUID(event_id) if event_id else None, status=RunStatus.RUNNING)
         run_id = repo.create_run(run)
+
+    repo.mark_run_deliveries_delivered(run.id)
     logger.info(f"Starting run {run_id} for process {process.name}")
 
     start_time = time.time()

@@ -49,6 +49,7 @@ class DispatchResult(BaseModel):
     process_name: str
     runner: str
     event_id: str | None = None
+    delivery_id: str | None = None
 
 
 class UnblockInfo(BaseModel):
@@ -179,12 +180,13 @@ class SchedulerCapability(Capability):
 
         deliveries = self.repo.get_pending_deliveries(target_id)
         event_id = deliveries[0].event if deliveries else None
+        delivery_id = deliveries[0].id if deliveries else None
 
         run = Run(process=target_id, event=event_id)
         run_id = self.repo.create_run(run)
 
-        if deliveries:
-            self.repo.mark_delivered(deliveries[0].id, run_id)
+        if delivery_id:
+            self.repo.mark_queued(delivery_id, run_id)
             self._log_delivery_to_run_latency(deliveries[0], run)
 
         return DispatchResult(
@@ -193,6 +195,7 @@ class SchedulerCapability(Capability):
             process_name=proc.name,
             runner=proc.runner,
             event_id=str(event_id) if event_id else None,
+            delivery_id=str(delivery_id) if delivery_id else None,
         )
 
     def unblock_processes(self) -> UnblockResult:
