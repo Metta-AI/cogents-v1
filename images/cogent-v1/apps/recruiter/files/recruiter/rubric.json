@@ -1,0 +1,22 @@
+{
+  "github_activity": {
+    "weight": 0.25,
+    "signals": ["commit_frequency", "code_review_quality", "repo_ownership", "pr_discussions"]
+  },
+  "technical_depth": {
+    "weight": 0.25,
+    "signals": ["architecture_decisions", "failure_handling", "systems_thinking", "original_patterns"]
+  },
+  "shipping_history": {
+    "weight": 0.20,
+    "signals": ["production_systems", "user_adoption", "maintained_projects", "real_world_impact"]
+  },
+  "writing_and_communication": {
+    "weight": 0.15,
+    "signals": ["technical_blog_posts", "detailed_threads", "documentation_quality", "clarity_of_thought"]
+  },
+  "community_and_influence": {
+    "weight": 0.15,
+    "signals": ["peer_recognition", "conference_talks", "mentoring", "ecosystem_contributions"]
+  }
+}
