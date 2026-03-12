@@ -31,6 +31,46 @@ def _default_bedrock_quotas() -> list[ServiceQuotaTarget]:
             quota_name="Cross-region model inference requests per minute for Anthropic Claude Sonnet 4 V1",
             desired_value=500,
         ),
+        ServiceQuotaTarget(
+            quota_code="L-CCA5DF70",
+            quota_name="Cross-region model inference requests per minute for Anthropic Claude Haiku 4.5",
+            desired_value=10_001,
+        ),
+        ServiceQuotaTarget(
+            quota_code="L-27989F42",
+            quota_name="Cross-region model inference requests per minute for Anthropic Claude Opus 4.5",
+            desired_value=10_001,
+        ),
+        ServiceQuotaTarget(
+            quota_code="L-11DFF789",
+            quota_name="Cross-region model inference requests per minute for Anthropic Claude Opus 4.6 V1",
+            desired_value=10_001,
+        ),
+        ServiceQuotaTarget(
+            quota_code="L-410BCACA",
+            quota_name="Cross-region model inference requests per minute for Anthropic Claude Opus 4.6 V1 1M Context Length",
+            desired_value=1_001,
+        ),
+        ServiceQuotaTarget(
+            quota_code="L-4A6BFAB1",
+            quota_name="Cross-region model inference requests per minute for Anthropic Claude Sonnet 4.5 V1",
+            desired_value=10_001,
+        ),
+        ServiceQuotaTarget(
+            quota_code="L-A052927A",
+            quota_name="Cross-region model inference requests per minute for Anthropic Claude Sonnet 4.5 V1 1M Context Length",
+            desired_value=1_001,
+        ),
+        ServiceQuotaTarget(
+            quota_code="L-00FF3314",
+            quota_name="Cross-region model inference requests per minute for Anthropic Claude Sonnet 4.6",
+            desired_value=10_001,
+        ),
+        ServiceQuotaTarget(
+            quota_code="L-47DE5258",
+            quota_name="Cross-region model inference requests per minute for Anthropic Claude Sonnet 4.6 1M Context Length",
+            desired_value=1_001,
+        ),
     ]
 
 
