@@ -346,8 +346,10 @@ class TestBridgeOutbound:
 
     async def test_handle_dm(self):
         bridge = _make_bridge()
+        bridge._stop_typing = MagicMock()
         mock_user = AsyncMock()
         mock_dm_channel = AsyncMock()
+        mock_dm_channel.id = 444
         mock_user.create_dm.return_value = mock_dm_channel
         bridge.client.fetch_user = AsyncMock(return_value=mock_user)
 
@@ -355,6 +357,7 @@ class TestBridgeOutbound:
 
         bridge.client.fetch_user.assert_called_once_with(777)
         mock_user.create_dm.assert_called_once()
+        bridge._stop_typing.assert_called_once_with(444)
         mock_dm_channel.send.assert_called_once_with("hi there")
 
     async def test_handle_thread_create_on_message(self):

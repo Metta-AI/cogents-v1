@@ -348,6 +348,7 @@ class DiscordBridge:
         try:
             user = await self.client.fetch_user(int(user_id))
             dm_channel = await user.create_dm()
+            self._stop_typing(dm_channel.id)
             for c in chunk_message(content):
                 await dm_channel.send(c)
         except Exception:
