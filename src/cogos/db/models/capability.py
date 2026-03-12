@@ -6,7 +6,12 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+import warnings
+
 from pydantic import BaseModel, Field
+
+# "schema" shadows a deprecated BaseModel v1 attribute; harmless in v2.
+warnings.filterwarnings("ignore", message='Field name "schema"', category=UserWarning)
 
 
 class Capability(BaseModel):
@@ -15,8 +20,7 @@ class Capability(BaseModel):
     description: str = ""
     instructions: str = ""  # guidance injected into search results
     handler: str = ""  # python dotted path, e.g. "cogos.capabilities.files:read"
-    input_schema: dict[str, Any] = Field(default_factory=dict)
-    output_schema: dict[str, Any] = Field(default_factory=dict)
+    schema: dict[str, Any] = Field(default_factory=dict)
     iam_role_arn: str | None = None
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)

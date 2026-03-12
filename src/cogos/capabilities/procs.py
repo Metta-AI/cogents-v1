@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from cogos.capabilities.base import Capability
-from cogos.db.models import Process, ProcessMode, ProcessStatus
+from cogos.db.models import Process, ProcessCapability, ProcessMode, ProcessStatus
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,14 @@ class ProcsCapability(Capability):
         priority: float = 0.0,
         runner: str = "lambda",
         model: str | None = None,
+        capabilities: dict[str, "Capability | None"] | None = None,
     ) -> SpawnResult | ProcessError:
+        """Spawn a child process. Capabilities are NOT inherited — pass them explicitly.
+
+        capabilities is a dict mapping namespace name to capability instance:
+            {"discord": discord, "email_me": email.scope(to=["x@y.com"])}
+        Pass None as the value for unscoped full access by capability name lookup.
+        """
         if not name:
             return ProcessError(error="name is required")
 
@@ -130,6 +137,29 @@ class ProcsCapability(Capability):
         )
 
         child_id = self.repo.upsert_process(child)
+
+        # Bind explicitly requested capabilities
+        for grant_name, cap_instance in (capabilities or {}).items():
+            if cap_instance is not None:
+                # Scoped or unscoped capability instance — resolve by class name
+                cap_type_name = type(cap_instance).__name__.lower().replace("capability", "")
+                cap = self.repo.get_capability_by_name(cap_type_name)
+                scope_config = getattr(cap_instance, "_scope", None) or None
+            else:
+                # None means look up by grant_name, unscoped
+                cap = self.repo.get_capability_by_name(grant_name)
+                scope_config = None
+
+            if cap and cap.enabled:
+                pc = ProcessCapability(
+                    process=child_id,
+                    capability=cap.id,
+                    name=grant_name,
+                    config=scope_config,
+                )
+                self.repo.create_process_capability(pc)
+            else:
+                logger.warning("Capability for grant %r not found or disabled, skipping", grant_name)
 
         return SpawnResult(
             id=str(child_id),

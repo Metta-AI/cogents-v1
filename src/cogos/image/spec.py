@@ -20,12 +20,12 @@ def load_image(image_dir: Path) -> ImageSpec:
     spec = ImageSpec()
 
     def add_capability(name, *, handler, description="", instructions="",
-                       input_schema=None, output_schema=None,
-                       iam_role_arn=None, metadata=None, event_types=None):
+                       schema=None, iam_role_arn=None, metadata=None,
+                       event_types=None):
         spec.capabilities.append({
             "name": name, "handler": handler, "description": description,
-            "instructions": instructions, "input_schema": input_schema,
-            "output_schema": output_schema, "iam_role_arn": iam_role_arn,
+            "instructions": instructions, "schema": schema,
+            "iam_role_arn": iam_role_arn,
             "metadata": metadata, "event_types": event_types or [],
         })
 

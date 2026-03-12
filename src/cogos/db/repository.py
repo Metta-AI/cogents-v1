@@ -341,17 +341,18 @@ class Repository:
 
     def create_process_capability(self, pc: ProcessCapability) -> UUID:
         response = self._execute(
-            """INSERT INTO cogos_process_capability (id, process, capability, config, delegatable)
-               VALUES (:id, :process, :capability, :config::jsonb, :delegatable)
-               ON CONFLICT (process, capability) DO UPDATE SET
-                   config = EXCLUDED.config, delegatable = EXCLUDED.delegatable
+            """INSERT INTO cogos_process_capability (id, process, capability, name, config)
+               VALUES (:id, :process, :capability, :name, :config::jsonb)
+               ON CONFLICT (process, name) DO UPDATE SET
+                   capability = EXCLUDED.capability,
+                   config = EXCLUDED.config
                RETURNING id""",
             [
                 self._param("id", pc.id),
                 self._param("process", pc.process),
                 self._param("capability", pc.capability),
+                self._param("name", pc.name),
                 self._param("config", pc.config),
-                self._param("delegatable", pc.delegatable),
             ],
         )
         row = self._first_row(response)
@@ -367,8 +368,8 @@ class Repository:
                 id=UUID(r["id"]),
                 process=UUID(r["process"]),
                 capability=UUID(r["capability"]),
+                name=r.get("name", ""),
                 config=self._json_field(r, "config"),
-                delegatable=r.get("delegatable", False),
             )
             for r in self._rows_to_dicts(response)
         ]
@@ -391,7 +392,7 @@ class Repository:
         """Return processes granted a specific capability with grant metadata."""
         response = self._execute(
             """SELECT p.id AS process_id, p.name AS process_name, p.status AS process_status,
-                      pc.delegatable, pc.config
+                      pc.name AS grant_name, pc.config
                FROM cogos_process_capability pc
                JOIN cogos_process p ON p.id = pc.process
                WHERE pc.capability = :capability
@@ -404,7 +405,7 @@ class Repository:
                 "process_id": str(r["process_id"]),
                 "process_name": r["process_name"],
                 "process_status": r["process_status"],
-                "delegatable": r.get("delegatable", False),
+                "grant_name": r.get("grant_name", ""),
                 "config": self._json_field(r, "config"),
             }
             for r in rows
@@ -807,16 +808,15 @@ class Repository:
         response = self._execute(
             """INSERT INTO cogos_capability
                    (id, name, description, instructions, handler,
-                    input_schema, output_schema, iam_role_arn, enabled, metadata, event_types)
+                    schema, iam_role_arn, enabled, metadata, event_types)
                VALUES (:id, :name, :description, :instructions, :handler,
-                       :input_schema::jsonb, :output_schema::jsonb,
+                       :schema::jsonb,
                        :iam_role_arn, :enabled, :metadata::jsonb, :event_types::jsonb)
                ON CONFLICT (name) DO UPDATE SET
                    description = EXCLUDED.description,
                    instructions = EXCLUDED.instructions,
                    handler = EXCLUDED.handler,
-                   input_schema = EXCLUDED.input_schema,
-                   output_schema = EXCLUDED.output_schema,
+                   schema = EXCLUDED.schema,
                    iam_role_arn = EXCLUDED.iam_role_arn,
                    enabled = EXCLUDED.enabled,
                    metadata = EXCLUDED.metadata,
@@ -829,8 +829,7 @@ class Repository:
                 self._param("description", cap.description),
                 self._param("instructions", cap.instructions),
                 self._param("handler", cap.handler),
-                self._param("input_schema", cap.input_schema),
-                self._param("output_schema", cap.output_schema),
+                self._param("schema", cap.schema),
                 self._param("iam_role_arn", cap.iam_role_arn),
                 self._param("enabled", cap.enabled),
                 self._param("metadata", cap.metadata),
@@ -897,8 +896,7 @@ class Repository:
             description=row.get("description", ""),
             instructions=row.get("instructions", ""),
             handler=row.get("handler", ""),
-            input_schema=self._json_field(row, "input_schema", {}),
-            output_schema=self._json_field(row, "output_schema", {}),
+            schema=self._json_field(row, "schema", {}),
             iam_role_arn=row.get("iam_role_arn"),
             enabled=row.get("enabled", True),
             metadata=self._json_field(row, "metadata", {}),

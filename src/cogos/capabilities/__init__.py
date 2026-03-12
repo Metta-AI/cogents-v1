@@ -4,61 +4,172 @@ from __future__ import annotations
 
 BUILTIN_CAPABILITIES: list[dict] = [
     {
-        "name": "files",
-        "description": "Versioned file store for persistent documents, configs, and prompts.",
+        "name": "file",
+        "description": "Single-file access — read, write, delete, and get metadata for a specific key.",
         "handler": "cogos.capabilities.files.FilesCapability",
         "instructions": (
-            "Use files to read and write persistent documents.\n"
-            "- files.read(key) — read a file by key (e.g. 'config/system')\n"
-            "- files.write(key, content) — create or update a file\n"
-            "- files.search(prefix) — list files matching a prefix\n"
+            "Use file to access a single file by key.\n"
+            "- file.read(key) — read a file by key\n"
+            "- file.write(key, content) — create or update a file\n"
+            "- file.delete(key) — delete a file\n"
+            "- file.get_metadata(key) — get file metadata (versions, timestamps)\n"
             "Files are versioned. Every write creates a new version."
         ),
-        "input_schema": {
+        "schema": {
+            "scope": {
+                "properties": {
+                    "key": {"type": "string", "description": "Restrict to a single file key"},
+                    "ops": {"type": "array", "items": {"type": "string", "enum": ["read", "write", "delete", "get_metadata"]}},
+                },
+            },
             "read": {
-                "type": "object",
-                "properties": {"key": {"type": "string", "description": "File key (path-like, e.g. 'config/system')"}},
-                "required": ["key"],
+                "input": {
+                    "type": "object",
+                    "properties": {"key": {"type": "string", "description": "File key"}},
+                    "required": ["key"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "key": {"type": "string"},
+                        "version": {"type": "integer"}, "content": {"type": "string"},
+                        "read_only": {"type": "boolean"}, "source": {"type": "string"},
+                    },
+                },
             },
             "write": {
-                "type": "object",
-                "properties": {
-                    "key": {"type": "string", "description": "File key"},
-                    "content": {"type": "string", "description": "File content"},
-                    "source": {"type": "string", "default": "agent", "description": "Who wrote it"},
-                    "read_only": {"type": "boolean", "default": False},
-                    "includes": {"type": "array", "items": {"type": "string"}, "description": "Keys of files to include"},
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string", "description": "File key"},
+                        "content": {"type": "string", "description": "File content"},
+                        "source": {"type": "string", "default": "agent"},
+                        "read_only": {"type": "boolean", "default": False},
+                        "includes": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["key", "content"],
                 },
-                "required": ["key", "content"],
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "key": {"type": "string"},
+                        "version": {"type": "integer"}, "created": {"type": "boolean"},
+                        "changed": {"type": "boolean"},
+                    },
+                },
             },
-            "search": {
-                "type": "object",
-                "properties": {
-                    "prefix": {"type": "string", "description": "Key prefix to filter by"},
-                    "limit": {"type": "integer", "default": 50},
+            "delete": {
+                "input": {
+                    "type": "object",
+                    "properties": {"key": {"type": "string", "description": "File key to delete"}},
+                    "required": ["key"],
+                },
+                "output": {"type": "object", "properties": {"deleted": {"type": "boolean"}}},
+            },
+            "get_metadata": {
+                "input": {
+                    "type": "object",
+                    "properties": {"key": {"type": "string", "description": "File key"}},
+                    "required": ["key"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"}, "versions": {"type": "integer"},
+                        "created_at": {"type": "string"}, "updated_at": {"type": "string"},
+                    },
                 },
             },
         },
-        "output_schema": {
-            "read": {
-                "type": "object",
+    },
+    {
+        "name": "dir",
+        "description": "Directory access — list, read, write, create, and delete files under a prefix.",
+        "handler": "cogos.capabilities.files.FilesCapability",
+        "instructions": (
+            "Use dir to access files under a directory prefix.\n"
+            "- dir.list(prefix?) — list files under the prefix\n"
+            "- dir.read(key) — read a file by key\n"
+            "- dir.write(key, content) — create or update a file\n"
+            "- dir.create(key, content) — create a new file (fails if exists)\n"
+            "- dir.delete(key) — delete a file\n"
+            "Dir grants full file access to everything under its prefix."
+        ),
+        "schema": {
+            "scope": {
                 "properties": {
-                    "id": {"type": "string"}, "key": {"type": "string"},
-                    "version": {"type": "integer"}, "content": {"type": "string"},
-                    "read_only": {"type": "boolean"}, "source": {"type": "string"},
+                    "prefix": {"type": "string", "description": "Key prefix to restrict access"},
+                    "ops": {"type": "array", "items": {"type": "string", "enum": ["list", "read", "write", "create", "delete"]}},
+                },
+            },
+            "list": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "prefix": {"type": "string", "description": "Key prefix to filter by"},
+                        "limit": {"type": "integer", "default": 50},
+                    },
+                },
+                "output": {
+                    "type": "array",
+                    "items": {"type": "object", "properties": {"id": {"type": "string"}, "key": {"type": "string"}}},
+                },
+            },
+            "read": {
+                "input": {
+                    "type": "object",
+                    "properties": {"key": {"type": "string", "description": "File key"}},
+                    "required": ["key"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "key": {"type": "string"},
+                        "version": {"type": "integer"}, "content": {"type": "string"},
+                    },
                 },
             },
             "write": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"}, "key": {"type": "string"},
-                    "version": {"type": "integer"}, "created": {"type": "boolean"},
-                    "changed": {"type": "boolean"},
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"}, "content": {"type": "string"},
+                        "source": {"type": "string", "default": "agent"},
+                    },
+                    "required": ["key", "content"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "key": {"type": "string"},
+                        "version": {"type": "integer"},
+                    },
                 },
             },
-            "search": {
-                "type": "array",
-                "items": {"type": "object", "properties": {"id": {"type": "string"}, "key": {"type": "string"}}},
+            "create": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"}, "content": {"type": "string"},
+                        "source": {"type": "string", "default": "agent"},
+                    },
+                    "required": ["key", "content"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "key": {"type": "string"},
+                        "version": {"type": "integer"},
+                    },
+                },
+            },
+            "delete": {
+                "input": {
+                    "type": "object",
+                    "properties": {"key": {"type": "string"}},
+                    "required": ["key"],
+                },
+                "output": {"type": "object", "properties": {"deleted": {"type": "boolean"}}},
             },
         },
     },
@@ -70,62 +181,77 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "Use procs to manage CogOS processes.\n"
             "- procs.list(status?) — list processes, optionally filtered by status\n"
             "- procs.get(name) — get full details of a process by name or id\n"
-            "- procs.spawn(name, content) — create a new child process\n"
-            "Spawned processes inherit the current process as parent and start in 'waiting' status."
+            "- procs.spawn(name, content, capabilities?) — create a new child process\n"
+            "Spawned processes start in 'runnable' status. You must explicitly pass\n"
+            "capability names via the capabilities parameter — they are NOT inherited."
         ),
-        "input_schema": {
+        "schema": {
+            "scope": {
+                "properties": {
+                    "ops": {"type": "array", "items": {"type": "string", "enum": ["list", "get", "spawn"]}},
+                },
+            },
             "list": {
-                "type": "object",
-                "properties": {
-                    "status": {"type": "string", "enum": ["waiting", "runnable", "running", "blocked", "suspended", "completed", "disabled"]},
-                    "limit": {"type": "integer", "default": 200},
-                },
-            },
-            "get": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Process name"},
-                    "id": {"type": "string", "description": "Process UUID"},
-                },
-            },
-            "spawn": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Name for the new process"},
-                    "content": {"type": "string", "default": "", "description": "Prompt/instructions"},
-                    "code": {"type": "string", "description": "File UUID for prompt template"},
-                    "priority": {"type": "number", "default": 0.0},
-                    "runner": {"type": "string", "enum": ["lambda", "ecs"], "default": "lambda"},
-                    "model": {"type": "string", "description": "Model override"},
-                },
-                "required": ["name"],
-            },
-        },
-        "output_schema": {
-            "list": {
-                "type": "array",
-                "items": {
+                "input": {
                     "type": "object",
                     "properties": {
-                        "id": {"type": "string"}, "name": {"type": "string"},
-                        "mode": {"type": "string"}, "status": {"type": "string"},
-                        "priority": {"type": "number"}, "runner": {"type": "string"},
+                        "status": {"type": "string", "enum": ["waiting", "runnable", "running", "blocked", "suspended", "completed", "disabled"]},
+                        "limit": {"type": "integer", "default": 200},
+                    },
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"}, "name": {"type": "string"},
+                            "mode": {"type": "string"}, "status": {"type": "string"},
+                            "priority": {"type": "number"}, "runner": {"type": "string"},
+                        },
                     },
                 },
             },
             "get": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"}, "name": {"type": "string"},
-                    "mode": {"type": "string"}, "status": {"type": "string"},
-                    "content": {"type": "string"}, "priority": {"type": "number"},
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Process name"},
+                        "id": {"type": "string", "description": "Process UUID"},
+                    },
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "name": {"type": "string"},
+                        "mode": {"type": "string"}, "status": {"type": "string"},
+                        "content": {"type": "string"}, "priority": {"type": "number"},
+                    },
                 },
             },
             "spawn": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"}, "name": {"type": "string"},
-                    "status": {"type": "string"}, "parent_process": {"type": "string"},
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Name for the new process"},
+                        "content": {"type": "string", "default": "", "description": "Prompt/instructions"},
+                        "code": {"type": "string", "description": "File UUID for prompt template"},
+                        "priority": {"type": "number", "default": 0.0},
+                        "runner": {"type": "string", "enum": ["lambda", "ecs"], "default": "lambda"},
+                        "model": {"type": "string", "description": "Model override"},
+                        "capabilities": {
+                            "type": "object",
+                            "description": "Dict mapping grant name to capability instance (scoped or unscoped). Not inherited.",
+                            "additionalProperties": {"description": "Capability instance or null for unscoped lookup by name"},
+                        },
+                    },
+                    "required": ["name"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "name": {"type": "string"},
+                        "status": {"type": "string"}, "parent_process": {"type": "string"},
+                    },
                 },
             },
         },
@@ -141,40 +267,48 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "- events.query(event_type?, limit?) — query recent events\n"
             "Events are immutable once emitted. Handlers can subscribe to event types."
         ),
-        "input_schema": {
+        "schema": {
+            "scope": {
+                "properties": {
+                    "emit": {"type": "array", "items": {"type": "string"}, "description": "Event patterns allowed to emit (fnmatch)"},
+                    "query": {"type": "array", "items": {"type": "string"}, "description": "Event patterns allowed to query (fnmatch)"},
+                },
+            },
             "emit": {
-                "type": "object",
-                "properties": {
-                    "event_type": {"type": "string", "description": "Event type (e.g. 'task:completed')"},
-                    "payload": {"type": "object", "description": "Arbitrary JSON payload"},
-                    "parent_event": {"type": "string", "description": "Parent event UUID for chaining"},
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "event_type": {"type": "string", "description": "Event type (e.g. 'task:completed')"},
+                        "payload": {"type": "object", "description": "Arbitrary JSON payload"},
+                        "parent_event": {"type": "string", "description": "Parent event UUID for chaining"},
+                    },
+                    "required": ["event_type"],
                 },
-                "required": ["event_type"],
-            },
-            "query": {
-                "type": "object",
-                "properties": {
-                    "event_type": {"type": "string", "description": "Filter by event type"},
-                    "limit": {"type": "integer", "default": 100},
-                },
-            },
-        },
-        "output_schema": {
-            "emit": {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"}, "event_type": {"type": "string"},
-                    "created_at": {"type": "string"},
-                },
-            },
-            "query": {
-                "type": "array",
-                "items": {
+                "output": {
                     "type": "object",
                     "properties": {
                         "id": {"type": "string"}, "event_type": {"type": "string"},
-                        "source": {"type": "string"}, "payload": {"type": "object"},
                         "created_at": {"type": "string"},
+                    },
+                },
+            },
+            "query": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "event_type": {"type": "string", "description": "Filter by event type"},
+                        "limit": {"type": "integer", "default": 100},
+                    },
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"}, "event_type": {"type": "string"},
+                            "source": {"type": "string"}, "payload": {"type": "object"},
+                            "created_at": {"type": "string"},
+                        },
                     },
                 },
             },
@@ -189,22 +323,22 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "- resources.check() — returns availability of all resources assigned to the current process\n"
             "If resources are unavailable, your process may be blocked by the scheduler."
         ),
-        "input_schema": {
-            "check": {"type": "object", "properties": {}},
-        },
-        "output_schema": {
+        "schema": {
             "check": {
-                "type": "object",
-                "properties": {
-                    "available": {"type": "boolean", "description": "True if all resources are available"},
-                    "resources": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": "string"}, "name": {"type": "string"},
-                                "capacity": {"type": "integer"}, "used": {"type": "integer"},
-                                "remaining": {"type": "integer"}, "available": {"type": "boolean"},
+                "input": {"type": "object", "properties": {}},
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "available": {"type": "boolean", "description": "True if all resources are available"},
+                        "resources": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string"}, "name": {"type": "string"},
+                                    "capacity": {"type": "integer"}, "used": {"type": "integer"},
+                                    "remaining": {"type": "integer"}, "available": {"type": "boolean"},
+                                },
                             },
                         },
                     },
@@ -222,19 +356,24 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "Tries SSM Parameter Store first, then falls back to Secrets Manager.\n"
             "JSON values are automatically parsed. Never log or emit secret values."
         ),
-        "input_schema": {
-            "get": {
-                "type": "object",
-                "properties": {"key": {"type": "string", "description": "Secret name/parameter name"}},
-                "required": ["key"],
-            },
-        },
-        "output_schema": {
-            "get": {
-                "type": "object",
+        "schema": {
+            "scope": {
                 "properties": {
-                    "key": {"type": "string"},
-                    "value": {"description": "Secret value (string or parsed JSON)"},
+                    "keys": {"type": "array", "items": {"type": "string"}, "description": "Key patterns allowed (fnmatch)"},
+                },
+            },
+            "get": {
+                "input": {
+                    "type": "object",
+                    "properties": {"key": {"type": "string", "description": "Secret name/parameter name"}},
+                    "required": ["key"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"},
+                        "value": {"description": "Secret value (string or parsed JSON)"},
+                    },
                 },
             },
         },
@@ -251,40 +390,48 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "Received emails arrive as 'email:received' events. Use receive() to read them.\n"
             "Always include a clear subject. Be professional in tone."
         ),
-        "input_schema": {
+        "schema": {
+            "scope": {
+                "properties": {
+                    "to": {"type": "array", "items": {"type": "string"}, "description": "Allowed recipient addresses"},
+                    "ops": {"type": "array", "items": {"type": "string", "enum": ["send", "receive"]}},
+                },
+            },
             "send": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "Recipient email address"},
-                    "subject": {"type": "string", "description": "Email subject line"},
-                    "body": {"type": "string", "description": "Email body (plain text)"},
-                    "reply_to": {"type": "string", "description": "Message-ID to reply to"},
-                },
-                "required": ["to", "subject", "body"],
-            },
-            "receive": {
-                "type": "object",
-                "properties": {
-                    "limit": {"type": "integer", "default": 10, "description": "Max emails to return"},
-                },
-            },
-        },
-        "output_schema": {
-            "send": {
-                "type": "object",
-                "properties": {
-                    "message_id": {"type": "string"}, "to": {"type": "string"},
-                    "subject": {"type": "string"},
-                },
-            },
-            "receive": {
-                "type": "array",
-                "items": {
+                "input": {
                     "type": "object",
                     "properties": {
-                        "sender": {"type": "string"}, "to": {"type": "string"},
-                        "subject": {"type": "string"}, "body": {"type": "string"},
-                        "date": {"type": "string"}, "message_id": {"type": "string"},
+                        "to": {"type": "string", "description": "Recipient email address"},
+                        "subject": {"type": "string", "description": "Email subject line"},
+                        "body": {"type": "string", "description": "Email body (plain text)"},
+                        "reply_to": {"type": "string", "description": "Message-ID to reply to"},
+                    },
+                    "required": ["to", "subject", "body"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "message_id": {"type": "string"}, "to": {"type": "string"},
+                        "subject": {"type": "string"},
+                    },
+                },
+            },
+            "receive": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "default": 10, "description": "Max emails to return"},
+                    },
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "sender": {"type": "string"}, "to": {"type": "string"},
+                            "subject": {"type": "string"}, "body": {"type": "string"},
+                            "date": {"type": "string"}, "message_id": {"type": "string"},
+                        },
                     },
                 },
             },
@@ -305,66 +452,83 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "Event types: discord:dm, discord:mention, discord:message.\n"
             "Keep messages concise. Use threads for extended discussions."
         ),
-        "input_schema": {
+        "schema": {
+            "scope": {
+                "properties": {
+                    "channels": {"type": "array", "items": {"type": "string"}, "description": "Allowed channel IDs"},
+                    "ops": {"type": "array", "items": {"type": "string", "enum": ["send", "react", "create_thread", "dm", "receive"]}},
+                },
+            },
             "send": {
-                "type": "object",
-                "properties": {
-                    "channel": {"type": "string", "description": "Channel ID"},
-                    "content": {"type": "string", "description": "Message content"},
-                    "thread_id": {"type": "string", "description": "Thread ID to reply in"},
-                    "reply_to": {"type": "string", "description": "Message ID to reply to"},
-                },
-                "required": ["channel", "content"],
-            },
-            "react": {
-                "type": "object",
-                "properties": {
-                    "channel": {"type": "string"}, "message_id": {"type": "string"},
-                    "emoji": {"type": "string", "description": "Emoji name or unicode"},
-                },
-                "required": ["channel", "message_id", "emoji"],
-            },
-            "create_thread": {
-                "type": "object",
-                "properties": {
-                    "channel": {"type": "string"}, "thread_name": {"type": "string"},
-                    "content": {"type": "string", "default": ""},
-                    "message_id": {"type": "string", "description": "Message to create thread from"},
-                },
-                "required": ["channel", "thread_name"],
-            },
-            "dm": {
-                "type": "object",
-                "properties": {
-                    "user_id": {"type": "string"}, "content": {"type": "string"},
-                },
-                "required": ["user_id", "content"],
-            },
-            "receive": {
-                "type": "object",
-                "properties": {
-                    "limit": {"type": "integer", "default": 10},
-                    "event_type": {"type": "string", "enum": ["discord:dm", "discord:mention", "discord:message"]},
-                },
-            },
-        },
-        "output_schema": {
-            "send": {
-                "type": "object",
-                "properties": {
-                    "channel": {"type": "string"}, "content_length": {"type": "integer"},
-                    "type": {"type": "string"},
-                },
-            },
-            "receive": {
-                "type": "array",
-                "items": {
+                "input": {
                     "type": "object",
                     "properties": {
-                        "content": {"type": "string"}, "author": {"type": "string"},
-                        "author_id": {"type": "string"}, "channel_id": {"type": "string"},
-                        "message_id": {"type": "string"}, "is_dm": {"type": "boolean"},
-                        "is_mention": {"type": "boolean"}, "event_type": {"type": "string"},
+                        "channel": {"type": "string", "description": "Channel ID"},
+                        "content": {"type": "string", "description": "Message content"},
+                        "thread_id": {"type": "string", "description": "Thread ID to reply in"},
+                        "reply_to": {"type": "string", "description": "Message ID to reply to"},
+                    },
+                    "required": ["channel", "content"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "channel": {"type": "string"}, "content_length": {"type": "integer"},
+                        "type": {"type": "string"},
+                    },
+                },
+            },
+            "react": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "channel": {"type": "string"}, "message_id": {"type": "string"},
+                        "emoji": {"type": "string", "description": "Emoji name or unicode"},
+                    },
+                    "required": ["channel", "message_id", "emoji"],
+                },
+                "output": {"type": "object", "properties": {}},
+            },
+            "create_thread": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "channel": {"type": "string"}, "thread_name": {"type": "string"},
+                        "content": {"type": "string", "default": ""},
+                        "message_id": {"type": "string", "description": "Message to create thread from"},
+                    },
+                    "required": ["channel", "thread_name"],
+                },
+                "output": {"type": "object", "properties": {}},
+            },
+            "dm": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "user_id": {"type": "string"}, "content": {"type": "string"},
+                    },
+                    "required": ["user_id", "content"],
+                },
+                "output": {"type": "object", "properties": {}},
+            },
+            "receive": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "default": 10},
+                        "event_type": {"type": "string", "enum": ["discord:dm", "discord:mention", "discord:message"]},
+                    },
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": {"type": "string"}, "author": {"type": "string"},
+                            "author_id": {"type": "string"}, "channel_id": {"type": "string"},
+                            "message_id": {"type": "string"}, "is_dm": {"type": "boolean"},
+                            "is_mention": {"type": "boolean"}, "event_type": {"type": "string"},
+                        },
                     },
                 },
             },
@@ -392,18 +556,20 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "Run-scoped storage is ephemeral per run. Process-scoped storage persists across runs.\n"
             "Paths: /proc/{process_id}/[tmp|scratch|log] and /proc/{process_id}/runs/{run_id}/[tmp|scratch|log]"
         ),
-        "input_schema": {
-            "run": {"type": "object", "properties": {}},
-            "process": {"type": "object", "properties": {}},
-        },
-        "output_schema": {
+        "schema": {
             "run": {
-                "type": "object",
-                "description": "RunScope with .tmp(), .tmp_dir(), .log(), .scratch(), .scratch_dir()",
+                "input": {"type": "object", "properties": {}},
+                "output": {
+                    "type": "object",
+                    "description": "RunScope with .tmp(), .tmp_dir(), .log(), .scratch(), .scratch_dir()",
+                },
             },
             "process": {
-                "type": "object",
-                "description": "ProcessScope with .tmp(), .tmp_dir(), .log(), .scratch(), .scratch_dir()",
+                "input": {"type": "object", "properties": {}},
+                "output": {
+                    "type": "object",
+                    "description": "ProcessScope with .tmp(), .tmp_dir(), .log(), .scratch(), .scratch_dir()",
+                },
             },
         },
     },
@@ -421,69 +587,77 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "- scheduler.kill_process(process_id) — disable a process, fail its running run\n"
             "Always run in order: match_events -> unblock_processes -> select_processes -> dispatch."
         ),
-        "input_schema": {
+        "schema": {
             "match_events": {
-                "type": "object",
-                "properties": {"limit": {"type": "integer", "default": 200}},
-            },
-            "unblock_processes": {"type": "object", "properties": {}},
-            "select_processes": {
-                "type": "object",
-                "properties": {"slots": {"type": "integer", "default": 1, "description": "Number of processes to select"}},
-            },
-            "dispatch_process": {
-                "type": "object",
-                "properties": {"process_id": {"type": "string", "description": "UUID of the process to dispatch"}},
-                "required": ["process_id"],
-            },
-            "kill_process": {
-                "type": "object",
-                "properties": {"process_id": {"type": "string", "description": "UUID of the process to kill"}},
-                "required": ["process_id"],
-            },
-        },
-        "output_schema": {
-            "match_events": {
-                "type": "object",
-                "properties": {
-                    "deliveries_created": {"type": "integer"},
-                    "deliveries": {"type": "array", "items": {"type": "object"}},
+                "input": {
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer", "default": 200}},
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "deliveries_created": {"type": "integer"},
+                        "deliveries": {"type": "array", "items": {"type": "object"}},
+                    },
                 },
             },
             "unblock_processes": {
-                "type": "object",
-                "properties": {
-                    "unblocked_count": {"type": "integer"},
-                    "unblocked": {"type": "array", "items": {"type": "object"}},
+                "input": {"type": "object", "properties": {}},
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "unblocked_count": {"type": "integer"},
+                        "unblocked": {"type": "array", "items": {"type": "object"}},
+                    },
                 },
             },
             "select_processes": {
-                "type": "object",
-                "properties": {
-                    "selected": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": "string"}, "name": {"type": "string"},
-                                "priority": {"type": "number"}, "effective_priority": {"type": "number"},
+                "input": {
+                    "type": "object",
+                    "properties": {"slots": {"type": "integer", "default": 1, "description": "Number of processes to select"}},
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "selected": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string"}, "name": {"type": "string"},
+                                    "priority": {"type": "number"}, "effective_priority": {"type": "number"},
+                                },
                             },
                         },
                     },
                 },
             },
             "dispatch_process": {
-                "type": "object",
-                "properties": {
-                    "run_id": {"type": "string"}, "process_id": {"type": "string"},
-                    "process_name": {"type": "string"}, "runner": {"type": "string"},
+                "input": {
+                    "type": "object",
+                    "properties": {"process_id": {"type": "string", "description": "UUID of the process to dispatch"}},
+                    "required": ["process_id"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"}, "process_id": {"type": "string"},
+                        "process_name": {"type": "string"}, "runner": {"type": "string"},
+                    },
                 },
             },
             "kill_process": {
-                "type": "object",
-                "properties": {
-                    "process_id": {"type": "string"}, "name": {"type": "string"},
-                    "previous_status": {"type": "string"}, "new_status": {"type": "string"},
+                "input": {
+                    "type": "object",
+                    "properties": {"process_id": {"type": "string", "description": "UUID of the process to kill"}},
+                    "required": ["process_id"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "process_id": {"type": "string"}, "name": {"type": "string"},
+                        "previous_status": {"type": "string"}, "new_status": {"type": "string"},
+                    },
                 },
             },
         },

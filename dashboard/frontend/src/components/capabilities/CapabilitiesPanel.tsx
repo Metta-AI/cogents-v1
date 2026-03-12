@@ -66,14 +66,12 @@ function CapabilityDetail({ cap, cogentName, onRefresh, onClose }: DetailProps) 
   const [editForm, setEditForm] = useState({
     description: "",
     instructions: "",
-    input_schema: "",
-    output_schema: "",
+    schema: "",
   });
-  const [schemaErrors, setSchemaErrors] = useState({ input: "", output: "" });
+  const [schemaError, setSchemaError] = useState("");
 
-  // Collapsed state for schema sections
-  const [inputCollapsed, setInputCollapsed] = useState(false);
-  const [outputCollapsed, setOutputCollapsed] = useState(false);
+  // Collapsed state for schema section
+  const [schemaCollapsed, setSchemaCollapsed] = useState(false);
 
   // Load granted processes
   useEffect(() => {
@@ -90,41 +88,34 @@ function CapabilityDetail({ cap, cogentName, onRefresh, onClose }: DetailProps) 
     setEditForm({
       description: cap.description,
       instructions: cap.instructions || "",
-      input_schema: JSON.stringify(cap.input_schema || {}, null, 2),
-      output_schema: JSON.stringify(cap.output_schema || {}, null, 2),
+      schema: JSON.stringify(cap.schema || {}, null, 2),
     });
-    setSchemaErrors({ input: "", output: "" });
+    setSchemaError("");
     setEditing(true);
   }, [cap]);
 
-  const validateSchemas = useCallback((): boolean => {
-    const inResult = tryParseJSON(editForm.input_schema);
-    const outResult = tryParseJSON(editForm.output_schema);
-    setSchemaErrors({
-      input: inResult.ok ? "" : inResult.error,
-      output: outResult.ok ? "" : outResult.error,
-    });
-    return inResult.ok && outResult.ok;
-  }, [editForm.input_schema, editForm.output_schema]);
+  const validateSchema = useCallback((): boolean => {
+    const result = tryParseJSON(editForm.schema);
+    setSchemaError(result.ok ? "" : result.error);
+    return result.ok;
+  }, [editForm.schema]);
 
   const handleSave = useCallback(async () => {
-    if (!validateSchemas()) return;
+    if (!validateSchema()) return;
     setSaving(true);
     try {
-      const inParsed = JSON.parse(editForm.input_schema);
-      const outParsed = JSON.parse(editForm.output_schema);
+      const parsed = JSON.parse(editForm.schema);
       await updateCapability(cogentName, cap.name, {
         description: editForm.description,
         instructions: editForm.instructions,
-        input_schema: inParsed,
-        output_schema: outParsed,
+        schema: parsed,
       });
       setEditing(false);
       onRefresh?.();
     } finally {
       setSaving(false);
     }
-  }, [cogentName, cap.name, editForm, validateSchemas, onRefresh]);
+  }, [cogentName, cap.name, editForm, validateSchema, onRefresh]);
 
   const handleToggle = useCallback(async () => {
     setToggling(true);
@@ -136,7 +127,7 @@ function CapabilityDetail({ cap, cogentName, onRefresh, onClose }: DetailProps) 
     }
   }, [cogentName, cap, onRefresh]);
 
-  const canSave = !schemaErrors.input && !schemaErrors.output;
+  const canSave = !schemaError;
 
   return (
     <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md p-4 space-y-3">
@@ -178,33 +169,18 @@ function CapabilityDetail({ cap, cogentName, onRefresh, onClose }: DetailProps) 
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Input Schema</span>
+            <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Schema</span>
             <textarea
               className={`${inputClass} min-h-[100px] resize-y font-mono text-[11px]`}
-              value={editForm.input_schema}
+              value={editForm.schema}
               onChange={(e) => {
-                setEditForm((f) => ({ ...f, input_schema: e.target.value }));
+                setEditForm((f) => ({ ...f, schema: e.target.value }));
                 const r = tryParseJSON(e.target.value);
-                setSchemaErrors((prev) => ({ ...prev, input: r.ok ? "" : r.error }));
+                setSchemaError(r.ok ? "" : r.error);
               }}
             />
-            {schemaErrors.input && (
-              <span className="text-[10px] text-[var(--error)]">{schemaErrors.input}</span>
-            )}
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Output Schema</span>
-            <textarea
-              className={`${inputClass} min-h-[100px] resize-y font-mono text-[11px]`}
-              value={editForm.output_schema}
-              onChange={(e) => {
-                setEditForm((f) => ({ ...f, output_schema: e.target.value }));
-                const r = tryParseJSON(e.target.value);
-                setSchemaErrors((prev) => ({ ...prev, output: r.ok ? "" : r.error }));
-              }}
-            />
-            {schemaErrors.output && (
-              <span className="text-[10px] text-[var(--error)]">{schemaErrors.output}</span>
+            {schemaError && (
+              <span className="text-[10px] text-[var(--error)]">{schemaError}</span>
             )}
           </label>
           <div className="flex gap-2">
@@ -237,34 +213,18 @@ function CapabilityDetail({ cap, cogentName, onRefresh, onClose }: DetailProps) 
             </div>
           )}
 
-          {/* Input Schema */}
+          {/* Schema */}
           <div>
             <button
               className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-0.5 bg-transparent border-0 cursor-pointer p-0 flex items-center gap-1 hover:text-[var(--text-secondary)]"
-              onClick={() => setInputCollapsed((c) => !c)}
+              onClick={() => setSchemaCollapsed((c) => !c)}
             >
-              <span className="text-[8px]">{inputCollapsed ? "\u25B6" : "\u25BC"}</span>
-              Input Schema
+              <span className="text-[8px]">{schemaCollapsed ? "\u25B6" : "\u25BC"}</span>
+              Schema
             </button>
-            {!inputCollapsed && (
+            {!schemaCollapsed && (
               <pre className="text-[var(--text-muted)] font-mono text-[11px] bg-[var(--bg-elevated)] rounded p-2 overflow-x-auto m-0">
-                {JSON.stringify(cap.input_schema, null, 2) || "{}"}
-              </pre>
-            )}
-          </div>
-
-          {/* Output Schema */}
-          <div>
-            <button
-              className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-0.5 bg-transparent border-0 cursor-pointer p-0 flex items-center gap-1 hover:text-[var(--text-secondary)]"
-              onClick={() => setOutputCollapsed((c) => !c)}
-            >
-              <span className="text-[8px]">{outputCollapsed ? "\u25B6" : "\u25BC"}</span>
-              Output Schema
-            </button>
-            {!outputCollapsed && (
-              <pre className="text-[var(--text-muted)] font-mono text-[11px] bg-[var(--bg-elevated)] rounded p-2 overflow-x-auto m-0">
-                {JSON.stringify(cap.output_schema, null, 2) || "{}"}
+                {JSON.stringify(cap.schema, null, 2) || "{}"}
               </pre>
             )}
           </div>
@@ -283,14 +243,19 @@ function CapabilityDetail({ cap, cogentName, onRefresh, onClose }: DetailProps) 
               <div className="space-y-1">
                 {processes.map((p) => (
                   <div
-                    key={p.process_id}
+                    key={p.process_id + (p.grant_name || "")}
                     className="flex items-center gap-2 text-[11px] px-2 py-1 rounded"
                     style={{ background: "var(--bg-elevated)" }}
                   >
                     <span className="font-mono text-[var(--text-secondary)]">{p.process_name}</span>
                     <Badge variant={STATUS_VARIANT[p.process_status] || "neutral"}>{p.process_status}</Badge>
-                    {p.delegatable && (
-                      <span className="text-[10px] text-[var(--text-muted)]">delegatable</span>
+                    {p.grant_name && p.grant_name !== cap.name && (
+                      <span className="text-[10px] text-[var(--accent)] font-mono">as {p.grant_name}</span>
+                    )}
+                    {p.config && (
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                        {JSON.stringify(p.config)}
+                      </span>
                     )}
                   </div>
                 ))}

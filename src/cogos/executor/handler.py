@@ -323,7 +323,7 @@ def _handle_search(tool_input: dict, process: Process, repo: Repository) -> str:
             "name": cap.name,
             "description": cap.description,
             "instructions": cap.instructions,
-            "input_schema": cap.input_schema,
+            "schema": cap.schema,
         })
     return json.dumps(results, indent=2) if results else "No capabilities found matching query."
 
@@ -397,7 +397,7 @@ def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Reposit
         if cap is None or not cap.enabled:
             continue
         ns = cap.name.split("/")[0] if "/" in cap.name else cap.name
-        if ns in ("files", "procs", "events", "scheduler", "me"):
+        if ns in ("file", "dir", "files", "procs", "events", "scheduler", "me"):
             continue  # already set up above
         if ":" in cap.handler:
             mod_path, attr_name = cap.handler.rsplit(":", 1)

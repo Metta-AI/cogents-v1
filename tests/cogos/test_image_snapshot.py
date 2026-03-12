@@ -12,15 +12,14 @@ def test_snapshot_round_trips(tmp_path):
 
     original = ImageSpec(
         capabilities=[
-            {"name": "files", "handler": "cogos.capabilities.files.FilesCapability",
-             "description": "File store", "instructions": "", "input_schema": None,
-             "output_schema": None, "iam_role_arn": None, "metadata": None},
+            {"name": "dir", "handler": "cogos.capabilities.files.FilesCapability",
+             "description": "Directory access", "instructions": "", "schema": None, "iam_role_arn": None, "metadata": None},
         ],
         resources=[],
         processes=[
             {"name": "scheduler", "mode": "daemon", "content": "scheduler daemon",
              "code_key": "cogos/scheduler", "runner": "lambda", "model": None,
-             "priority": 100.0, "capabilities": ["files"],
+             "priority": 100.0, "capabilities": ["dir"],
              "handlers": [], "metadata": {}},
         ],
         cron_rules=[],
@@ -40,9 +39,9 @@ def test_snapshot_round_trips(tmp_path):
     # Round-trip: load the snapshot and verify
     restored = load_image(snapshot_dir)
     assert len(restored.capabilities) == 1
-    assert restored.capabilities[0]["name"] == "files"
+    assert restored.capabilities[0]["name"] == "dir"
     assert len(restored.processes) == 1
     assert restored.processes[0]["name"] == "scheduler"
-    assert "files" in restored.processes[0]["capabilities"]
+    assert "dir" in restored.processes[0]["capabilities"]
     assert restored.processes[0]["handlers"] == []
     assert restored.files["cogos/scheduler"] == "You are the scheduler."

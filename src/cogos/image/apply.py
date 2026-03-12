@@ -34,8 +34,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
             handler=cap_dict["handler"],
             description=cap_dict.get("description", ""),
             instructions=cap_dict.get("instructions", ""),
-            input_schema=cap_dict.get("input_schema") or {},
-            output_schema=cap_dict.get("output_schema") or {},
+            schema=cap_dict.get("schema") or {},
             iam_role_arn=cap_dict.get("iam_role_arn"),
             metadata=cap_dict.get("metadata") or {},
             event_types=cap_dict.get("event_types") or [],
@@ -107,7 +106,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
         for cap_name in proc_dict.get("capabilities", []):
             cap = repo.get_capability_by_name(cap_name)
             if cap:
-                pc = ProcessCapability(process=pid, capability=cap.id)
+                pc = ProcessCapability(process=pid, capability=cap.id, name=cap_name)
                 repo.create_process_capability(pc)
 
         # Create handlers

@@ -1,4 +1,4 @@
-"""Proxy object generation from capability output_schema.
+"""Proxy object generation from capability schema.
 
 Generates Python classes with methods that route to capability handlers.
 For MVP, we use simple callable wrappers rather than full schema-driven generation.

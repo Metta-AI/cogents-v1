@@ -31,7 +31,7 @@ Be helpful, concise, and friendly. If you don't know something, say so.
     runner="lambda",
     model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
     priority=10.0,
-    capabilities=["discord", "events", "files"],
+    capabilities=["discord", "events", "dir"],
     handlers=["discord:dm", "discord:mention"],
     output_events=["discord:reply"],
 )

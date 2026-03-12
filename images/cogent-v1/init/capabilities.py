@@ -6,7 +6,6 @@ for cap in BUILTIN_CAPABILITIES:
         handler=cap["handler"],
         description=cap.get("description", ""),
         instructions=cap.get("instructions", ""),
-        input_schema=cap.get("input_schema"),
-        output_schema=cap.get("output_schema"),
+        schema=cap.get("schema"),
         event_types=cap.get("event_types"),
     )

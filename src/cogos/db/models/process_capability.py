@@ -12,5 +12,5 @@ class ProcessCapability(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     process: UUID  # FK -> Process.id
     capability: UUID  # FK -> Capability.id
-    config: dict[str, Any] | None = None  # per-process scoping
-    delegatable: bool = False  # can be passed to spawned children
+    name: str = ""  # namespace alias (e.g. "email_me"); defaults to capability name
+    config: dict[str, Any] | None = None  # scope config for this grant

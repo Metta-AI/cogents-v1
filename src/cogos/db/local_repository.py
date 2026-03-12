@@ -305,9 +305,10 @@ class LocalRepository:
     # ── Process Capabilities ────────────────────────────────
 
     def create_process_capability(self, pc: ProcessCapability) -> UUID:
-        """Upsert a process-capability binding by (process, capability) pair."""
+        """Upsert a process-capability binding by (process, name) pair."""
         for existing in self._process_capabilities.values():
-            if existing.process == pc.process and existing.capability == pc.capability:
+            if existing.process == pc.process and existing.name == pc.name:
+                existing.capability = pc.capability
                 existing.config = pc.config
                 self._save()
                 return existing.id
@@ -338,7 +339,7 @@ class LocalRepository:
                         "process_id": str(proc.id),
                         "process_name": proc.name,
                         "process_status": proc.status.value if hasattr(proc.status, "value") else str(proc.status),
-                        "delegatable": pc.delegatable,
+                        "grant_name": pc.name,
                         "config": pc.config,
                     })
         results.sort(key=lambda r: r["process_name"])

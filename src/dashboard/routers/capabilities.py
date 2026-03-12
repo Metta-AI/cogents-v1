@@ -22,8 +22,7 @@ class CapabilityOut(BaseModel):
     description: str
     instructions: str
     handler: str
-    input_schema: dict
-    output_schema: dict
+    schema: dict
     iam_role_arn: str | None = None
     enabled: bool
     metadata: dict
@@ -36,8 +35,7 @@ class CapabilityUpdate(BaseModel):
     description: str | None = None
     instructions: str | None = None
     handler: str | None = None
-    input_schema: dict | None = None
-    output_schema: dict | None = None
+    schema: dict | None = None
     metadata: dict | None = None
 
 
@@ -56,8 +54,7 @@ def _to_out(c: Capability) -> CapabilityOut:
         description=c.description,
         instructions=c.instructions,
         handler=c.handler,
-        input_schema=c.input_schema,
-        output_schema=c.output_schema,
+        schema=c.schema,
         iam_role_arn=c.iam_role_arn,
         enabled=c.enabled,
         metadata=c.metadata,
@@ -101,10 +98,8 @@ def update_capability(name: str, cap_name: str, body: CapabilityUpdate) -> Capab
         c.instructions = body.instructions
     if body.handler is not None:
         c.handler = body.handler
-    if body.input_schema is not None:
-        c.input_schema = body.input_schema
-    if body.output_schema is not None:
-        c.output_schema = body.output_schema
+    if body.schema is not None:
+        c.schema = body.schema
     if body.metadata is not None:
         c.metadata = body.metadata
 
@@ -116,7 +111,7 @@ class CapabilityProcessOut(BaseModel):
     process_id: str
     process_name: str
     process_status: str
-    delegatable: bool
+    grant_name: str = ""
     config: dict | None = None
 
 

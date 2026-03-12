@@ -48,10 +48,8 @@ def snapshot_image(repo, output_dir: Path, *, cogent_name: str | None = None) ->
             parts.append(f'    description={_repr_val(c.description)}')
         if c.instructions:
             parts.append(f'    instructions={_repr_val(c.instructions)}')
-        if c.input_schema:
-            parts.append(f'    input_schema={_repr_val(c.input_schema)}')
-        if c.output_schema:
-            parts.append(f'    output_schema={_repr_val(c.output_schema)}')
+        if c.schema:
+            parts.append(f'    schema={_repr_val(c.schema)}')
         if c.iam_role_arn:
             parts.append(f'    iam_role_arn={_repr_val(c.iam_role_arn)}')
         if c.metadata:

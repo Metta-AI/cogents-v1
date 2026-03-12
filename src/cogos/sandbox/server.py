@@ -37,7 +37,8 @@ def _build_capability_proxies(repo: Repository, process_id: UUID) -> dict[str, o
     """Load capabilities bound to a process and build proxy objects.
 
     Each capability class is instantiated with (repo, process_id) and
-    injected into the sandbox namespace under its name (e.g. 'files', 'email').
+    injected into the sandbox namespace under its grant name (e.g. 'email_me').
+    If scope config exists on the grant, the instance is scoped accordingly.
     """
     import importlib
     import inspect
@@ -62,12 +63,16 @@ def _build_capability_proxies(repo: Repository, process_id: UUID) -> dict[str, o
             logger.warning("Could not load handler %s: %s", cap.handler, exc)
             continue
 
-        # Use the top-level namespace from the capability name (e.g. "files" from "files/read")
-        ns = cap.name.split("/")[0] if "/" in cap.name else cap.name
+        # Use the grant name as the namespace key; fall back to capability name
+        ns = pc.name or cap.name.split("/")[0]
 
         # Class capabilities get instantiated with repo and process_id
         if inspect.isclass(handler):
-            proxies[ns] = handler(repo, process_id)
+            instance = handler(repo, process_id)
+            # Apply scope config if present
+            if pc.config and hasattr(instance, "scope"):
+                instance = instance.scope(**pc.config)
+            proxies[ns] = instance
         else:
             proxies[ns] = handler
     return proxies

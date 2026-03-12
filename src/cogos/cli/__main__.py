@@ -765,7 +765,7 @@ def capability_load(directory: str):
 
     Each .py file in DIR is scanned for a module-level CAPABILITIES list.
     Each entry should be a dict with keys matching the Capability model
-    (name, description, handler, input_schema, etc.).
+    (name, description, handler, schema, etc.).
     """
     from cogos.db.models import Capability as CapabilityModel
     import importlib.util

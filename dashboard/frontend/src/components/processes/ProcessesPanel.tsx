@@ -39,8 +39,10 @@ const EXECUTOR_DEFAULT_MODEL_LABEL = "default (sonnet)";
 
 const INPUT_CLS = "bg-[var(--bg-elevated)] border border-[var(--border)] rounded px-2 py-1 text-[12px] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] w-full";
 
-interface CapabilityConfig {
-  allowed_methods?: string[];
+interface CapGrant {
+  grant_name: string;
+  capability_name: string;
+  config: Record<string, unknown> | null;
 }
 
 interface ProcessForm {
@@ -58,8 +60,7 @@ interface ProcessForm {
   preemptible: boolean;
   clear_context: boolean;
   resources: string[];
-  capabilities: string[];
-  capabilityConfigs: Record<string, CapabilityConfig>;
+  grants: CapGrant[];
   handlers: string[];
   output_events: string[];
 }
@@ -79,8 +80,7 @@ const EMPTY_FORM: ProcessForm = {
   preemptible: false,
   clear_context: false,
   resources: [],
-  capabilities: [],
-  capabilityConfigs: {},
+  grants: [],
   handlers: [],
   output_events: [],
 };
@@ -106,8 +106,7 @@ function formDurationToMs(val: string, unit: DurationUnit): number | null {
 function formFromProcess(
   p: CogosProcess,
   fileKeys?: string[],
-  capNames?: string[],
-  capConfigs?: Record<string, CapabilityConfig>,
+  grants?: CapGrant[],
   handlerPatterns?: string[],
 ): ProcessForm {
   return {
@@ -124,8 +123,7 @@ function formFromProcess(
     preemptible: p.preemptible,
     clear_context: p.clear_context,
     resources: p.resources ?? [],
-    capabilities: capNames ?? [],
-    capabilityConfigs: capConfigs ?? {},
+    grants: grants ?? [],
     handlers: handlerPatterns ?? [],
     output_events: p.output_events ?? [],
   };
@@ -259,60 +257,293 @@ function TagListEditor({
   );
 }
 
-/* ── CapabilityEditor: capability tags with clickable method selection ── */
+/* ── FileGrantEditor: quick-add file/dir capabilities with name: path [ops] ── */
+
+const FILE_OPS = ["read", "write", "delete", "get_metadata"] as const;
+const DIR_OPS = ["list", "read", "write", "create", "delete"] as const;
+
+const OP_DESCRIPTIONS: Record<string, string> = {
+  list: "list — list files under prefix",
+  read: "read — read file content",
+  write: "write — update existing file",
+  create: "create — create new file",
+  delete: "delete — delete a file",
+  get_metadata: "get_metadata — file info (versions, timestamps)",
+};
+
+function FileGrantEditor({
+  grants,
+  onChange,
+  processName,
+}: {
+  grants: CapGrant[];
+  onChange: (grants: CapGrant[]) => void;
+  processName: string;
+}) {
+  const [addType, setAddType] = useState<"file" | "dir" | null>(null);
+  const [addName, setAddName] = useState("");
+  const [addPath, setAddPath] = useState("");
+
+  const fileGrants = useMemo(() =>
+    grants.map((g, idx) => ({ ...g, _idx: idx })).filter((g) => g.capability_name === "file" || g.capability_name === "dir"),
+  [grants]);
+
+  const usedNames = useMemo(() => new Set(grants.map((g) => g.grant_name)), [grants]);
+
+  const addGrant = useCallback(() => {
+    if (!addType || !addName.trim()) return;
+    if (usedNames.has(addName.trim())) return;
+    const pathKey = addType === "file" ? "key" : "prefix";
+    const config = addPath.trim() ? { [pathKey]: addPath.trim() } : null;
+    onChange([...grants, { grant_name: addName.trim(), capability_name: addType, config }]);
+    setAddType(null);
+    setAddName("");
+    setAddPath("");
+  }, [addType, addName, addPath, grants, onChange, usedNames]);
+
+  const toggleOp = useCallback((grantIdx: number, op: string, allOps: readonly string[]) => {
+    const updated = [...grants];
+    const g = updated[grantIdx];
+    const cfg = { ...(g.config || {}) } as Record<string, unknown>;
+    const currentOps = (cfg.ops as string[] | undefined) || [];
+    let nextOps: string[];
+    if (currentOps.length === 0) {
+      nextOps = [...allOps].filter((o) => o !== op);
+    } else if (currentOps.includes(op)) {
+      nextOps = currentOps.filter((o) => o !== op);
+    } else {
+      nextOps = [...currentOps, op];
+    }
+    if (nextOps.length >= allOps.length || nextOps.length === 0) {
+      delete cfg.ops;
+    } else {
+      cfg.ops = nextOps;
+    }
+    updated[grantIdx] = { ...g, config: Object.keys(cfg).length > 0 ? cfg : null };
+    onChange(updated);
+  }, [grants, onChange]);
+
+  const removeGrant = useCallback((grantIdx: number) => {
+    onChange(grants.filter((_, i) => i !== grantIdx));
+  }, [grants, onChange]);
+
+  return (
+    <div>
+      <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Files & Directories</label>
+      {fileGrants.length > 0 && (
+        <div className="space-y-1 mb-1">
+          {fileGrants.map((g) => {
+            const isDir = g.capability_name === "dir";
+            const ops = isDir ? DIR_OPS : FILE_OPS;
+            const cfg = (g.config || {}) as Record<string, unknown>;
+            const currentOps = (cfg.ops as string[] | undefined) || [];
+            const pathKey = isDir ? "prefix" : "key";
+            const pathVal = cfg[pathKey] as string | undefined;
+            return (
+              <div key={g._idx} className="flex items-center gap-1.5 text-[11px] font-mono">
+                <span
+                  className="px-1 py-0 rounded text-[9px]"
+                  style={{
+                    background: isDir ? "rgba(139,92,246,0.15)" : "rgba(59,130,246,0.15)",
+                    color: isDir ? "#a78bfa" : "#60a5fa",
+                    border: "1px solid",
+                    borderColor: isDir ? "rgba(139,92,246,0.3)" : "rgba(59,130,246,0.3)",
+                  }}
+                >
+                  {isDir ? "dir" : "file"}
+                </span>
+                <span className="text-[var(--accent)]">{g.grant_name}</span>
+                {pathVal && <span className="text-[var(--text-muted)]">: {pathVal}</span>}
+                <span className="flex gap-0.5 ml-1">
+                  {ops.map((op) => {
+                    const isOn = currentOps.length === 0 || currentOps.includes(op);
+                    const label = op === "get_metadata" ? "meta" : op === "create" ? "new" : op[0];
+                    return (
+                      <button
+                        key={op}
+                        onClick={() => toggleOp(g._idx, op, ops)}
+                        className="px-1 py-0 rounded text-[9px] font-mono border cursor-pointer"
+                        style={{
+                          background: isOn ? "var(--bg-surface)" : "transparent",
+                          borderColor: isOn ? "var(--accent)" : "var(--border)",
+                          color: isOn ? "var(--accent)" : "var(--text-muted)",
+                          opacity: isOn ? 1 : 0.3,
+                        }}
+                        title={OP_DESCRIPTIONS[op] || op}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </span>
+                <button
+                  onClick={() => removeGrant(g._idx)}
+                  className="border-0 bg-transparent cursor-pointer text-[var(--text-muted)] hover:text-[var(--error)] text-[10px] leading-none p-0 ml-auto"
+                >
+                  x
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {addType ? (
+        <div className="flex items-center gap-1.5 text-[11px]">
+          <span
+            className="px-1 py-0 rounded text-[9px] font-mono"
+            style={{
+              background: addType === "dir" ? "rgba(139,92,246,0.15)" : "rgba(59,130,246,0.15)",
+              color: addType === "dir" ? "#a78bfa" : "#60a5fa",
+            }}
+          >
+            {addType}
+          </span>
+          <input
+            value={addName}
+            onChange={(e) => setAddName(e.target.value)}
+            placeholder="name"
+            className="bg-transparent border-0 border-b text-[11px] font-mono outline-none px-0 py-0 w-[80px]"
+            style={{ borderColor: "var(--accent)", color: "var(--text-primary)" }}
+            autoFocus
+            autoComplete="off" autoCapitalize="off" spellCheck={false}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addGrant();
+              if (e.key === "Escape") { setAddType(null); setAddName(""); setAddPath(""); }
+            }}
+          />
+          <span className="text-[var(--text-muted)]">:</span>
+          <input
+            value={addPath}
+            onChange={(e) => setAddPath(e.target.value)}
+            placeholder={addType === "dir" ? "/prefix/" : "/path/to/file"}
+            className="bg-transparent border-0 border-b text-[11px] font-mono outline-none px-0 py-0 flex-1"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+            autoComplete="off" autoCapitalize="off" spellCheck={false}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") addGrant();
+              if (e.key === "Escape") { setAddType(null); setAddName(""); setAddPath(""); }
+            }}
+          />
+          <button onClick={addGrant} className="text-[9px] px-1.5 py-0 rounded border-0 cursor-pointer" style={{ background: "var(--accent)", color: "white" }}>+</button>
+          <button onClick={() => { setAddType(null); setAddName(""); setAddPath(""); }} className="text-[9px] text-[var(--text-muted)] bg-transparent border-0 cursor-pointer p-0">x</button>
+        </div>
+      ) : (
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => setAddType("file")}
+            className="text-[10px] px-1.5 py-0 rounded bg-transparent border cursor-pointer"
+            style={{ borderColor: "rgba(59,130,246,0.3)", color: "#60a5fa" }}
+          >
+            + file
+          </button>
+          <button
+            onClick={() => setAddType("dir")}
+            className="text-[10px] px-1.5 py-0 rounded bg-transparent border cursor-pointer"
+            style={{ borderColor: "rgba(139,92,246,0.3)", color: "#a78bfa" }}
+          >
+            + dir
+          </button>
+          {processName && !usedNames.has("scratch") && (
+            <button
+              onClick={() => {
+                onChange([...grants, { grant_name: "scratch", capability_name: "dir", config: { prefix: `/proc/${processName}/scratch/` } }]);
+              }}
+              className="text-[10px] px-1.5 py-0 rounded bg-transparent border cursor-pointer"
+              style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+            >
+              + scratch
+            </button>
+          )}
+          {processName && !usedNames.has("tmp") && (
+            <button
+              onClick={() => {
+                onChange([...grants, { grant_name: "tmp", capability_name: "dir", config: { prefix: `/proc/${processName}/tmp/` } }]);
+              }}
+              className="text-[10px] px-1.5 py-0 rounded bg-transparent border cursor-pointer"
+              style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+            >
+              + tmp
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── CapabilityEditor: named grants with scope config editing ── */
 
 function CapabilityEditor({
-  items,
-  configs,
+  grants,
   onChange,
-  onConfigChange,
   suggestions,
   cogentName,
-  templates,
+  capabilities,
 }: {
-  items: string[];
-  configs: Record<string, CapabilityConfig>;
-  onChange: (items: string[]) => void;
-  onConfigChange: (configs: Record<string, CapabilityConfig>) => void;
+  grants: CapGrant[];
+  onChange: (grants: CapGrant[]) => void;
   suggestions: string[];
   cogentName: string;
-  templates?: React.ReactNode;
+  capabilities: CogosCapability[];
 }) {
   const [query, setQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [expandedCap, setExpandedCap] = useState<string | null>(null);
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const [editingNameIdx, setEditingNameIdx] = useState<number | null>(null);
+  const [nameText, setNameText] = useState("");
+  const [editingArg, setEditingArg] = useState<{ idx: number; param: string } | null>(null);
+  const [argText, setArgText] = useState("");
   const [methodsCache, setMethodsCache] = useState<Record<string, api.CapabilityMethod[]>>({});
   const [loadingMethods, setLoadingMethods] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const filtered = useMemo(() => {
-    if (!query) return suggestions.filter((s) => !items.includes(s)).slice(0, 8);
-    const q = query.toLowerCase();
-    return suggestions.filter((s) => s.toLowerCase().includes(q) && !items.includes(s)).slice(0, 8);
-  }, [query, suggestions, items]);
+  const usedNames = useMemo(() => new Set(grants.map((g) => g.grant_name)), [grants]);
 
-  const addItem = useCallback((val: string) => {
-    const trimmed = val.trim();
-    if (trimmed && !items.includes(trimmed)) onChange([...items, trimmed]);
+  const capSchemaMap = useMemo(() => {
+    const m: Record<string, Record<string, { type: string; description?: string; items?: { type?: string; enum?: string[] }; enum?: string[] }>> = {};
+    for (const c of capabilities) {
+      const scopeDef = (c.schema as Record<string, unknown>)?.scope as { properties?: Record<string, unknown> } | undefined;
+      if (scopeDef?.properties) {
+        m[c.name] = scopeDef.properties as typeof m[string];
+      }
+    }
+    return m;
+  }, [capabilities]);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    return suggestions
+      .filter((s) => (!q || s.toLowerCase().includes(q)))
+      .slice(0, 8);
+  }, [query, suggestions]);
+
+  const addGrant = useCallback((capName: string) => {
+    // Default grant_name = capability_name, but make unique if needed
+    let grantName = capName;
+    if (usedNames.has(grantName)) {
+      let i = 2;
+      while (usedNames.has(`${capName}_${i}`)) i++;
+      grantName = `${capName}_${i}`;
+    }
+    onChange([...grants, { grant_name: grantName, capability_name: capName, config: null }]);
     setQuery("");
     setShowSuggestions(false);
-  }, [items, onChange]);
+  }, [grants, onChange, usedNames]);
 
-  const removeItem = useCallback((idx: number) => {
-    const removed = items[idx];
-    onChange(items.filter((_, i) => i !== idx));
-    const next = { ...configs };
-    delete next[removed];
-    onConfigChange(next);
-    if (expandedCap === removed) setExpandedCap(null);
-  }, [items, onChange, configs, onConfigChange, expandedCap]);
+  const removeGrant = useCallback((idx: number) => {
+    onChange(grants.filter((_, i) => i !== idx));
+    if (expandedIdx === idx) setExpandedIdx(null);
+    if (editingNameIdx === idx) setEditingNameIdx(null);
+    if (editingArg?.idx === idx) setEditingArg(null);
+  }, [grants, onChange, expandedIdx, editingNameIdx, editingArg]);
 
-  const toggleCapExpand = useCallback(async (capName: string) => {
-    if (expandedCap === capName) {
-      setExpandedCap(null);
+  const toggleExpand = useCallback(async (idx: number) => {
+    if (expandedIdx === idx) {
+      setExpandedIdx(null);
       return;
     }
-    setExpandedCap(capName);
+    setExpandedIdx(idx);
+    const capName = grants[idx].capability_name;
     if (!methodsCache[capName]) {
       setLoadingMethods(capName);
       try {
@@ -323,23 +554,62 @@ function CapabilityEditor({
       }
       setLoadingMethods(null);
     }
-  }, [expandedCap, methodsCache, cogentName]);
+  }, [expandedIdx, grants, methodsCache, cogentName]);
 
-  const toggleMethod = useCallback((capName: string, methodName: string) => {
-    const current = configs[capName]?.allowed_methods ?? [];
-    const allMethods = (methodsCache[capName] ?? []).map((m) => m.name);
-    let next: string[];
-    if (current.includes(methodName)) {
-      next = current.filter((m) => m !== methodName);
-    } else {
-      next = [...current, methodName];
-    }
-    // If all methods selected or none, clear the restriction
-    const cfg = next.length > 0 && next.length < allMethods.length
-      ? { allowed_methods: next }
-      : {};
-    onConfigChange({ ...configs, [capName]: cfg });
-  }, [configs, onConfigChange, methodsCache]);
+  const updateGrantConfig = useCallback((idx: number, updater: (cfg: Record<string, unknown>) => Record<string, unknown>) => {
+    const updated = [...grants];
+    const cfg = updater({ ...(updated[idx].config || {}) });
+    updated[idx] = { ...updated[idx], config: Object.keys(cfg).length > 0 ? cfg : null };
+    onChange(updated);
+  }, [grants, onChange]);
+
+  const toggleMethod = useCallback((idx: number, methodName: string, allMethodNames: string[]) => {
+    updateGrantConfig(idx, (cfg) => {
+      const currentOps = (cfg.ops as string[] | undefined) || [];
+      const hasOps = currentOps.length > 0;
+      let nextOps: string[];
+      if (!hasOps) {
+        // First toggle: all methods except the clicked one
+        nextOps = allMethodNames.filter((m) => m !== methodName);
+      } else if (currentOps.includes(methodName)) {
+        nextOps = currentOps.filter((m) => m !== methodName);
+      } else {
+        nextOps = [...currentOps, methodName];
+      }
+      // If all methods selected, remove ops restriction
+      if (nextOps.length >= allMethodNames.length) {
+        const { ops: _, ...rest } = cfg;
+        return rest;
+      }
+      return { ...cfg, ops: nextOps };
+    });
+  }, [updateGrantConfig]);
+
+  const setArgValue = useCallback((idx: number, param: string, value: string) => {
+    updateGrantConfig(idx, (cfg) => {
+      if (!value.trim()) {
+        const { [param]: _, ...rest } = cfg;
+        return rest;
+      }
+      return { ...cfg, [param]: value.trim() };
+    });
+    setEditingArg(null);
+  }, [updateGrantConfig]);
+
+  const startEditName = useCallback((idx: number) => {
+    setEditingNameIdx(idx);
+    setNameText(grants[idx].grant_name);
+  }, [grants]);
+
+  const saveName = useCallback((idx: number) => {
+    const trimmed = nameText.trim();
+    if (!trimmed) return;
+    if (trimmed !== grants[idx].grant_name && usedNames.has(trimmed)) return;
+    const updated = [...grants];
+    updated[idx] = { ...updated[idx], grant_name: trimmed };
+    onChange(updated);
+    setEditingNameIdx(null);
+  }, [nameText, grants, onChange, usedNames]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -351,27 +621,20 @@ function CapabilityEditor({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const methodLabel = (capName: string) => {
-    const allowed = configs[capName]?.allowed_methods;
-    if (!allowed || allowed.length === 0) return null;
-    return allowed.join(", ");
-  };
-
   return (
     <div ref={wrapperRef}>
       <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">Capabilities</label>
-      {items.length > 0 && (
+      {grants.length > 0 && (
         <div className="space-y-1 mb-1">
-          {items.map((item, idx) => {
-            const isExpanded = expandedCap === item;
-            const methods = methodsCache[item];
-            const allowed = configs[item]?.allowed_methods;
-            const ml = methodLabel(item);
+          {grants.map((g, idx) => {
+            const isExpanded = expandedIdx === idx;
+            const methods = methodsCache[g.capability_name];
+            const hasConfig = g.config && Object.keys(g.config).length > 0;
             return (
-              <div key={item}>
+              <div key={`${g.grant_name}-${idx}`}>
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => toggleCapExpand(item)}
+                    onClick={() => toggleExpand(idx)}
                     className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono border-0 cursor-pointer"
                     style={{
                       background: isExpanded ? "var(--bg-hover)" : "var(--bg-surface)",
@@ -380,71 +643,208 @@ function CapabilityEditor({
                     }}
                   >
                     <span style={{ fontSize: "8px", opacity: 0.5 }}>{isExpanded ? "▾" : "▸"}</span>
-                    {item}
-                    {ml && <span style={{ color: "var(--accent)", fontSize: "10px" }}>({ml})</span>}
+                    {editingNameIdx === idx ? (
+                      <input
+                        value={nameText}
+                        onChange={(e) => setNameText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") saveName(idx); if (e.key === "Escape") setEditingNameIdx(null); e.stopPropagation(); }}
+                        onBlur={() => saveName(idx)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-transparent border-0 text-[11px] font-mono text-[var(--accent)] outline-none p-0"
+                        style={{ width: `${Math.max(nameText.length, 4)}ch`, borderBottom: "1px solid var(--accent)" }}
+                        autoFocus
+                      />
+                    ) : (
+                      <span
+                        onClick={(e) => { e.stopPropagation(); startEditName(idx); }}
+                        className="hover:underline"
+                        style={{ cursor: "text" }}
+                        title="Click to rename"
+                      >
+                        {g.grant_name}
+                      </span>
+                    )}
+                    <span className="text-[9px] text-[var(--text-muted)]">: {g.capability_name}</span>
+                    {hasConfig && (
+                      <span className="text-[9px] text-[var(--text-muted)]">
+                        ({Object.entries(g.config!).map(([k, v]) => `${k}=${Array.isArray(v) ? (v as string[]).join(",") : v}`).join(" ")})
+                      </span>
+                    )}
                   </button>
                   <button
-                    onClick={() => removeItem(idx)}
+                    onClick={() => removeGrant(idx)}
                     className="border-0 bg-transparent cursor-pointer text-[var(--text-muted)] hover:text-[var(--error)] text-[10px] leading-none p-0"
                   >
                     x
                   </button>
                 </div>
-                {isExpanded && (
-                  <div
-                    className="ml-4 mt-1 rounded p-2 space-y-1"
-                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
-                  >
-                    {loadingMethods === item && (
-                      <div className="text-[10px] text-[var(--text-muted)]">Loading methods...</div>
-                    )}
-                    {methods && methods.length === 0 && (
-                      <div className="text-[10px] text-[var(--text-muted)]">No methods found</div>
-                    )}
-                    {methods && methods.map((m) => {
-                      const isAllowed = !allowed || allowed.length === 0 || allowed.includes(m.name);
-                      const params = m.params.map((p) => {
-                        const t = p.type ? `: ${p.type.replace(/[<>]/g, "")}` : "";
-                        const d = p.default ? ` = ${p.default}` : "";
-                        return `${p.name}${t}${d}`;
-                      }).join(", ");
-                      const ret = m.return_type ? m.return_type.replace(/[<>]/g, "") : "";
-                      return (
-                        <button
-                          key={m.name}
-                          onClick={() => toggleMethod(item, m.name)}
-                          className="flex items-center gap-2 w-full text-left border-0 cursor-pointer rounded px-1.5 py-0.5"
-                          style={{
-                            background: "transparent",
-                            color: isAllowed ? "var(--text-primary)" : "var(--text-muted)",
-                            opacity: isAllowed ? 1 : 0.5,
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                        >
-                          <span style={{
-                            width: "14px",
-                            textAlign: "center",
-                            fontSize: "10px",
-                            color: isAllowed ? "var(--success)" : "var(--text-muted)",
-                          }}>
-                            {isAllowed ? "●" : "○"}
-                          </span>
-                          <span className="font-mono text-[11px]">
-                            {m.name}({params})
-                            {ret && <span style={{ color: "var(--text-muted)" }}> → {ret}</span>}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                {isExpanded && (() => {
+                  const scopeParams = capSchemaMap[g.capability_name] || {};
+                  const paramNames = Object.keys(scopeParams);
+                  const cfg = (g.config || {}) as Record<string, unknown>;
+                  return (
+                    <div
+                      className="ml-4 mt-1 rounded p-2 space-y-1.5"
+                      style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+                    >
+                      {paramNames.length === 0 && (
+                        <div className="text-[10px] text-[var(--text-muted)]">No scope parameters</div>
+                      )}
+                      {paramNames.map((pName) => {
+                        const pDef = scopeParams[pName];
+                        const isArray = pDef.type === "array";
+                        const hasEnum = isArray ? !!pDef.items?.enum : !!pDef.enum;
+                        const enumVals = isArray ? pDef.items?.enum : pDef.enum;
+                        const currentVal = cfg[pName];
+                        const isEditing = editingArg?.idx === idx && editingArg?.param === pName;
+                        const hasValue = currentVal !== undefined && currentVal !== null;
+
+                        // For enum arrays (like ops), render as toggleable chips
+                        if (hasEnum && isArray && enumVals) {
+                          const selected = (currentVal as string[] | undefined) || [];
+                          return (
+                            <div key={pName}>
+                              <div className="text-[9px] text-[var(--text-muted)] uppercase mb-0.5">
+                                {pName}
+                                {pDef.description && <span className="normal-case ml-1 opacity-60">— {pDef.description}</span>}
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {enumVals.map((v) => {
+                                  const isOn = selected.length === 0 || selected.includes(v);
+                                  return (
+                                    <button
+                                      key={v}
+                                      onClick={() => {
+                                        let next: string[];
+                                        if (selected.length === 0) {
+                                          // First click: all except this one
+                                          next = enumVals.filter((e) => e !== v);
+                                        } else if (selected.includes(v)) {
+                                          next = selected.filter((e) => e !== v);
+                                        } else {
+                                          next = [...selected, v];
+                                        }
+                                        updateGrantConfig(idx, (c) => {
+                                          if (next.length >= enumVals.length || next.length === 0) {
+                                            const { [pName]: _, ...rest } = c;
+                                            return rest;
+                                          }
+                                          return { ...c, [pName]: next };
+                                        });
+                                      }}
+                                      className="px-1.5 py-0 rounded text-[10px] font-mono border cursor-pointer"
+                                      style={{
+                                        background: isOn ? "var(--bg-surface)" : "transparent",
+                                        borderColor: isOn ? "var(--accent)" : "var(--border)",
+                                        color: isOn ? "var(--accent)" : "var(--text-muted)",
+                                        opacity: isOn ? 1 : 0.4,
+                                      }}
+                                    >
+                                      {v}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // For string/array params, render as clickable label + inline input
+                        return (
+                          <div key={pName} className="flex items-center gap-1.5">
+                            <span
+                              className="text-[10px] font-mono cursor-pointer"
+                              style={{ color: hasValue ? "var(--accent)" : "var(--text-muted)" }}
+                              onClick={() => {
+                                setEditingArg({ idx, param: pName });
+                                setArgText(
+                                  hasValue
+                                    ? (Array.isArray(currentVal) ? (currentVal as string[]).join(", ") : String(currentVal))
+                                    : "",
+                                );
+                              }}
+                              title={pDef.description || pName}
+                            >
+                              {pName}
+                            </span>
+                            {isEditing ? (
+                              <input
+                                value={argText}
+                                onChange={(e) => setArgText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    const val = argText.trim();
+                                    if (isArray && val) {
+                                      setArgValue(idx, pName, ""); // clear first
+                                      updateGrantConfig(idx, (c) => ({
+                                        ...c,
+                                        [pName]: val.split(",").map((s) => s.trim()).filter(Boolean),
+                                      }));
+                                      setEditingArg(null);
+                                    } else {
+                                      setArgValue(idx, pName, val);
+                                    }
+                                  }
+                                  if (e.key === "Escape") setEditingArg(null);
+                                }}
+                                onBlur={() => {
+                                  const val = argText.trim();
+                                  if (isArray && val) {
+                                    updateGrantConfig(idx, (c) => ({
+                                      ...c,
+                                      [pName]: val.split(",").map((s) => s.trim()).filter(Boolean),
+                                    }));
+                                    setEditingArg(null);
+                                  } else {
+                                    setArgValue(idx, pName, val);
+                                  }
+                                }}
+                                placeholder={pDef.description || pName}
+                                className="flex-1 bg-transparent border-0 border-b text-[10px] font-mono outline-none px-0 py-0"
+                                style={{ borderColor: "var(--accent)", color: "var(--text-primary)" }}
+                                autoFocus
+                              />
+                            ) : hasValue ? (
+                              <span
+                                className="text-[10px] font-mono cursor-pointer"
+                                style={{ color: "var(--text-secondary)" }}
+                                onClick={() => {
+                                  setEditingArg({ idx, param: pName });
+                                  setArgText(Array.isArray(currentVal) ? (currentVal as string[]).join(", ") : String(currentVal));
+                                }}
+                              >
+                                = {Array.isArray(currentVal) ? (currentVal as string[]).join(", ") : String(currentVal)}
+                              </span>
+                            ) : (
+                              <span
+                                className="text-[10px] text-[var(--text-muted)] cursor-pointer opacity-50 hover:opacity-100"
+                                onClick={() => {
+                                  setEditingArg({ idx, param: pName });
+                                  setArgText("");
+                                }}
+                              >
+                                click to set
+                              </span>
+                            )}
+                            {hasValue && !isEditing && (
+                              <button
+                                onClick={() => updateGrantConfig(idx, (c) => { const { [pName]: _, ...rest } = c; return rest; })}
+                                className="text-[8px] text-[var(--text-muted)] hover:text-[var(--error)] bg-transparent border-0 cursor-pointer p-0 leading-none"
+                              >
+                                x
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
         </div>
       )}
-      {templates}
       <div className="relative">
         <input
           value={query}
@@ -453,8 +853,8 @@ function CapabilityEditor({
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              if (filtered.length > 0) addItem(filtered[0]);
-              else if (query.trim()) addItem(query);
+              if (filtered.length > 0) addGrant(filtered[0]);
+              else if (query.trim()) addGrant(query);
             }
             if (e.key === "Escape") setShowSuggestions(false);
           }}
@@ -470,7 +870,7 @@ function CapabilityEditor({
             {filtered.map((s) => (
               <button
                 key={s}
-                onClick={() => addItem(s)}
+                onClick={() => addGrant(s)}
                 className="w-full text-left px-2 py-1 text-[11px] font-mono border-0 cursor-pointer"
                 style={{ background: "transparent", color: "var(--text-secondary)" }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
@@ -1117,6 +1517,7 @@ function ProcessFormEditor({
   capabilitySuggestions,
   eventTypeSuggestions,
   cogentName,
+  capabilities,
   onRefresh,
   includes,
 }: {
@@ -1131,6 +1532,7 @@ function ProcessFormEditor({
   capabilitySuggestions: string[];
   eventTypeSuggestions: string[];
   cogentName: string;
+  capabilities: CogosCapability[];
   onRefresh?: () => void;
   includes?: Array<{ key: string; content: string }>;
 }) {
@@ -1396,63 +1798,54 @@ function ProcessFormEditor({
         />
       </div>
 
-      {/* Resources + Capabilities side by side */}
+      {/* Files & Directories — quick-add for file/dir capabilities */}
+      <FileGrantEditor
+        grants={form.grants}
+        onChange={(grants) => onChange((prev) => ({ ...prev, grants }))}
+        processName={form.name}
+      />
+
+      {/* Other Capabilities (file/dir shown above) */}
+      <CapabilityEditor
+        grants={form.grants.filter((g) => g.capability_name !== "file" && g.capability_name !== "dir")}
+        onChange={(nonFileGrants) => {
+          // Merge back: keep file/dir grants, replace the rest
+          const fileGrants = form.grants.filter((g) => g.capability_name === "file" || g.capability_name === "dir");
+          onChange((prev) => ({ ...prev, grants: [...fileGrants, ...nonFileGrants] }));
+        }}
+        suggestions={capabilitySuggestions.filter((s) => s !== "file" && s !== "dir")}
+        cogentName={cogentName}
+        capabilities={capabilities}
+      />
+
+      {/* Events: receive | send */}
       <div className="flex gap-4">
         <div className="flex-1">
-          <CapabilityEditor
-            items={form.capabilities}
-            configs={form.capabilityConfigs}
-            onChange={(capabilities) => onChange((prev) => ({ ...prev, capabilities }))}
-            onConfigChange={(capabilityConfigs) => onChange((prev) => ({ ...prev, capabilityConfigs }))}
-            suggestions={capabilitySuggestions}
-            cogentName={cogentName}
-            templates={
-              <div className="flex items-center gap-2 mb-1">
-                {[
-                  { label: "+ all", caps: capabilitySuggestions },
-                  { label: "+ io", caps: ["files", "events", "secrets"] },
-                ].map((tpl) => (
-                  <button
-                    key={tpl.label}
-                    onClick={() => {
-                      const available = tpl.caps.filter((c: string) => capabilitySuggestions.includes(c));
-                      onChange((prev) => ({ ...prev, capabilities: [...new Set([...prev.capabilities, ...available])] }));
-                    }}
-                    className="text-[10px] px-1.5 py-0 rounded bg-transparent border border-[var(--border)] text-[var(--accent)] cursor-pointer hover:border-[var(--accent)]"
-                  >
-                    {tpl.label}
-                  </button>
-                ))}
-              </div>
-            }
+          <TagEditor
+            items={form.handlers}
+            onChange={(handlers) => onChange({ ...form, handlers })}
+            suggestions={eventTypeSuggestions}
+            label="Receive Events"
+            placeholder="Add event subscription..."
           />
         </div>
         <div className="flex-1">
-          <TagListEditor
-            label="Resources"
-            items={form.resources}
-            onChange={(resources) => onChange((prev) => ({ ...prev, resources }))}
-            suggestions={resourceSuggestions}
+          <TagEditor
+            items={form.output_events}
+            onChange={(output_events) => onChange({ ...form, output_events })}
+            suggestions={eventTypeSuggestions}
+            label="Send Events"
+            placeholder="Add output event..."
           />
         </div>
       </div>
 
-      {/* Event Handlers (subscriptions) */}
-      <TagEditor
-        items={form.handlers}
-        onChange={(handlers) => onChange({ ...form, handlers })}
-        suggestions={eventTypeSuggestions}
-        label="Event Handlers"
-        placeholder="Add event subscription..."
-      />
-
-      {/* Output Events */}
-      <TagEditor
-        items={form.output_events}
-        onChange={(output_events) => onChange({ ...form, output_events })}
-        suggestions={eventTypeSuggestions}
-        label="Output Events"
-        placeholder="Add output event..."
+      {/* Resources */}
+      <TagListEditor
+        label="Resources"
+        items={form.resources}
+        onChange={(resources) => onChange((prev) => ({ ...prev, resources }))}
+        suggestions={resourceSuggestions}
       />
 
       {/* Save / Cancel */}
@@ -1496,8 +1889,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
   const [promptTree, setPromptTree] = useState<Array<{ key: string; content: string; is_direct: boolean }>>([]);
   const [expandedPromptFiles, setExpandedPromptFiles] = useState<Set<string>>(new Set());
   const [detailFileKeys, setDetailFileKeys] = useState<string[]>([]);
-  const [detailCapabilities, setDetailCapabilities] = useState<string[]>([]);
-  const [detailCapConfigs, setDetailCapConfigs] = useState<Record<string, CapabilityConfig>>({});
+  const [detailCapGrants, setDetailCapGrants] = useState<Array<{ id: string; grant_name: string; capability_name: string; config: Record<string, unknown> | null }>>([]);
   const [detailIncludes, setDetailIncludes] = useState<Array<{ key: string; content: string }>>([]);
   const [expandedIncludes, setExpandedIncludes] = useState<Set<string>>(new Set());
   const [detailHandlers, setDetailHandlers] = useState<Array<{ id: string; event_pattern: string; enabled: boolean }>>([]);
@@ -1528,8 +1920,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
       setDetailRuns(detail.runs);
       setResolvedPrompt(detail.resolved_prompt || "");
       setDetailFileKeys(detail.file_keys || []);
-      setDetailCapabilities(detail.capabilities || []);
-      setDetailCapConfigs((detail.capability_configs as Record<string, CapabilityConfig>) || {});
+      setDetailCapGrants(detail.cap_grants || []);
       setDetailIncludes(detail.includes || []);
       if (!opts?.preserveExpanded) setExpandedIncludes(new Set());
       setDetailHandlers(detail.handlers || []);
@@ -1542,8 +1933,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
       setDetailRuns([]);
       setResolvedPrompt("");
       setDetailFileKeys([]);
-      setDetailCapabilities([]);
-      setDetailCapConfigs({});
+      setDetailCapGrants([]);
       setDetailIncludes([]);
       setExpandedIncludes(new Set());
       setDetailHandlers([]);
@@ -1580,8 +1970,13 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
   const handleEdit = useCallback((p: CogosProcess) => {
     setEditingId(p.id);
     const handlerPatterns = detailHandlers.map((h) => h.event_pattern);
-    setForm(formFromProcess(p, detailFileKeys, detailCapabilities, detailCapConfigs, handlerPatterns));
-  }, [detailFileKeys, detailCapabilities, detailCapConfigs, detailHandlers]);
+    const grants: CapGrant[] = detailCapGrants.map((g) => ({
+      grant_name: g.grant_name,
+      capability_name: g.capability_name,
+      config: g.config,
+    }));
+    setForm(formFromProcess(p, detailFileKeys, grants, handlerPatterns));
+  }, [detailFileKeys, detailCapGrants, detailHandlers]);
 
   const handleCancel = useCallback(() => {
     setEditingId(null);
@@ -1605,8 +2000,11 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
         preemptible: form.preemptible,
         clear_context: form.clear_context,
         resources: form.resources,
-        capabilities: form.capabilities,
-        capability_configs: form.capabilityConfigs,
+        cap_grants: form.grants.map((g) => ({
+          grant_name: g.grant_name,
+          capability_name: g.capability_name,
+          config: g.config,
+        })),
         handlers: form.handlers,
         output_events: form.output_events,
       };
@@ -1697,6 +2095,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
             capabilitySuggestions={capabilitySuggestions}
             eventTypeSuggestions={eventTypeSuggestions}
             cogentName={cogentName}
+            capabilities={capabilities}
             onRefresh={onRefresh}
           />
         </div>
@@ -1909,67 +2308,116 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                     );
                   })()}
 
-                  {/* Resources + Capabilities side by side */}
-                  {(proc.resources?.length > 0 || detailCapabilities.length > 0) && (
-                    <div className="flex gap-6">
-                      {proc.resources && proc.resources.length > 0 && (
-                        <div>
-                          <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Resources</div>
-                          <div className="flex flex-wrap gap-1">
-                            {proc.resources.map((r) => (
-                              <span key={r} className="px-1.5 py-0.5 rounded text-[11px] font-mono" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-                                {r}
+                  {/* Files & Directories */}
+                  {(() => {
+                    const fileGrants = detailCapGrants.filter((g) => g.capability_name === "file" || g.capability_name === "dir");
+                    return fileGrants.length > 0 && (
+                      <div>
+                        <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Files & Directories</div>
+                        <div className="flex flex-wrap gap-1">
+                          {fileGrants.map((g) => {
+                            const isDir = g.capability_name === "dir";
+                            const cfg = g.config || {};
+                            const path = (cfg as Record<string, unknown>)[isDir ? "prefix" : "key"] as string | undefined;
+                            const ops = (cfg as Record<string, unknown>).ops as string[] | undefined;
+                            return (
+                              <span
+                                key={g.id}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono"
+                                style={{
+                                  background: "var(--bg-surface)",
+                                  border: "1px solid",
+                                  borderColor: isDir ? "rgba(139,92,246,0.3)" : "rgba(59,130,246,0.3)",
+                                  color: isDir ? "#a78bfa" : "#60a5fa",
+                                }}
+                                title={JSON.stringify(g.config)}
+                              >
+                                <span className="text-[9px]">{isDir ? "dir" : "file"}</span>
+                                <span style={{ color: "var(--accent)" }}>{g.grant_name}</span>
+                                {path && <span className="text-[var(--text-muted)]">: {path}</span>}
+                                {ops && <span className="text-[9px] text-[var(--text-muted)]">[{ops.map((o) => o[0]).join("")}]</span>}
                               </span>
-                            ))}
-                          </div>
+                            );
+                          })}
                         </div>
-                      )}
-                      {detailCapabilities.length > 0 && (
-                        <div>
-                          <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Capabilities</div>
-                          <div className="flex flex-wrap gap-1">
-                            {detailCapabilities.map((c) => (
-                              <span key={c} className="px-1.5 py-0.5 rounded text-[11px] font-mono" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--accent)" }}>
-                                {c}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                      </div>
+                    );
+                  })()}
 
-                  {/* Event subscriptions (handlers) */}
-                  {detailHandlers.length > 0 && (
+                  {/* Other Capabilities */}
+                  {(() => {
+                    const otherGrants = detailCapGrants.filter((g) => g.capability_name !== "file" && g.capability_name !== "dir");
+                    return otherGrants.length > 0 && (
+                      <div>
+                        <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Capabilities</div>
+                        <div className="flex flex-wrap gap-1">
+                          {otherGrants.map((g) => (
+                            <span
+                              key={g.id}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono"
+                              style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--accent)" }}
+                              title={g.config ? JSON.stringify(g.config) : undefined}
+                            >
+                              {g.grant_name}
+                              {g.grant_name !== g.capability_name && (
+                                <span className="text-[10px] text-[var(--text-muted)]">: {g.capability_name}</span>
+                              )}
+                              {g.config && Object.keys(g.config).length > 0 && (
+                                <span className="text-[9px] text-[var(--text-muted)]">
+                                  ({Object.entries(g.config).map(([k, v]) => `${k}=${Array.isArray(v) ? (v as string[]).join(",") : v}`).join(" ")})
+                                </span>
+                              )}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Events — merged receive + send with icons */}
+                  {(detailHandlers.length > 0 || (proc.output_events && proc.output_events.length > 0)) && (
                     <div>
-                      <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Event Subscriptions ({detailHandlers.length})</div>
+                      <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Events</div>
                       <div className="flex flex-wrap gap-1">
                         {detailHandlers.map((h) => (
                           <span
                             key={h.id}
-                            className="px-1.5 py-0.5 rounded text-[11px] font-mono"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono"
                             style={{
-                              background: "var(--bg-surface)",
-                              border: "1px solid var(--border)",
-                              color: h.enabled ? "var(--accent)" : "var(--text-muted)",
+                              background: "rgba(59,130,246,0.08)",
+                              border: "1px solid rgba(59,130,246,0.25)",
+                              color: h.enabled ? "#60a5fa" : "var(--text-muted)",
                               opacity: h.enabled ? 1 : 0.6,
                             }}
                           >
-                            {h.event_pattern}{!h.enabled && " (disabled)"}
+                            →{h.event_pattern}{!h.enabled && " (off)"}
+                          </span>
+                        ))}
+                        {(proc.output_events || []).map((e) => (
+                          <span
+                            key={e}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono"
+                            style={{
+                              background: "rgba(34,197,94,0.08)",
+                              border: "1px solid rgba(34,197,94,0.25)",
+                              color: "#4ade80",
+                            }}
+                          >
+                            {e}→
                           </span>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  {/* Output events */}
-                  {proc.output_events && proc.output_events.length > 0 && (
+                  {/* Resources */}
+                  {proc.resources && proc.resources.length > 0 && (
                     <div>
-                      <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Output Events ({proc.output_events.length})</div>
+                      <div className="text-[10px] text-[var(--text-muted)] uppercase mb-1">Resources</div>
                       <div className="flex flex-wrap gap-1">
-                        {proc.output_events.map((e) => (
-                          <span key={e} className="px-1.5 py-0.5 rounded text-[11px] font-mono" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--success)" }}>
-                            {e}
+                        {proc.resources.map((r) => (
+                          <span key={r} className="px-1.5 py-0.5 rounded text-[11px] font-mono" style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+                            {r}
                           </span>
                         ))}
                       </div>
@@ -2078,6 +2526,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                     capabilitySuggestions={capabilitySuggestions}
                     eventTypeSuggestions={eventTypeSuggestions}
                     cogentName={cogentName}
+                    capabilities={capabilities}
                     onRefresh={onRefresh}
                     includes={detailIncludes}
                   />

@@ -65,6 +65,12 @@ class ProcessDetail(BaseModel):
     updated_at: str | None = None
 
 
+class CapGrantIn(BaseModel):
+    grant_name: str
+    capability_name: str
+    config: dict | None = None
+
+
 class ProcessCreate(BaseModel):
     name: str
     mode: str = "one_shot"
@@ -82,8 +88,9 @@ class ProcessCreate(BaseModel):
     clear_context: bool = False
     metadata: dict | None = None
     output_events: list[str] | None = None
-    capabilities: list[str] | None = None  # capability names to grant
-    capability_configs: dict[str, dict] | None = None  # per-capability config keyed by name
+    cap_grants: list[CapGrantIn] | None = None  # named capability grants
+    capabilities: list[str] | None = None  # legacy: capability names to grant
+    capability_configs: dict[str, dict] | None = None  # legacy: per-capability config
     handlers: list[str] | None = None  # event patterns for handlers
 
 
@@ -104,8 +111,9 @@ class ProcessUpdate(BaseModel):
     clear_context: bool | None = None
     metadata: dict | None = None
     output_events: list[str] | None = None
-    capabilities: list[str] | None = None  # capability names to grant
-    capability_configs: dict[str, dict] | None = None  # per-capability config keyed by name
+    cap_grants: list[CapGrantIn] | None = None  # named capability grants
+    capabilities: list[str] | None = None  # legacy: capability names to grant
+    capability_configs: dict[str, dict] | None = None  # legacy: per-capability config
     handlers: list[str] | None = None  # event patterns for handlers
 
 
@@ -219,50 +227,39 @@ def _resolve_file_keys(keys: list[str], repo, *, create: bool = False) -> list[U
     return result
 
 
-def _sync_capabilities(
+def _sync_capabilities_from_grants(
     process_id: UUID,
-    cap_names: list[str],
+    grants: list[CapGrantIn],
     repo,  # noqa: ANN001
-    configs: dict[str, dict] | None = None,
 ) -> None:
-    """Sync granted capabilities: add missing, remove stale, update configs."""
+    """Sync capability grants. Each grant has grant_name, capability_name, config."""
     existing = repo.list_process_capabilities(process_id)
-    existing_cap_ids = {pc.capability: pc for pc in existing}
+    existing_by_name = {pc.name: pc for pc in existing}
+    desired_names = {g.grant_name for g in grants}
 
-    configs = configs or {}
-
-    # Build desired: cap_id -> config
-    desired: dict[UUID, dict] = {}
-    for name in cap_names:
-        c = repo.get_capability_by_name(name)
-        if c:
-            desired[c.id] = configs.get(name, {})
-
-    # name lookup for existing caps
-    cap_id_to_name: dict[UUID, str] = {}
-    for name in cap_names:
-        c = repo.get_capability_by_name(name)
-        if c:
-            cap_id_to_name[c.id] = name
-
-    # Add new
-    for cid in set(desired.keys()) - set(existing_cap_ids.keys()):
-        cfg = desired.get(cid, {})
-        repo.create_process_capability(
-            ProcessCapability(process=process_id, capability=cid, config=cfg or None),
-        )
-
-    # Update existing configs (upsert handles ON CONFLICT)
-    for cid, pc in existing_cap_ids.items():
-        if cid in desired:
-            new_cfg = desired.get(cid, {})
-            if (new_cfg or None) != pc.config:
-                pc.config = new_cfg or None
+    for g in grants:
+        c = repo.get_capability_by_name(g.capability_name)
+        if not c:
+            continue
+        cfg = g.config or None
+        if g.grant_name in existing_by_name:
+            pc = existing_by_name[g.grant_name]
+            if (cfg or None) != pc.config or pc.capability != c.id:
+                pc.config = cfg
+                pc.capability = c.id
                 repo.create_process_capability(pc)
+        else:
+            repo.create_process_capability(
+                ProcessCapability(
+                    process=process_id,
+                    capability=c.id,
+                    name=g.grant_name,
+                    config=cfg,
+                ),
+            )
 
-    # Remove stale
-    for cid, pc in existing_cap_ids.items():
-        if cid not in desired:
+    for name, pc in existing_by_name.items():
+        if name not in desired_names:
             repo.delete_process_capability(pc.id)
 
 
@@ -339,16 +336,18 @@ def get_process(name: str, process_id: str) -> dict:
     resolved_prompt = ctx.generate_full_prompt(p)
     prompt_tree = ctx.resolve_prompt_tree(p)
 
-    # Capabilities granted to this process
+    # Capabilities granted to this process (named grants with scope config)
     pcs = repo.list_process_capabilities(p.id)
-    cap_names: list[str] = []
-    cap_configs: dict[str, dict] = {}
+    cap_grants: list[dict] = []
     for pc in pcs:
         c = repo.get_capability(pc.capability)
         if c:
-            cap_names.append(c.name)
-            if pc.config:
-                cap_configs[c.name] = pc.config
+            cap_grants.append({
+                "id": str(pc.id),
+                "grant_name": pc.name or c.name,
+                "capability_name": c.name,
+                "config": pc.config,
+            })
 
     # File keys
     file_keys: list[str] = []
@@ -378,8 +377,12 @@ def get_process(name: str, process_id: str) -> dict:
         "runs": run_list,
         "resolved_prompt": resolved_prompt,
         "prompt_tree": prompt_tree,
-        "capabilities": cap_names,
-        "capability_configs": cap_configs,
+        "capabilities": [g["grant_name"] for g in cap_grants],
+        "capability_configs": {
+            g["grant_name"]: g["config"] or {}
+            for g in cap_grants
+        },
+        "cap_grants": cap_grants,
         "file_keys": file_keys,
         "includes": includes,
         "handlers": handler_list,
@@ -410,8 +413,13 @@ def create_process(name: str, body: ProcessCreate) -> ProcessDetail:
     if body.output_events is not None:
         p.output_events = body.output_events
     repo.upsert_process(p)
-    if body.capabilities is not None:
-        _sync_capabilities(p.id, body.capabilities, repo, configs=body.capability_configs)
+    if body.cap_grants is not None:
+        _sync_capabilities_from_grants(p.id, body.cap_grants, repo)
+    elif body.capabilities is not None:
+        # Legacy: convert capabilities list to grants
+        configs = body.capability_configs or {}
+        grants = [CapGrantIn(grant_name=n, capability_name=n, config=configs.get(n)) for n in body.capabilities]
+        _sync_capabilities_from_grants(p.id, grants, repo)
     if body.handlers is not None:
         _sync_handlers(p.id, body.handlers, repo)
     return _detail(p)
@@ -458,8 +466,12 @@ def update_process(name: str, process_id: str, body: ProcessUpdate) -> ProcessDe
         p.output_events = body.output_events
 
     repo.upsert_process(p)
-    if body.capabilities is not None:
-        _sync_capabilities(p.id, body.capabilities, repo, configs=body.capability_configs)
+    if body.cap_grants is not None:
+        _sync_capabilities_from_grants(p.id, body.cap_grants, repo)
+    elif body.capabilities is not None:
+        configs = body.capability_configs or {}
+        grants = [CapGrantIn(grant_name=n, capability_name=n, config=configs.get(n)) for n in body.capabilities]
+        _sync_capabilities_from_grants(p.id, grants, repo)
     if body.handlers is not None:
         _sync_handlers(p.id, body.handlers, repo)
     return _detail(p)

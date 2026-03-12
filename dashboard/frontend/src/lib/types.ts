@@ -82,8 +82,7 @@ export interface CogosCapability {
   description: string;
   instructions: string;
   handler: string;
-  input_schema: Record<string, unknown>;
-  output_schema: Record<string, unknown>;
+  schema: Record<string, unknown>;
   iam_role_arn: string | null;
   enabled: boolean;
   metadata: Record<string, unknown>;
@@ -95,7 +94,7 @@ export interface CapabilityProcess {
   process_id: string;
   process_name: string;
   process_status: string;
-  delegatable: boolean;
+  grant_name: string;
   config: Record<string, unknown> | null;
 }
 

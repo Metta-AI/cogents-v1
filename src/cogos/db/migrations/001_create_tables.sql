@@ -37,8 +37,7 @@ CREATE TABLE IF NOT EXISTS cogos_capability (
     description     TEXT NOT NULL DEFAULT '',
     instructions    TEXT NOT NULL DEFAULT '',
     handler         TEXT NOT NULL DEFAULT '',
-    input_schema    JSONB NOT NULL DEFAULT '{}',
-    output_schema   JSONB NOT NULL DEFAULT '{}',
+    schema          JSONB NOT NULL DEFAULT '{}',
     iam_role_arn    TEXT,
     enabled         BOOLEAN NOT NULL DEFAULT TRUE,
     metadata        JSONB NOT NULL DEFAULT '{}',
@@ -89,9 +88,9 @@ CREATE TABLE IF NOT EXISTS cogos_process_capability (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     process     UUID NOT NULL REFERENCES cogos_process(id) ON DELETE CASCADE,
     capability  UUID NOT NULL REFERENCES cogos_capability(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL DEFAULT '',
     config      JSONB,
-    delegatable BOOLEAN NOT NULL DEFAULT FALSE,
-    UNIQUE (process, capability)
+    UNIQUE (process, name)
 );
 
 -- ═══════════════════════════════════════════════════════════

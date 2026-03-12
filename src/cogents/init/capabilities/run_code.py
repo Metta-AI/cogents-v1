@@ -12,22 +12,26 @@ run_code = Capability(
         "bound to the calling process."
     ),
     handler="cogos.sandbox.executor.execute",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "code": {
-                "type": "string",
-                "description": "Python source code to execute.",
+    schema={
+        "execute": {
+            "input": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Python source code to execute.",
+                    },
+                },
+                "required": ["code"],
             },
-        },
-        "required": ["code"],
-    },
-    output_schema={
-        "type": "object",
-        "properties": {
-            "stdout": {"type": "string"},
-            "stderr": {"type": "string"},
-            "result": {},
+            "output": {
+                "type": "object",
+                "properties": {
+                    "stdout": {"type": "string"},
+                    "stderr": {"type": "string"},
+                    "result": {},
+                },
+            },
         },
     },
 )
