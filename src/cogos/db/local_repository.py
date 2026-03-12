@@ -14,6 +14,9 @@ from uuid import UUID
 
 from cogos.db.models import (
     Capability,
+    Channel,
+    ChannelMessage,
+    ChannelType,
     Cron,
     DeliveryStatus,
     Event,
@@ -31,6 +34,7 @@ from cogos.db.models import (
     ResourceType,
     Run,
     RunStatus,
+    Schema,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,6 +82,9 @@ class LocalRepository:
         self._event_outbox: dict[UUID, EventOutbox] = {}
         self._runs: dict[UUID, Run] = {}
         self._event_types: dict[str, EventType] = {}  # keyed by name
+        self._schemas: dict[UUID, Schema] = {}
+        self._channels: dict[UUID, Channel] = {}
+        self._channel_messages: dict[UUID, ChannelMessage] = {}
         self._meta: dict[str, dict[str, str]] = {}
 
         self._load()
@@ -117,6 +124,9 @@ class LocalRepository:
         self._event_outbox.clear()
         self._runs.clear()
         self._event_types.clear()
+        self._schemas.clear()
+        self._channels.clear()
+        self._channel_messages.clear()
         self._meta.clear()
 
         for p in data.get("processes", []):
@@ -157,6 +167,15 @@ class LocalRepository:
         for et in data.get("event_types", []):
             evt = EventType(**et)
             self._event_types[evt.name] = evt
+        for s in data.get("schemas", []):
+            schema = Schema(**s)
+            self._schemas[schema.id] = schema
+        for ch in data.get("channels", []):
+            channel = Channel(**ch)
+            self._channels[channel.id] = channel
+        for cm in data.get("channel_messages", []):
+            msg = ChannelMessage(**cm)
+            self._channel_messages[msg.id] = msg
         self._meta.update(data.get("meta", {}))
 
         logger.info(
@@ -184,6 +203,9 @@ class LocalRepository:
             "event_outbox": [item.model_dump(mode="json") for item in self._event_outbox.values()],
             "runs": [r.model_dump(mode="json") for r in self._runs.values()],
             "event_types": [et.model_dump(mode="json") for et in self._event_types.values()],
+            "schemas": [s.model_dump(mode="json") for s in self._schemas.values()],
+            "channels": [ch.model_dump(mode="json") for ch in self._channels.values()],
+            "channel_messages": [m.model_dump(mode="json") for m in self._channel_messages.values()],
             "meta": self._meta,
         }
         self._file.write_text(json.dumps(data, indent=2, default=_json_serial))
@@ -212,6 +234,9 @@ class LocalRepository:
         self._event_outbox.clear()
         self._runs.clear()
         self._event_types.clear()
+        self._schemas.clear()
+        self._channels.clear()
+        self._channel_messages.clear()
         self._meta.clear()
         self._save()
 
@@ -346,12 +371,19 @@ class LocalRepository:
     # ── Handlers ─────────────────────────────────────────────
 
     def create_handler(self, h: Handler) -> UUID:
-        # Upsert by (process, event_pattern) to match RDS ON CONFLICT behavior
+        # Upsert by (process, channel) when channel is set,
+        # otherwise by (process, event_pattern) to match RDS ON CONFLICT behavior
         for existing in self._handlers.values():
-            if existing.process == h.process and existing.event_pattern == h.event_pattern:
-                existing.enabled = h.enabled
-                self._save()
-                return existing.id
+            if h.channel is not None:
+                if existing.process == h.process and existing.channel == h.channel:
+                    existing.enabled = h.enabled
+                    self._save()
+                    return existing.id
+            elif h.event_pattern is not None:
+                if existing.process == h.process and existing.event_pattern == h.event_pattern:
+                    existing.enabled = h.enabled
+                    self._save()
+                    return existing.id
         h.created_at = datetime.utcnow()
         self._handlers[h.id] = h
         self._save()
@@ -364,7 +396,7 @@ class LocalRepository:
             handlers = [h for h in handlers if h.process == process_id]
         if enabled_only:
             handlers = [h for h in handlers if h.enabled]
-        handlers.sort(key=lambda h: h.event_pattern)
+        handlers.sort(key=lambda h: h.event_pattern or "")
         return handlers
 
     def delete_handler(self, handler_id: UUID) -> bool:
@@ -378,9 +410,9 @@ class LocalRepository:
         self._maybe_reload()
         handlers = [
             h for h in self._handlers.values()
-            if h.enabled and fnmatchcase(event_type, h.event_pattern)
+            if h.enabled and h.event_pattern is not None and fnmatchcase(event_type, h.event_pattern)
         ]
-        handlers.sort(key=lambda h: (str(h.process), h.event_pattern))
+        handlers.sort(key=lambda h: (str(h.process), h.event_pattern or ""))
         return handlers
 
     # ── Process Capabilities ────────────────────────────────
@@ -820,3 +852,94 @@ class LocalRepository:
             self._save()
             return True
         return False
+
+    # ── Schema CRUD ──────────────────────────────────────────
+
+    def upsert_schema(self, s: Schema) -> UUID:
+        for existing in self._schemas.values():
+            if existing.name == s.name:
+                s.id = existing.id
+                s.created_at = existing.created_at
+                break
+        if s.created_at is None:
+            s.created_at = datetime.utcnow()
+        self._schemas[s.id] = s
+        self._save()
+        return s.id
+
+    def get_schema(self, schema_id: UUID) -> Schema | None:
+        self._maybe_reload()
+        return self._schemas.get(schema_id)
+
+    def get_schema_by_name(self, name: str) -> Schema | None:
+        self._maybe_reload()
+        for s in self._schemas.values():
+            if s.name == name:
+                return s
+        return None
+
+    def list_schemas(self) -> list[Schema]:
+        self._maybe_reload()
+        return sorted(self._schemas.values(), key=lambda s: s.name)
+
+    # ── Channel CRUD ─────────────────────────────────────────
+
+    def upsert_channel(self, ch: Channel) -> UUID:
+        for existing in self._channels.values():
+            if existing.name == ch.name:
+                ch.id = existing.id
+                ch.created_at = existing.created_at
+                break
+        if ch.created_at is None:
+            ch.created_at = datetime.utcnow()
+        self._channels[ch.id] = ch
+        self._save()
+        return ch.id
+
+    def get_channel(self, channel_id: UUID) -> Channel | None:
+        self._maybe_reload()
+        return self._channels.get(channel_id)
+
+    def get_channel_by_name(self, name: str) -> Channel | None:
+        self._maybe_reload()
+        for ch in self._channels.values():
+            if ch.name == name:
+                return ch
+        return None
+
+    def list_channels(self, *, owner_process: UUID | None = None) -> list[Channel]:
+        self._maybe_reload()
+        channels = list(self._channels.values())
+        if owner_process is not None:
+            channels = [ch for ch in channels if ch.owner_process == owner_process]
+        return sorted(channels, key=lambda ch: ch.name)
+
+    def close_channel(self, channel_id: UUID) -> bool:
+        self._maybe_reload()
+        ch = self._channels.get(channel_id)
+        if ch is None:
+            return False
+        ch.closed_at = datetime.utcnow()
+        self._save()
+        return True
+
+    # ── Channel Message CRUD ─────────────────────────────────
+
+    def append_channel_message(self, msg: ChannelMessage) -> UUID:
+        if msg.created_at is None:
+            msg.created_at = datetime.utcnow()
+        self._channel_messages[msg.id] = msg
+        self._save()
+        return msg.id
+
+    def list_channel_messages(self, channel_id: UUID, *, limit: int = 100) -> list[ChannelMessage]:
+        self._maybe_reload()
+        msgs = [m for m in self._channel_messages.values() if m.channel == channel_id]
+        msgs.sort(key=lambda m: m.created_at or datetime.min)
+        return msgs[:limit]
+
+    # ── Handler by Channel ───────────────────────────────────
+
+    def match_handlers_by_channel(self, channel_id: UUID) -> list[Handler]:
+        self._maybe_reload()
+        return [h for h in self._handlers.values() if h.channel == channel_id and h.enabled]

@@ -49,5 +49,6 @@ class Process(BaseModel):
     clear_context: bool = False  # ECS only: resume or fresh
     metadata: dict[str, Any] = Field(default_factory=dict)
     output_events: list[str] = Field(default_factory=list)  # event types this process emits
+    schema_id: UUID | None = None  # FK -> Schema.id
     created_at: datetime | None = None
     updated_at: datetime | None = None
