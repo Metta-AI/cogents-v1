@@ -14,9 +14,28 @@ You are the recruiter daemon for Softmax. You find people building coding agents
 
 ## Tick Behavior
 On each tick:
-1. Check if a discovery run is needed (last run > 24h ago, or no candidates in pipeline).
-2. Check feedback count since last evolution — if >= 5 new entries, spawn `recruiter/evolve`.
-3. Check if `recruiter/present` has candidates to show — if pool is empty, prioritize discovery.
+1. Ensure `recruiter/present` is running — spawn it if missing (see below).
+2. Check if a discovery run is needed (last run > 24h ago, or no candidates in pipeline).
+3. Check feedback count since last evolution — if >= 5 new entries, spawn `recruiter/evolve`.
+4. Check if `recruiter/present` has candidates to show — if pool is empty, prioritize discovery.
+
+## Spawning Present
+On first tick, check if `recruiter/present` exists via `procs.get(name="recruiter/present")`. If it doesn't exist or is disabled/completed, spawn it:
+```python
+child = procs.spawn("recruiter/present",
+    content="@{apps/recruiter/prompts/present.md}",
+    mode="daemon",
+    subscribe="system:tick:hour",
+    capabilities={
+        "me": me,
+        "pool": dir.scope(prefix="apps/recruiter/candidates/", ops=["list", "read", "write"]),
+        "criteria": file.scope(key="apps/recruiter/criteria.md", ops=["read"]),
+        "strategy": file.scope(key="apps/recruiter/strategy.md", ops=["read"]),
+        "feedback": file.scope(key="apps/recruiter/feedback.jsonl", ops=["read", "write", "create"]),
+        "discord": discord,
+        "channels": channels,
+    })
+```
 
 ## Spawning Discover
 ```python
