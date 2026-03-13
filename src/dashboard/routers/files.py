@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from cogos.db.models import File, FileVersion
-from cogos.files.references import extract_file_references, merge_file_references
+from cogos.files.references import extract_file_references
 from cogos.files.store import FileStore
 from dashboard.db import get_repo
 
@@ -52,7 +52,6 @@ class FileCreate(BaseModel):
     content: str
     source: str = "cogent"
     read_only: bool = False
-    includes: list[str] | None = None
 
 
 class FileUpdate(BaseModel):
@@ -77,9 +76,8 @@ def _sync_file_includes(
     file: File,
     *,
     content: str,
-    explicit_includes: list[str] | None = None,
 ) -> list[str]:
-    includes = merge_file_references(content, explicit_includes, exclude_key=file.key)
+    includes = extract_file_references(content, exclude_key=file.key)
     store.update_includes(file.key, includes)
     return includes
 
@@ -137,13 +135,11 @@ def get_file(name: str, key: str) -> FileDetail:
 @router.post("/files", response_model=FileOut)
 def create_file(name: str, body: FileCreate) -> FileOut:
     store = _store()
-    includes = merge_file_references(body.content, body.includes, exclude_key=body.key)
     f = store.create(
         key=body.key,
         content=body.content,
         source=body.source,
         read_only=body.read_only,
-        includes=includes,
     )
     return _file_out(f)
 
@@ -154,8 +150,7 @@ def update_file(name: str, key: str, body: FileUpdate) -> FileVersionOut:
     file = store.get(key)
     if not file:
         raise HTTPException(status_code=404, detail="File not found or content unchanged")
-    includes = extract_file_references(body.content, exclude_key=file.key)
-    fv = store.new_version(key, body.content, source=body.source, read_only=body.read_only, includes=includes)
+    fv = store.new_version(key, body.content, source=body.source, read_only=body.read_only)
     if fv is None:
         raise HTTPException(status_code=404, detail="File not found or content unchanged")
     return _version_out(fv)

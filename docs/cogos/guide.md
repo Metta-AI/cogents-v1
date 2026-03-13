@@ -81,7 +81,7 @@ for cap in BUILTIN_CAPABILITIES:
 add_process(
     "scheduler",
     mode="daemon",
-    content="@{cogos/scheduler}",     # inline file include
+    content="@{cogos/scheduler}",     # inline file reference
     runner="lambda",
     priority=100.0,
     capabilities=["scheduler"],
@@ -127,16 +127,23 @@ files/cogos/docs/layout.md            -> key: "cogos/docs/layout"
 
 Files under `cogos/includes/` are automatically prepended to every process's system prompt by the executor.
 
-### File Includes
+### File References
 
-Files can reference other files using the `includes` field (set during file creation). The context engine resolves includes recursively, depth-first:
+Files can reference other files inline with `@{...}`. The context engine resolves those references recursively, depth-first:
 
 ```python
-# In a process definition, use @{...} to include a file
+# In a process definition, use @{...} to reference a file
 add_process("my-agent", content="@{agents/my-agent}", ...)
 ```
 
-The file at `agents/my-agent` might have includes `["whoami/index", "cogos/includes/code_mode"]`, and those are prepended to its content when building the prompt.
+The file at `agents/my-agent` might contain:
+
+```md
+@{whoami/index}
+@{cogos/includes/code_mode}
+```
+
+Those references are expanded directly where they appear when building the prompt.
 
 ### Boot vs Snapshot
 

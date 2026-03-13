@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from cogos.db.models import File, FileVersion
+from cogos.files.references import extract_file_references
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +27,9 @@ class FileStore:
         *,
         source: str = "cogent",
         read_only: bool = False,
-        includes: list[str] | None = None,
     ) -> File:
         """Create a new file with version 1."""
-        f = File(key=key, includes=includes or [])
+        f = File(key=key, includes=extract_file_references(content, exclude_key=key))
         self._repo.insert_file(f)
         fv = FileVersion(
             file_id=f.id,
@@ -49,14 +49,16 @@ class FileStore:
         *,
         source: str = "cogent",
         read_only: bool = False,
-        includes: list[str] | None = None,
     ) -> FileVersion | None:
         """Add a new version if content changed. Returns None if unchanged or not found."""
         f = self._repo.get_file_by_key(key)
         if f is None:
             return None
         active = self._repo.get_active_file_version(f.id)
+        derived_includes = extract_file_references(content, exclude_key=key)
         if active and active.content == content:
+            if f.includes != derived_includes:
+                self._repo.update_file_includes(f.id, derived_includes)
             return None
         next_ver = self._repo.get_max_file_version(f.id) + 1
         # Deactivate current active
@@ -71,8 +73,7 @@ class FileStore:
             is_active=True,
         )
         self._repo.insert_file_version(fv)
-        if includes is not None:
-            self._repo.update_file_includes(f.id, includes)
+        self._repo.update_file_includes(f.id, derived_includes)
         return fv
 
     def upsert(
@@ -82,13 +83,12 @@ class FileStore:
         *,
         source: str = "cogent",
         read_only: bool = False,
-        includes: list[str] | None = None,
     ) -> File | FileVersion | None:
         """Create or update a file. Returns File on create, FileVersion on update, None if unchanged."""
         f = self._repo.get_file_by_key(key)
         if f is None:
-            return self.create(key, content, source=source, read_only=read_only, includes=includes)
-        return self.new_version(key, content, source=source, read_only=read_only, includes=includes)
+            return self.create(key, content, source=source, read_only=read_only)
+        return self.new_version(key, content, source=source, read_only=read_only)
 
     def update_includes(self, key: str, includes: list[str]) -> bool:
         f = self._repo.get_file_by_key(key)

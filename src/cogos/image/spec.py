@@ -13,7 +13,6 @@ class ImageSpec:
     processes: list[dict] = field(default_factory=list)
     cron_rules: list[dict] = field(default_factory=list)
     files: dict[str, str] = field(default_factory=dict)
-    file_includes: dict[str, list[str]] = field(default_factory=dict)
     schemas: list[dict] = field(default_factory=list)
     channels: list[dict] = field(default_factory=list)
 
@@ -70,10 +69,8 @@ def load_image(image_dir: Path) -> ImageSpec:
             "auto_close": auto_close,
         })
 
-    def add_file(key, *, content="", includes=None):
+    def add_file(key, *, content=""):
         spec.files[key] = content
-        if includes:
-            spec.file_includes[key] = includes
 
     builtins = {
         "__builtins__": __builtins__,

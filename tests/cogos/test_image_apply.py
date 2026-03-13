@@ -45,6 +45,20 @@ def test_apply_creates_files(tmp_path):
     assert fv.content == "You are the scheduler."
 
 
+def test_apply_derives_file_includes_from_inline_refs(tmp_path):
+    repo = LocalRepository(str(tmp_path))
+    spec = ImageSpec(files={
+        "prompts/root.md": "Root prompt\n@{docs/shared.md}",
+        "docs/shared.md": "Shared context",
+    })
+
+    apply_image(spec, repo)
+
+    f = repo.get_file_by_key("prompts/root.md")
+    assert f is not None
+    assert f.includes == ["docs/shared.md"]
+
+
 def test_apply_creates_processes_with_bindings(tmp_path):
     repo = LocalRepository(str(tmp_path))
     spec = _make_spec()

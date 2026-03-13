@@ -164,7 +164,7 @@ FileVersion
   created_at      datetime
 ```
 
-Files support an include system. A file can declare `includes: ["whoami/index", "cogos/includes/code_mode"]` and the context engine resolves these recursively, depth-first, concatenating content with section headers. Circular includes are detected and reported.
+Files support prompt references via inline `@{file-key}` syntax. When a file is resolved into prompt context, the context engine recursively expands those references, depth-first, concatenating content with section headers. Circular references are detected and reported.
 
 ### Capability
 

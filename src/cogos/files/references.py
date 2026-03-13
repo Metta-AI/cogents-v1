@@ -18,21 +18,3 @@ def extract_file_references(content: str, *, exclude_key: str | None = None) -> 
         seen.add(key)
         refs.append(key)
     return refs
-
-
-def merge_file_references(
-    content: str,
-    includes: list[str] | None = None,
-    *,
-    exclude_key: str | None = None,
-) -> list[str]:
-    """Merge explicit includes with content references, preserving order."""
-    merged: list[str] = []
-    seen: set[str] = set()
-    for key in [*(includes or []), *extract_file_references(content, exclude_key=exclude_key)]:
-        cleaned = key.strip()
-        if not cleaned or cleaned == exclude_key or cleaned in seen:
-            continue
-        seen.add(cleaned)
-        merged.append(cleaned)
-    return merged

@@ -5,7 +5,7 @@ from pathlib import Path
 from cogos.db.models import Capability, Process, ProcessCapability
 from cogos.db.local_repository import LocalRepository
 from cogos.files.context_engine import ContextEngine
-from cogos.files.references import extract_file_references, merge_file_references
+from cogos.files.references import extract_file_references
 from cogos.files.store import FileStore
 
 
@@ -24,14 +24,10 @@ def test_extract_file_references_preserves_order_and_uniqueness() -> None:
     ]
 
 
-def test_merge_file_references_filters_self_reference() -> None:
+def test_extract_file_references_filters_self_reference() -> None:
     content = "keep @{shared/base} ignore @{self/file}"
 
-    assert merge_file_references(
-        content,
-        ["manual/include", "shared/base"],
-        exclude_key="self/file",
-    ) == ["manual/include", "shared/base"]
+    assert extract_file_references(content, exclude_key="self/file") == ["shared/base"]
 
 
 def test_new_version_updates_includes(tmp_path: Path) -> None:
@@ -40,19 +36,32 @@ def test_new_version_updates_includes(tmp_path: Path) -> None:
     created = store.create(
         "prompts/root",
         "hello @{shared/base}",
-        includes=["shared/base"],
     )
 
     result = store.new_version(
         "prompts/root",
         "hello @{shared/updated}",
-        includes=["shared/updated"],
     )
 
     assert result is not None
     updated = repo.get_file_by_id(created.id)
     assert updated is not None
     assert updated.includes == ["shared/updated"]
+
+
+def test_unchanged_write_resyncs_derived_includes(tmp_path: Path) -> None:
+    repo = LocalRepository(data_dir=str(tmp_path))
+    store = FileStore(repo)
+    created = store.create("prompts/root", "hello @{shared/base}")
+
+    assert repo.update_file_includes(created.id, ["stale/include"]) is True
+
+    result = store.new_version("prompts/root", "hello @{shared/base}")
+
+    assert result is None
+    updated = repo.get_file_by_id(created.id)
+    assert updated is not None
+    assert updated.includes == ["shared/base"]
 
 
 def test_process_prompt_references_include_readable_files(tmp_path: Path) -> None:

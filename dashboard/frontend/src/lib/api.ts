@@ -199,7 +199,7 @@ export async function getFileDetail(
 
 export async function createFile(
   name: string,
-  body: { key: string; content: string; source?: string; read_only?: boolean; includes?: string[] },
+  body: { key: string; content: string; source?: string; read_only?: boolean },
 ): Promise<CogosFile> {
   const resp = await fetch(`/api/cogents/${name}/files`, {
     method: "POST",

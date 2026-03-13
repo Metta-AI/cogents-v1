@@ -18,14 +18,14 @@ def _grant_read_all(repo: LocalRepository, process: Process) -> None:
     )
 
 
-def test_generate_full_prompt_expands_inline_refs_and_file_includes(tmp_path):
+def test_generate_full_prompt_expands_inline_refs_recursively(tmp_path):
     repo = LocalRepository(str(tmp_path))
     store = FileStore(repo)
 
     store.upsert("docs/shared.md", "Shared context", source="test")
     store.upsert("docs/nested.md", "Nested details", source="test")
     store.upsert("docs/inline.md", "Inline ref -> @{docs/nested.md}", source="test")
-    store.upsert("prompts/root.md", "Root prompt", source="test", includes=["docs/shared.md"])
+    store.upsert("prompts/root.md", "Root prompt\n@{docs/shared.md}", source="test")
 
     process = Process(
         name="worker",
@@ -50,7 +50,7 @@ def test_resolve_prompt_tree_marks_direct_refs_from_process_content(tmp_path):
     store.upsert("docs/shared.md", "Shared context", source="test")
     store.upsert("docs/nested.md", "Nested details", source="test")
     store.upsert("docs/inline.md", "Inline ref -> @{docs/nested.md}", source="test")
-    store.upsert("prompts/root.md", "Root prompt", source="test", includes=["docs/shared.md"])
+    store.upsert("prompts/root.md", "Root prompt\n@{docs/shared.md}", source="test")
 
     process = Process(
         name="worker",

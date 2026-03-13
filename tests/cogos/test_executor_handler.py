@@ -239,7 +239,7 @@ def test_execute_process_expands_prompt_refs_into_system_prompt(monkeypatch, tmp
     repo = _repo(tmp_path)
     store = FileStore(repo)
     store.upsert("docs/shared.md", "Shared context", source="test")
-    store.upsert("prompt.md", "Prompt body", source="test", includes=["docs/shared.md"])
+    store.upsert("prompt.md", "Prompt body\n@{docs/shared.md}", source="test")
 
     process = Process(
         name="worker",
@@ -291,8 +291,8 @@ def test_execute_process_expands_prompt_refs_into_system_prompt(monkeypatch, tmp
     assert first_call["messages"][0]["content"][0]["text"] == "Execute your task."
     assert first_call["system"][0]["text"] == (
         "Intro\n"
-        "--- docs/shared.md ---\n"
-        "Shared context\n\n"
         "--- prompt.md ---\n"
-        "Prompt body"
+        "Prompt body\n"
+        "--- docs/shared.md ---\n"
+        "Shared context"
     )

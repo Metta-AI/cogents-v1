@@ -41,16 +41,17 @@ old = file_version.get("config/system", version=1)
 
 `dir` is the most common — it gives full file access under a prefix. `file` and `file_version` are for fine-grained single-key grants.
 
-## Includes
+## Prompt references
 
-Files can declare `includes` — references to other file keys. The context engine resolves includes recursively, depth-first, and concatenates them into the prompt.
+Files can reference other files inline with `@{file-key}`. The context engine resolves those references recursively, depth-first, and concatenates them into the prompt.
 
+```md
+# agents/my-agent
+@{whoami/index}
+@{cogos/includes/code_mode}
 ```
-File: agents/my-agent
-  includes: ["whoami/index", "cogos/includes/code_mode"]
-```
 
-When this file is used as a process prompt, the context engine prepends the included files automatically.
+When this file is used as a process prompt, the referenced files are expanded directly where they appear.
 
 ## Auto-injected includes
 

@@ -6,36 +6,6 @@
 # recruiter/profile (one-shot, spawned) — deep-dive HTML reports
 # recruiter/evolve (one-shot, spawned) — self-improvement
 
-# -- Context engine wiring (includes) --
-# These declare which files are injected into each prompt template.
-# File content comes from the files/ directory; add_file just sets up includes.
-
-add_file("apps/recruiter/prompts/recruiter.md", content="", includes=[
-    "apps/recruiter/criteria.md",
-    "apps/recruiter/strategy.md",
-])
-
-add_file("apps/recruiter/prompts/discover.md", content="", includes=[
-    "apps/recruiter/criteria.md",
-    "apps/recruiter/rubric.json",
-    "apps/recruiter/sourcer/github.md",
-    "apps/recruiter/sourcer/twitter.md",
-    "apps/recruiter/sourcer/web.md",
-    "apps/recruiter/sourcer/substack.md",
-])
-
-add_file("apps/recruiter/prompts/present.md", content="", includes=[
-    "apps/recruiter/criteria.md",
-    "apps/recruiter/strategy.md",
-])
-
-add_file("apps/recruiter/prompts/evolve.md", content="", includes=[
-    "apps/recruiter/diagnosis.md",
-    "apps/recruiter/criteria.md",
-    "apps/recruiter/rubric.json",
-    "apps/recruiter/strategy.md",
-])
-
 # -- Channels --
 
 add_channel("recruiter:feedback", channel_type="named")

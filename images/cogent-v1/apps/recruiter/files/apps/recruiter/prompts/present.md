@@ -1,5 +1,9 @@
 # Present — Candidate Presentation Daemon
 
+## Reference Material
+@{apps/recruiter/criteria.md}
+@{apps/recruiter/strategy.md}
+
 You present screened candidates to the team via Discord and capture feedback.
 
 ## Behavior
