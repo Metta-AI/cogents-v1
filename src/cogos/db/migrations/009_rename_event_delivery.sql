@@ -11,8 +11,8 @@ ALTER TABLE IF EXISTS cogos_handler DROP COLUMN IF EXISTS event_pattern;
 -- Drop event_types from capability if it still exists
 ALTER TABLE IF EXISTS cogos_capability DROP COLUMN IF EXISTS event_types;
 
--- Rename event_pattern to channel_name on cogos_cron (if column exists)
+-- Rename event_pattern to channel_name on cron table (if column exists)
 DO $$ BEGIN
-    ALTER TABLE cogos_cron RENAME COLUMN event_pattern TO channel_name;
+    ALTER TABLE cron RENAME COLUMN event_pattern TO channel_name;
 EXCEPTION WHEN undefined_column THEN NULL;
 END $$;
