@@ -104,6 +104,25 @@ export function Header({
 
   const wsColor = stableConnected ? "var(--success)" : "var(--warning)";
 
+  const rowLabel: React.CSSProperties = {
+    fontSize: "10px",
+    fontFamily: "var(--font-mono)",
+    color: "var(--text-muted)",
+    paddingRight: "12px",
+    paddingTop: "2px",
+    paddingBottom: "2px",
+    whiteSpace: "nowrap",
+    verticalAlign: "top",
+  };
+  const rowValue: React.CSSProperties = {
+    fontSize: "10px",
+    fontFamily: "var(--font-mono)",
+    textAlign: "right",
+    paddingTop: "2px",
+    paddingBottom: "2px",
+    whiteSpace: "nowrap",
+  };
+
   return (
     <header
       className="fixed top-0 right-0 flex items-center justify-between px-4 z-40"
@@ -127,7 +146,7 @@ export function Header({
           >
             {cogentName}
           </span>
-          {/* Hover panel */}
+          {/* Status hover panel */}
           <div
             className="absolute left-0 top-full mt-1 hidden group-hover:block z-50"
             style={{
@@ -135,64 +154,32 @@ export function Header({
               border: "1px solid var(--border)",
               borderRadius: "6px",
               padding: "10px 14px",
-              minWidth: "220px",
+              minWidth: "180px",
               boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
             }}
           >
-            <div
-              style={{
-                color: error ? "var(--error)" : "var(--text-muted)",
-                fontSize: "11px",
-                fontFamily: "var(--font-mono)",
-                marginBottom: "8px",
-              }}
-            >
-              {statusText}
-            </div>
-            {tick != null && (
-              <div
-                style={{
-                  fontSize: "10px",
-                  fontFamily: "var(--font-mono)",
-                  color: tickColor(tick.ms),
-                  marginBottom: ages ? "8px" : 0,
-                }}
-              >
-                scheduler tick {tick.text}
-              </div>
-            )}
-            {ages && (
-              <div className="flex flex-wrap gap-1">
-                {(
-                  [
-                    ["image", ages.image],
-                    ["content", ages.content],
-                    ["stack", ages.stack],
-                    ["schema", ages.schema],
-                    ["state", ages.state],
-                  ] as const
-                ).map(([label, ts]) => {
-                  const age = fmtAge(ts);
-                  return (
-                    <span
-                      key={label}
-                      title={ts ? `${label}: ${new Date(ts).toLocaleString()}` : `${label}: unknown`}
-                      style={{
-                        fontSize: "9px",
-                        fontFamily: "var(--font-mono)",
-                        color: ageColor(ts),
-                        opacity: age ? 0.8 : 0.4,
-                        padding: "1px 4px",
-                        borderRadius: "3px",
-                        border: `1px solid ${age ? ageColor(ts) : "var(--border)"}`,
-                      }}
-                    >
-                      {label} {age ?? "?"}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <tbody>
+                <tr>
+                  <td style={rowLabel}>status</td>
+                  <td style={{ ...rowValue, color: error ? "var(--error)" : "var(--text-muted)" }}>
+                    {statusText}
+                  </td>
+                </tr>
+                {tick != null && (
+                  <tr>
+                    <td style={rowLabel}>tick</td>
+                    <td style={{ ...rowValue, color: tickColor(tick.ms) }}>{tick.text}</td>
+                  </tr>
+                )}
+                <tr>
+                  <td style={rowLabel}>ws</td>
+                  <td style={{ ...rowValue, color: wsColor }}>
+                    {stableConnected ? "connected" : "disconnected"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
         {/* Scheduler heartbeat — always visible */}
@@ -251,42 +238,85 @@ export function Header({
           ))}
         </div>
 
-        {/* Refresh button */}
-        <button
-          onClick={handleRefresh}
-          disabled={showSpin}
-          className="flex items-center justify-center border-0 rounded-md cursor-pointer transition-colors duration-150"
-          style={{
-            width: "32px",
-            height: "32px",
-            background: "var(--bg-surface)",
-            border: "1px solid var(--border)",
-            color: showSpin ? "var(--accent)" : wsColor,
-          }}
-          title={stableConnected ? "Real-time connected · Refresh" : "Real-time disconnected · Refresh"}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "var(--bg-hover)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "var(--bg-surface)";
-          }}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={showSpin ? "header-spin" : ""}
+        {/* Refresh button with ages hover panel */}
+        <div className="relative group/refresh">
+          <button
+            onClick={handleRefresh}
+            disabled={showSpin}
+            className="flex items-center justify-center border-0 rounded-md cursor-pointer transition-colors duration-150"
+            style={{
+              width: "32px",
+              height: "32px",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border)",
+              color: showSpin ? "var(--accent)" : wsColor,
+            }}
+            title={stableConnected ? "Real-time connected · Refresh" : "Real-time disconnected · Refresh"}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--bg-hover)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "var(--bg-surface)";
+            }}
           >
-            <polyline points="23 4 23 10 17 10" />
-            <polyline points="1 20 1 14 7 14" />
-            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-          </svg>
-        </button>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={showSpin ? "header-spin" : ""}
+            >
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+            </svg>
+          </button>
+          {/* Ages hover panel */}
+          {ages && (
+            <div
+              className="absolute right-0 top-full mt-1 hidden group-hover/refresh:block z-50"
+              style={{
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
+                borderRadius: "6px",
+                padding: "10px 14px",
+                minWidth: "160px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              }}
+            >
+              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                <tbody>
+                  {(
+                    [
+                      ["image", ages.image],
+                      ["content", ages.content],
+                      ["stack", ages.stack],
+                      ["schema", ages.schema],
+                      ["state", ages.state],
+                    ] as const
+                  ).map(([label, ts]) => {
+                    const age = fmtAge(ts);
+                    return (
+                      <tr key={label}>
+                        <td style={rowLabel}>{label}</td>
+                        <td
+                          style={{ ...rowValue, color: ageColor(ts), opacity: age ? 1 : 0.4 }}
+                          title={ts ? new Date(ts).toLocaleString() : "unknown"}
+                        >
+                          {age ?? "?"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
