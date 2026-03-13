@@ -5,7 +5,6 @@ import * as api from "@/lib/api";
 import type {
   DashboardData,
   TimeRange,
-  DashboardEvent,
   Alert,
   StatusResponse,
   CogosProcess,
@@ -18,7 +17,7 @@ export function useCogentData(cogentName: string) {
     cogosStatus: null,
     programs: [],
     sessions: [],
-    events: [],
+    traces: [],
     triggers: [],
     memory: [],
     tasks: [],
@@ -49,7 +48,7 @@ export function useCogentData(cogentName: string) {
       api.getCapabilities(cogentName),
       api.getHandlers(cogentName),
       api.getRuns(cogentName),
-      api.getEvents(cogentName, timeRange),
+      api.getMessageTraces(cogentName, timeRange),
       api.getCrons(cogentName),
       api.getEventTypes(cogentName),
       api.getResources(cogentName),
@@ -72,7 +71,7 @@ export function useCogentData(cogentName: string) {
       capabilities: results[3].status === "fulfilled" ? results[3].value : [],
       handlers: results[4].status === "fulfilled" ? results[4].value : [],
       runs: results[5].status === "fulfilled" ? results[5].value : [],
-      events: results[6].status === "fulfilled" ? results[6].value : [],
+      traces: results[6].status === "fulfilled" ? results[6].value : [],
       crons: results[7].status === "fulfilled" ? results[7].value : [],
       eventTypes: results[8].status === "fulfilled" ? results[8].value : [],
       resources: results[9].status === "fulfilled" ? results[9].value : [],
@@ -91,14 +90,13 @@ export function useCogentData(cogentName: string) {
 
     const { type, data: payload } = lastMessage;
 
+    if (type === "event") {
+      void refresh();
+      return;
+    }
+
     setData((prev) => {
       switch (type) {
-        case "event":
-          return {
-            ...prev,
-            events: [payload as DashboardEvent, ...prev.events],
-          };
-
         case "alert":
           return {
             ...prev,
@@ -126,7 +124,7 @@ export function useCogentData(cogentName: string) {
           return prev;
       }
     });
-  }, [lastMessage]);
+  }, [lastMessage, refresh]);
 
   // Poll cogos-status every 5s to keep scheduler tick fresh
   useEffect(() => {

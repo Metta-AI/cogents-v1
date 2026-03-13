@@ -518,17 +518,37 @@ class Repository:
                ORDER BY ed.created_at ASC""",
             [self._param("process", process_id)],
         )
-        return [
-            Delivery(
-                id=UUID(r["id"]),
-                message=UUID(r["message"]),
-                handler=UUID(r["handler"]),
-                status=DeliveryStatus(r["status"]),
-                run=UUID(r["run"]) if r.get("run") else None,
-                created_at=self._ts(r, "created_at"),
-            )
-            for r in self._rows_to_dicts(response)
-        ]
+        return [self._delivery_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def list_deliveries(
+        self,
+        *,
+        message_id: UUID | None = None,
+        handler_id: UUID | None = None,
+        run_id: UUID | None = None,
+        limit: int = 500,
+    ) -> list[Delivery]:
+        conditions = []
+        params = [self._param("limit", limit)]
+        if message_id is not None:
+            conditions.append("message = :message")
+            params.append(self._param("message", message_id))
+        if handler_id is not None:
+            conditions.append("handler = :handler")
+            params.append(self._param("handler", handler_id))
+        if run_id is not None:
+            conditions.append("run = :run")
+            params.append(self._param("run", run_id))
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        response = self._execute(
+            f"""SELECT * FROM cogos_delivery
+                {where}
+                ORDER BY created_at DESC
+                LIMIT :limit""",
+            params,
+        )
+        return [self._delivery_from_row(r) for r in self._rows_to_dicts(response)]
 
     def has_pending_deliveries(self, process_id: UUID) -> bool:
         row = self._first_row(self._execute(
@@ -1013,6 +1033,16 @@ class Repository:
             completed_at=self._ts(row, "completed_at"),
         )
 
+    def _delivery_from_row(self, row: dict) -> Delivery:
+        return Delivery(
+            id=UUID(row["id"]),
+            message=UUID(row["message"]),
+            handler=UUID(row["handler"]),
+            status=DeliveryStatus(row["status"]),
+            run=UUID(row["run"]) if row.get("run") else None,
+            created_at=self._ts(row, "created_at"),
+        )
+
     # ═══════════════════════════════════════════════════════════
     # TRACES
     # ═══════════════════════════════════════════════════════════
@@ -1235,15 +1265,23 @@ class Repository:
         return msg_id
 
     def list_channel_messages(
-        self, channel_id: UUID, *, limit: int = 100,
+        self, channel_id: UUID | None = None, *, limit: int = 100,
     ) -> list[ChannelMessage]:
-        response = self._execute(
-            """SELECT * FROM cogos_channel_message
-               WHERE channel = :channel
-               ORDER BY created_at ASC
-               LIMIT :limit""",
-            [self._param("channel", channel_id), self._param("limit", limit)],
-        )
+        if channel_id is not None:
+            response = self._execute(
+                """SELECT * FROM cogos_channel_message
+                   WHERE channel = :channel
+                   ORDER BY created_at ASC
+                   LIMIT :limit""",
+                [self._param("channel", channel_id), self._param("limit", limit)],
+            )
+        else:
+            response = self._execute(
+                """SELECT * FROM cogos_channel_message
+                   ORDER BY created_at DESC
+                   LIMIT :limit""",
+                [self._param("limit", limit)],
+            )
         return [
             ChannelMessage(
                 id=UUID(r["id"]),

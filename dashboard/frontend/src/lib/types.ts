@@ -201,13 +201,47 @@ export interface Session {
   total_cost: number;
 }
 
-export interface DashboardEvent {
-  id: number | string;
-  event_type: string | null;
-  source: string | null;
-  payload: unknown;
-  parent_event_id: number | string | null;
+export interface TraceMessage {
+  id: string;
+  channel_id: string;
+  channel_name: string;
+  sender_process: string | null;
+  sender_process_name: string | null;
+  payload: Record<string, unknown>;
   created_at: string | null;
+}
+
+export interface TraceRun {
+  id: string;
+  process: string;
+  process_name: string | null;
+  runner: string | null;
+  status: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  duration_ms: number | null;
+  error: string | null;
+  model_version: string | null;
+  result: Record<string, unknown> | null;
+  created_at: string | null;
+  completed_at: string | null;
+}
+
+export interface TraceDelivery {
+  id: string;
+  handler_id: string;
+  status: string;
+  created_at: string | null;
+  process_id: string | null;
+  process_name: string | null;
+  run: TraceRun | null;
+  emitted_messages: TraceMessage[];
+}
+
+export interface MessageTrace {
+  message: TraceMessage;
+  deliveries: TraceDelivery[];
 }
 
 export interface Trigger {
@@ -332,7 +366,7 @@ export interface DashboardData {
   cogosStatus: CogosStatus | null;
   programs: Program[];
   sessions: Session[];
-  events: DashboardEvent[];
+  traces: MessageTrace[];
   triggers: Trigger[];
   memory: MemoryItem[];
   tasks: Task[];

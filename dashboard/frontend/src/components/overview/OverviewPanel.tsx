@@ -101,18 +101,20 @@ export function OverviewPanel({ data }: Props) {
           )}
         </div>
 
-        {/* Recent events */}
+        {/* Recent traces */}
         <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md p-4">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-3">Recent Events</h3>
-          {data.events.slice(0, 5).map((e, i) => (
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-3">Recent Traces</h3>
+          {data.traces.slice(0, 5).map((trace, i) => (
             <div key={i} className="flex items-center gap-2 py-1.5 text-xs">
-              <Badge variant="info">{e.event_type || "unknown"}</Badge>
-              <span className="text-[var(--text-secondary)] font-mono truncate">{e.source}</span>
-              <span className="text-[var(--text-muted)] ml-auto">{fmtTimestamp(e.created_at)}</span>
+              <Badge variant="info">{trace.message.channel_name}</Badge>
+              <span className="text-[var(--text-secondary)] font-mono truncate">
+                {trace.deliveries.length} delivery{trace.deliveries.length === 1 ? "" : "ies"}
+              </span>
+              <span className="text-[var(--text-muted)] ml-auto">{fmtTimestamp(trace.message.created_at)}</span>
             </div>
           ))}
-          {data.events.length === 0 && (
-            <div className="text-[var(--text-muted)] text-xs py-2">No recent events</div>
+          {data.traces.length === 0 && (
+            <div className="text-[var(--text-muted)] text-xs py-2">No recent traces</div>
           )}
         </div>
 

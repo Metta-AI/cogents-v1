@@ -169,7 +169,7 @@ def _summary(
         process=str(r.process),
         process_name=process_names.get(r.process) if process_names else None,
         runner=process_runners.get(r.process) if process_runners else None,
-        event=str(r.event) if r.event else None,
+        event=str(r.message) if r.message else None,
         conversation=str(r.conversation) if r.conversation else None,
         status=r.status.value,
         tokens_in=r.tokens_in,
@@ -187,7 +187,7 @@ def _detail(r: Run) -> RunDetail:
     return RunDetail(
         id=str(r.id),
         process=str(r.process),
-        event=str(r.event) if r.event else None,
+        event=str(r.message) if r.message else None,
         conversation=str(r.conversation) if r.conversation else None,
         status=r.status.value,
         tokens_in=r.tokens_in,
