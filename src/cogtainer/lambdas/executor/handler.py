@@ -167,6 +167,21 @@ def handler(event: dict, context) -> dict:
             error=str(e),
         )
 
+        try:
+            repo.create_alert(
+                severity="warning",
+                alert_type="process:run:failed",
+                source="executor",
+                message=f"Run failed for '{program_name}': {str(e)[:500]}",
+                metadata={
+                    "process_name": program_name,
+                    "run_id": str(run.id),
+                    "duration_ms": duration_ms,
+                },
+            )
+        except Exception:
+            logger.debug("Could not create alert for failed run %s", run.id)
+
         logger.error(f"Run {run_id} failed: {e}")
         return {"statusCode": 500, "error": str(e)}
 

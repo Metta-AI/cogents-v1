@@ -221,6 +221,22 @@ def handler(event: dict, context: Any = None) -> dict:
             "error": str(e)[:1000],
         })
 
+        try:
+            repo.create_alert(
+                severity="warning",
+                alert_type="process:run:failed",
+                source="executor",
+                message=f"Run failed for '{process.name}': {str(e)[:500]}",
+                metadata={
+                    "process_id": str(process.id),
+                    "process_name": process.name,
+                    "run_id": str(run.id),
+                    "duration_ms": duration_ms,
+                },
+            )
+        except Exception:
+            logger.debug("Could not create alert for failed run %s", run.id)
+
         # Retry logic — respect out-of-band status changes
         current = repo.get_process(process.id)
         if current and current.status in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
