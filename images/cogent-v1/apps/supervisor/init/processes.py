@@ -27,7 +27,7 @@ add_process(
     priority=8.0,
     capabilities=[
         "me", "procs", "dir", "file", "discord", "channels",
-        "secrets", "stdlib", "alerts",
+        "secrets", "stdlib", "alerts", "email",
     ],
     handlers=["supervisor:help"],
 )

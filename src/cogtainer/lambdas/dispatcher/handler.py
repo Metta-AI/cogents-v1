@@ -156,10 +156,10 @@ def _ensure_dm_handlers(repo) -> None:
         seen_authors.add(author_id)
 
         proc_name = f"discord-dm:{author_id}"
+        fine_ch_name = f"io:discord:dm:{author_id}"
         existing = repo.get_process_by_name(proc_name)
         if existing and existing.status not in (ProcessStatus.COMPLETED, ProcessStatus.DISABLED):
             # Already exists and active — ensure it has a handler
-            fine_ch_name = f"io:discord:dm:{author_id}"
             fine_ch = repo.get_channel_by_name(fine_ch_name)
             if fine_ch:
                 handlers = repo.list_handlers(process_id=existing.id)
@@ -175,6 +175,19 @@ def _ensure_dm_handlers(repo) -> None:
             f"You are handling DMs with Discord user {author_id} ({author_name}).\n\n"
             "## Responding\n\n"
             f"Use discord.dm(user_id='{author_id}', content=your_reply) to respond.\n\n"
+            "## Escalation\n\n"
+            "If you cannot fulfill a request (e.g. sending email, accessing a service you don't have), "
+            "escalate to the supervisor. Use your DM channel as the reply_channel so you receive the response:\n\n"
+            "```python\n"
+            "channels.send(\"supervisor:help\", {\n"
+            f"    \"process_name\": \"{proc_name}\",\n"
+            "    \"description\": \"what the user asked for\",\n"
+            "    \"context\": \"relevant details\",\n"
+            "    \"severity\": \"info\",\n"
+            f"    \"reply_channel\": \"{fine_ch_name}\",\n"
+            "})\n"
+            "```\n\n"
+            "When you receive a supervisor reply (a message without `author_id`), relay the outcome to the user via DM.\n\n"
             "## Context\n\n"
             "On your first activation:\n"
             "1. Use search() to discover all your capabilities\n"
