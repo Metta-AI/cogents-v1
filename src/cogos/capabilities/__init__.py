@@ -661,4 +661,44 @@ BUILTIN_CAPABILITIES: list[dict] = [
             },
         },
     },
+    {
+        "name": "web_search",
+        "description": "Search the web via Tavily API.",
+        "handler": "cogos.capabilities.web_search.WebSearchCapability",
+        "instructions": (
+            "Use web_search to search the web.\n"
+            "- web_search.search(query, limit=5) — search and return results\n"
+            "Returns a list of SearchResult(title, url, snippet, score) or SearchError.\n"
+            "API key is managed internally. Never log or expose it."
+        ),
+        "schema": {
+            "scope": {
+                "properties": {
+                    "domains": {"type": "array", "items": {"type": "string"}, "description": "Domain allowlist"},
+                    "query_budget": {"type": "integer", "description": "Max queries allowed"},
+                    "ops": {"type": "array", "items": {"type": "string", "enum": ["search"]}},
+                },
+            },
+            "search": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "limit": {"type": "integer", "default": 5, "description": "Max results"},
+                    },
+                    "required": ["query"],
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"}, "url": {"type": "string"},
+                            "snippet": {"type": "string"}, "score": {"type": "number"},
+                        },
+                    },
+                },
+            },
+        },
+    },
 ]
