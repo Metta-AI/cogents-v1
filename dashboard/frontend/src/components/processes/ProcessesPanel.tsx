@@ -1122,18 +1122,23 @@ function LastRunInfo({ run, cogentName, runner }: { run: CogosProcessRun; cogent
 
 function IconButtonGroup<T extends string>({
   label,
+  help,
   options,
   value,
   onChange,
 }: {
   label: string;
+  help?: React.ReactNode;
   options: { value: T; icon: string; title: string }[];
   value: T;
   onChange: (value: T) => void;
 }) {
   return (
     <div>
-      <label className="text-[10px] text-[var(--text-muted)] uppercase block mb-1">{label}</label>
+      <div className="flex items-center gap-2 mb-1">
+        <label className="text-[10px] text-[var(--text-muted)] uppercase block">{label}</label>
+        {help}
+      </div>
       <div className="flex gap-1">
         {options.map((opt) => (
           <button
@@ -1621,12 +1626,22 @@ function ProcessFormEditor({
       {/* Toggles row: mode, runner, status, preemptible, clear context */}
       <div className="flex gap-4 items-end flex-wrap">
         <IconButtonGroup
-          label="Mode"
+          label="Process Mode"
+          help={(
+            <SectionHelp
+              title="Process Mode"
+              bullets={[
+                "One-shot runs once for a wake or delivery, then exits.",
+                "Daemon stays installed, wakes repeatedly, and returns to waiting between runs.",
+                "This is separate from session resume settings in process metadata.",
+              ]}
+            />
+          )}
           value={form.mode}
           onChange={(mode) => onChange({ ...form, mode })}
           options={[
-            { value: "one_shot" as const, icon: "→", title: "One-shot" },
-            { value: "daemon" as const, icon: "⟳", title: "Daemon" },
+            { value: "one_shot" as const, icon: "→", title: "One-shot: run once, then exit" },
+            { value: "daemon" as const, icon: "⟳", title: "Daemon: wake repeatedly and return to waiting" },
           ]}
         />
         <IconButtonGroup
