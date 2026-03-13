@@ -192,18 +192,23 @@ class DiscordBridge:
             channel_name = f"io:discord:{event_type.split(':')[1]}"  # io:discord:dm, io:discord:mention, io:discord:message
             ch = repo.get_channel_by_name(channel_name)
             if ch is None:
-                from uuid import uuid4
+                logger.warning(
+                    "Discord channel %s missing; recreating as a system channel",
+                    channel_name,
+                )
                 ch = Channel(
                     name=channel_name,
-                    owner_process=uuid4(),  # system-owned
                     channel_type=ChannelType.NAMED,
                 )
                 repo.upsert_channel(ch)
                 ch = repo.get_channel_by_name(channel_name)
+            if ch is None:
+                raise RuntimeError(f"Failed to create Discord channel {channel_name}")
 
             repo.append_channel_message(ChannelMessage(
                 channel=ch.id,
-                sender_process=ch.owner_process,
+                # Inbound Discord messages come from external users, not CogOS processes.
+                sender_process=None,
                 payload=payload,
             ))
             logger.info("Wrote %s from %s to channel %s", event_type, message.author, channel_name)

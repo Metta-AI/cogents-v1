@@ -1429,7 +1429,7 @@ class Repository:
             ChannelMessage(
                 id=UUID(r["id"]),
                 channel=UUID(r["channel"]),
-                sender_process=UUID(r["sender_process"]),
+                sender_process=UUID(r["sender_process"]) if r.get("sender_process") else None,
                 payload=self._json_field(r, "payload", {}),
                 created_at=self._ts(r, "created_at"),
             )
