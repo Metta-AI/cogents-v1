@@ -230,7 +230,7 @@ export async function deleteProcess(name: string, processId: string): Promise<vo
 
 export async function getFiles(name: string): Promise<CogosFile[]> {
   const r = await fetchJSON<{ files: CogosFile[] }>(
-    `/api/cogents/${name}/files`,
+    `/api/cogents/${name}/files?limit=5000`,
   );
   return r.files;
 }

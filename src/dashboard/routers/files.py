@@ -13,6 +13,7 @@ from dashboard.db import get_repo
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["cogos-files"])
+DEFAULT_FILE_LIST_LIMIT = 5000
 
 
 # ── Request / response models ──────────────────────────────────────
@@ -112,9 +113,15 @@ def _version_out(fv: FileVersion) -> FileVersionOut:
 def list_files(
     name: str,
     prefix: str | None = Query(None, description="Filter by key prefix"),
+    limit: int = Query(
+        DEFAULT_FILE_LIST_LIMIT,
+        ge=1,
+        le=20000,
+        description="Maximum number of files to return",
+    ),
 ) -> FilesResponse:
     store = _store()
-    items = store.list_files(prefix=prefix)
+    items = store.list_files(prefix=prefix, limit=limit)
     out = [_file_out(f) for f in items]
     return FilesResponse(count=len(out), files=out)
 

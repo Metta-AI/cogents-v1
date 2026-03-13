@@ -58,7 +58,7 @@ findings = []
 brief = dir.get("newsfromthefront/brief.md").read().content
 
 # Run Perplexity, GitHub, Twitter searches with after_date/before_date
-# (follow the same query generation logic as researcher.md)
+# (follow the same query generation logic as apps/newsfromthefront/researcher.md)
 # ...
 
 run_id = str(uuid.uuid4())

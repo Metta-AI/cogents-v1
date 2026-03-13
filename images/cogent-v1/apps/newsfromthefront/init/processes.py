@@ -41,7 +41,7 @@ _SONNET = "us.anthropic.claude-sonnet-4-6"
 add_process(
     "newsfromthefront-researcher",
     mode="daemon",
-    content="@{newsfromthefront/researcher.md}",
+    content="@{apps/newsfromthefront/researcher.md}",
     runner="lambda",
     model=_SONNET,
     priority=15.0,
@@ -52,7 +52,7 @@ add_process(
 add_process(
     "newsfromthefront-analyst",
     mode="daemon",
-    content="@{newsfromthefront/analyst.md}",
+    content="@{apps/newsfromthefront/analyst.md}",
     runner="lambda",
     model=_SONNET,
     priority=15.0,
@@ -63,7 +63,7 @@ add_process(
 add_process(
     "newsfromthefront-test",
     mode="daemon",
-    content="@{newsfromthefront/test.md}",
+    content="@{apps/newsfromthefront/test.md}",
     runner="lambda",
     model=_SONNET,
     priority=20.0,
@@ -74,7 +74,7 @@ add_process(
 add_process(
     "newsfromthefront-backfill",
     mode="daemon",
-    content="@{newsfromthefront/backfill.md}",
+    content="@{apps/newsfromthefront/backfill.md}",
     runner="lambda",
     model=_HAIKU,
     priority=5.0,

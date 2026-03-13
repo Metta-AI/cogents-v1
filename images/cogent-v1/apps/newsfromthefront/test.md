@@ -13,7 +13,7 @@ if payload["mode"] != "test":
 
 ### 2. Run researcher logic inline
 
-Follow the same steps as the researcher prompt (`newsfromthefront/researcher.md`),
+Follow the same steps as the researcher prompt (`apps/newsfromthefront/researcher.md`),
 but set `is_test = True` in the findings-ready message:
 
 ```python
