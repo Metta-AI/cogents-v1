@@ -171,6 +171,17 @@ class DiscordBridge:
                 return
             await self._relay_to_db(message)
 
+    def _get_or_create_channel(self, repo, channel_name: str):
+        """Look up a channel by name, creating it if missing."""
+        from cogos.db.models import Channel, ChannelType
+        ch = repo.get_channel_by_name(channel_name)
+        if ch is None:
+            logger.info("Creating channel %s", channel_name)
+            ch = Channel(name=channel_name, channel_type=ChannelType.NAMED)
+            repo.upsert_channel(ch)
+            ch = repo.get_channel_by_name(channel_name)
+        return ch
+
     async def _relay_to_db(self, message: discord.Message):
         """Classify a Discord message and write it as a channel message."""
         if isinstance(message.channel, discord.DMChannel):
@@ -186,23 +197,12 @@ class DiscordBridge:
         payload = _make_message_payload(message, message_type, is_dm=is_dm, is_mention=is_mention)
 
         try:
-            from cogos.db.models import Channel, ChannelMessage, ChannelType
+            from cogos.db.models import ChannelMessage
             repo = self._get_repo()
 
-            # Get or create the channel for this message type
+            # Get or create the catch-all channel for this message type
             channel_name = f"io:discord:{message_type.split(':')[1]}"  # io:discord:dm, io:discord:mention, io:discord:message
-            ch = repo.get_channel_by_name(channel_name)
-            if ch is None:
-                logger.warning(
-                    "Discord channel %s missing; recreating as a system channel",
-                    channel_name,
-                )
-                ch = Channel(
-                    name=channel_name,
-                    channel_type=ChannelType.NAMED,
-                )
-                repo.upsert_channel(ch)
-                ch = repo.get_channel_by_name(channel_name)
+            ch = self._get_or_create_channel(repo, channel_name)
             if ch is None:
                 raise RuntimeError(f"Failed to create Discord channel {channel_name}")
 
@@ -213,6 +213,22 @@ class DiscordBridge:
                 payload=payload,
             ))
             logger.info("Wrote %s from %s to channel %s", message_type, message.author, channel_name)
+
+            # Write to fine-grained per-source channel for message and dm types
+            fine_channel_name = None
+            if message_type == "discord:message":
+                fine_channel_name = f"io:discord:message:{payload['channel_id']}"
+            elif message_type == "discord:dm":
+                fine_channel_name = f"io:discord:dm:{payload['author_id']}"
+
+            if fine_channel_name:
+                fine_ch = self._get_or_create_channel(repo, fine_channel_name)
+                if fine_ch:
+                    repo.append_channel_message(ChannelMessage(
+                        channel=fine_ch.id,
+                        sender_process=None,
+                        payload=payload,
+                    ))
 
             # Start typing indicator for DMs and mentions
             if message_type in ("discord:dm", "discord:mention"):

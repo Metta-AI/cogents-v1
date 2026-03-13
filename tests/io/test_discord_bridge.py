@@ -220,8 +220,9 @@ class TestBridgeInbound:
         msg = _make_message(content="hi")
         await bridge._relay_to_db(msg)
 
-        repo.append_channel_message.assert_called_once()
-        channel_msg = repo.append_channel_message.call_args.args[0]
+        # 2 writes: catch-all + fine-grained channel
+        assert repo.append_channel_message.call_count == 2
+        channel_msg = repo.append_channel_message.call_args_list[0].args[0]
         assert channel_msg.payload["message_type"] == "discord:message"
 
     async def test_relay_dm(self):
@@ -237,8 +238,9 @@ class TestBridgeInbound:
         msg = _make_message(is_dm=True, content="secret")
         await bridge._relay_to_db(msg)
 
-        repo.append_channel_message.assert_called_once()
-        channel_msg = repo.append_channel_message.call_args.args[0]
+        # 2 writes: catch-all + fine-grained channel
+        assert repo.append_channel_message.call_count == 2
+        channel_msg = repo.append_channel_message.call_args_list[0].args[0]
         assert channel_msg.payload["is_dm"] is True
         assert channel_msg.payload["message_type"] == "discord:dm"
 
@@ -289,6 +291,92 @@ class TestBridgeInbound:
         await bridge._relay_to_db(msg)
 
         bridge._start_typing.assert_called_once()
+
+    async def test_relay_channel_message_writes_to_fine_grained_channel(self):
+        """Channel messages should also write to io:discord:message:<channel_id>."""
+        bridge = _make_bridge()
+        repo = MagicMock()
+        bridge._get_repo = MagicMock(return_value=repo)
+
+        from cogos.db.models import Channel, ChannelType
+        catch_all = Channel(name="io:discord:message", channel_type=ChannelType.NAMED)
+        fine = Channel(name="io:discord:message:100", channel_type=ChannelType.NAMED)
+
+        def _get_channel(name):
+            if name == "io:discord:message":
+                return catch_all
+            if name == "io:discord:message:100":
+                return fine
+            return None
+
+        repo.get_channel_by_name.side_effect = _get_channel
+
+        msg = _make_message(content="hi", channel_id=100)
+        await bridge._relay_to_db(msg)
+
+        assert repo.append_channel_message.call_count == 2
+        channels_written = {call.args[0].channel for call in repo.append_channel_message.call_args_list}
+        assert catch_all.id in channels_written
+        assert fine.id in channels_written
+
+    async def test_relay_dm_writes_to_fine_grained_channel(self):
+        """DM messages should also write to io:discord:dm:<author_id>."""
+        bridge = _make_bridge()
+        bridge._start_typing = MagicMock()
+        repo = MagicMock()
+        bridge._get_repo = MagicMock(return_value=repo)
+
+        from cogos.db.models import Channel, ChannelType
+        catch_all = Channel(name="io:discord:dm", channel_type=ChannelType.NAMED)
+        fine = Channel(name="io:discord:dm:42", channel_type=ChannelType.NAMED)
+
+        def _get_channel(name):
+            if name == "io:discord:dm":
+                return catch_all
+            if name == "io:discord:dm:42":
+                return fine
+            return None
+
+        repo.get_channel_by_name.side_effect = _get_channel
+
+        msg = _make_message(is_dm=True, content="secret")
+        await bridge._relay_to_db(msg)
+
+        assert repo.append_channel_message.call_count == 2
+        channels_written = {call.args[0].channel for call in repo.append_channel_message.call_args_list}
+        assert catch_all.id in channels_written
+        assert fine.id in channels_written
+
+    async def test_relay_creates_fine_grained_channel_if_missing(self):
+        """Fine-grained channel should be auto-created if it doesn't exist."""
+        bridge = _make_bridge()
+        repo = MagicMock()
+        bridge._get_repo = MagicMock(return_value=repo)
+
+        from cogos.db.models import Channel, ChannelType
+        catch_all = Channel(name="io:discord:message", channel_type=ChannelType.NAMED)
+        created_fine = Channel(name="io:discord:message:100", channel_type=ChannelType.NAMED)
+
+        call_count = {"fine": 0}
+
+        def _get_channel(name):
+            if name == "io:discord:message":
+                return catch_all
+            if name == "io:discord:message:100":
+                call_count["fine"] += 1
+                return None if call_count["fine"] == 1 else created_fine
+            return None
+
+        repo.get_channel_by_name.side_effect = _get_channel
+
+        msg = _make_message(content="hi", channel_id=100)
+        await bridge._relay_to_db(msg)
+
+        # Should have upserted the fine-grained channel
+        upsert_calls = [c for c in repo.upsert_channel.call_args_list
+                        if c.args[0].name == "io:discord:message:100"]
+        assert len(upsert_calls) == 1
+        assert repo.append_channel_message.call_count == 2
 
     async def test_relay_no_typing_on_channel_message(self):
         bridge = _make_bridge()
