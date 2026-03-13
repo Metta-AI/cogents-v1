@@ -38,16 +38,16 @@ const STATUS_ABBREV: Record<string, string> = {
 
 function renderLogPreview(state: CogosRunLogsResponse | undefined, loading: boolean) {
   if (loading) {
-    return <div className="text-[11px] text-[var(--text-muted)]">Loading CloudWatch preview...</div>;
+    return <div className="text-[11px] text-[var(--text-muted)]">Loading run log preview...</div>;
   }
   if (!state) {
-    return <div className="text-[11px] text-[var(--text-muted)]">Expand to load CloudWatch preview.</div>;
+    return <div className="text-[11px] text-[var(--text-muted)]">Expand to load run logs.</div>;
   }
   if (state.error) {
     return <div className="text-[11px] text-red-400">{state.error}</div>;
   }
   if (state.entries.length === 0) {
-    return <div className="text-[11px] text-[var(--text-muted)]">No log preview found for this run.</div>;
+    return <div className="text-[11px] text-[var(--text-muted)]">No run logs found for this run.</div>;
   }
 
   return (
@@ -201,14 +201,14 @@ export function RunsPanel({ runs, cogentName }: Props) {
     }
 
     setExpandedRunIds((prev) => new Set(prev).add(runId));
-    if (logPreviewByRun[runId] || loadingRunIds.has(runId)) return;
+    if (loadingRunIds.has(runId)) return;
 
     setLoadingRunIds((prev) => new Set(prev).add(runId));
     try {
       const preview = await api.getRunLogs(cogentName, runId);
       setLogPreviewByRun((prev) => ({ ...prev, [runId]: preview }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not load CloudWatch preview.";
+      const message = error instanceof Error ? error.message : "Could not load run log preview.";
       setLogPreviewByRun((prev) => ({
         ...prev,
         [runId]: { log_group: "", log_stream: null, entries: [], error: message },
