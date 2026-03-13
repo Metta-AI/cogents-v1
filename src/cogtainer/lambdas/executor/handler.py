@@ -9,6 +9,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import boto3
+from botocore.config import Config as BotoConfig
 
 from cogtainer.db.models import Event, Program, ProgramType, Run, RunStatus, infer_program_type
 from cogtainer.lambdas.shared.config import get_config
@@ -225,7 +226,11 @@ def _handle_execute_code(tool_input: dict, tool_names: list[str], config) -> str
 def execute_program(program: Program, event_data: dict, run: Run, config,
                     task_data: dict | None = None) -> Run:
     """Execute program via Bedrock converse API with Code Mode tool loop."""
-    bedrock = boto3.client("bedrock-runtime", region_name=config.region)
+    bedrock = boto3.client(
+        "bedrock-runtime",
+        region_name=config.region,
+        config=BotoConfig(retries={"max_attempts": 12, "mode": "adaptive"}),
+    )
     repo = get_repo()
 
     # Merge task tool overrides into a program copy
@@ -260,7 +265,7 @@ def execute_program(program: Program, event_data: dict, run: Run, config,
     tool_config = CODE_MODE_TOOL_CONFIG if program.tools else None
     tool_names = program.tools or []
 
-    model_id = program.metadata.get("model_version") or "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    model_id = program.metadata.get("model_version") or "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     run.model_version = model_id
 
     total_input_tokens = 0

@@ -14,6 +14,7 @@ from typing import Any
 from uuid import UUID
 
 import boto3
+from botocore.config import Config as BotoConfig
 
 from cogos.db.factory import create_repository
 from cogos.db.models import Process, ProcessStatus, Run, RunStatus
@@ -32,7 +33,7 @@ class ExecutorConfig:
     db_secret_arn: str = ""
     db_name: str = ""
     max_turns: int = 20
-    default_model: str = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    default_model: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 
 def get_config() -> ExecutorConfig:
@@ -42,7 +43,7 @@ def get_config() -> ExecutorConfig:
         db_secret_arn=os.environ.get("DB_SECRET_ARN", ""),
         db_name=os.environ.get("DB_NAME", ""),
         max_turns=int(os.environ.get("MAX_TURNS", "20")),
-        default_model=os.environ.get("DEFAULT_MODEL", "us.anthropic.claude-sonnet-4-20250514-v1:0"),
+        default_model=os.environ.get("DEFAULT_MODEL", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"),
     )
 
 
@@ -277,7 +278,11 @@ def execute_process(
     bedrock_client: Any | None = None,
 ) -> Run:
     """Execute process via Bedrock converse API with search + run_code tool loop."""
-    bedrock = bedrock_client or boto3.client("bedrock-runtime", region_name=config.region)
+    bedrock = bedrock_client or boto3.client(
+        "bedrock-runtime",
+        region_name=config.region,
+        config=BotoConfig(retries={"max_attempts": 12, "mode": "adaptive"}),
+    )
 
     # Build system prompt using the shared ContextEngine
     from cogos.files.context_engine import ContextEngine
