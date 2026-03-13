@@ -100,7 +100,7 @@ def load_image(image_dir: Path) -> ImageSpec:
                 key = str(f.relative_to(files_dir))
                 spec.files[key] = f.read_text()
 
-    # Load apps — each app is a sub-image with its own init/ and files/
+    # Load apps — each app has init/ for scripts and everything else is files
     apps_dir = image_dir / "apps"
     if apps_dir.is_dir():
         for app_dir in sorted(apps_dir.iterdir()):
@@ -113,12 +113,10 @@ def load_image(image_dir: Path) -> ImageSpec:
                     if py.name.startswith("_"):
                         continue
                     exec(compile(py.read_text(), str(py), "exec"), builtins.copy())
-            # App files
-            app_files = app_dir / "files"
-            if app_files.is_dir():
-                for f in sorted(app_files.rglob("*")):
-                    if f.is_file():
-                        key = str(f.relative_to(app_files))
-                        spec.files[key] = f.read_text()
+            # App files — everything under the app dir except init/
+            for f in sorted(app_dir.rglob("*")):
+                if f.is_file() and "init" not in f.relative_to(app_dir).parts:
+                    key = str(f.relative_to(image_dir))
+                    spec.files[key] = f.read_text()
 
     return spec

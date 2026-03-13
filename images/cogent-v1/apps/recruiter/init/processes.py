@@ -17,7 +17,7 @@ add_channel("recruiter:feedback", channel_type="named")
 add_process(
     "recruiter",
     mode="daemon",
-    content="@{apps/recruiter/prompts/recruiter.md}",
+    content="@{apps/recruiter/recruiter.md}",
     runner="lambda",
     priority=5.0,
     capabilities=["me", "procs", "dir", "file", "discord", "channels", "secrets", "stdlib"],
@@ -26,4 +26,4 @@ add_process(
 
 # All sub-processes (discover, present, profile, evolve) are spawned
 # dynamically by the root recruiter process via procs.spawn() with
-# scoped capabilities. Their prompts live in apps/recruiter/prompts/.
+# scoped capabilities. Their prompts live in apps/recruiter/.

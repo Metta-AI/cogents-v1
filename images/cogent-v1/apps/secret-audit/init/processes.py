@@ -60,7 +60,7 @@ add_channel(
 add_process(
     "secret-audit",
     mode="daemon",
-    content="@{apps/secret-audit/prompts/orchestrator.md}",
+    content="@{apps/secret-audit/orchestrator.md}",
     runner="lambda",
     priority=4.0,
     capabilities=["me", "procs", "dir", "file", "channels", "secrets", "stdlib"],

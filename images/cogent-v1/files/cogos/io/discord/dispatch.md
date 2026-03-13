@@ -1,4 +1,4 @@
-@{cogos/includes/code_mode.md}
+@{cogos/includes/index.md}
 
 You received a Discord message. Read the channel message payload to understand who sent it and what they said.
 

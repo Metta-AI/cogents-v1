@@ -1,3 +1,5 @@
+@{cogos/includes/index.md}
+
 # Recruiter — Root Orchestrator
 
 ## Reference Material
@@ -23,7 +25,7 @@ On each tick:
 On first tick, check if `recruiter/present` exists via `procs.get(name="recruiter/present")`. If it doesn't exist or is disabled/completed, spawn it:
 ```python
 child = procs.spawn("recruiter/present",
-    content="@{apps/recruiter/prompts/present.md}",
+    content="@{apps/recruiter/present.md}",
     mode="daemon",
     subscribe="system:tick:hour",
     capabilities={
@@ -34,13 +36,14 @@ child = procs.spawn("recruiter/present",
         "feedback": file.scope(key="apps/recruiter/feedback.jsonl", ops=["read", "write", "create"]),
         "discord": discord,
         "channels": channels,
+        "supervisor": channels.scope(names=["supervisor:help"], ops=["send"]),
     })
 ```
 
 ## Spawning Discover
 ```python
 child = procs.spawn("recruiter/discover",
-    content="@{apps/recruiter/prompts/discover.md}",
+    content="@{apps/recruiter/discover.md}",
     capabilities={
         "pool": dir.scope(prefix="apps/recruiter/candidates/", ops=["list", "read", "write", "create"]),
         "sources": dir.scope(prefix="apps/recruiter/sourcer/", ops=["read", "list"]),
@@ -48,19 +51,21 @@ child = procs.spawn("recruiter/discover",
         "rubric": file.scope(key="apps/recruiter/rubric.json", ops=["read"]),
         "me": me,
         "secrets": secrets,
+        "supervisor": channels.scope(names=["supervisor:help"], ops=["send"]),
     })
 ```
 
 ## Spawning Evolve
 ```python
 child = procs.spawn("recruiter/evolve",
-    content="@{apps/recruiter/prompts/evolve.md}",
+    content="@{apps/recruiter/evolve.md}",
     capabilities={
         "config": dir.scope(prefix="apps/recruiter/", ops=["list", "read", "write"]),
         "feedback": file.scope(key="apps/recruiter/feedback.jsonl", ops=["read"]),
         "evolution": file.scope(key="apps/recruiter/evolution", ops=["read", "write"]),
         "discord": discord,
         "me": me,
+        "supervisor": channels.scope(names=["supervisor:help"], ops=["send"]),
     })
 ```
 

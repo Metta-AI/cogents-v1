@@ -1,3 +1,5 @@
+@{cogos/includes/index.md}
+
 # Secret Audit Orchestrator
 
 ## Reference Material
@@ -77,7 +79,7 @@ Use a dedicated child name so jobs stay inspectable:
 ```python
 scout = procs.spawn(
     f"secret-audit/scout/{job_id}",
-    content="@{apps/secret-audit/prompts/scout.md}",
+    content="@{apps/secret-audit/scout.md}",
     capabilities={
         "workspace": dir.scope(prefix=job["prefix"], ops=["list", "read"]),
         "evidence": dir.scope(
@@ -88,6 +90,7 @@ scout = procs.spawn(
         "config": file.scope(key="apps/secret-audit/config.json", ops=["read"]),
         "heuristics": file.scope(key="apps/secret-audit/heuristics.md", ops=["read"]),
         "stdlib": stdlib,
+        "supervisor": channels.scope(names=["supervisor:help"], ops=["send"]),
     },
     schema={
         "job_id": "string",
@@ -126,7 +129,7 @@ then:
 ```python
 verifier = procs.spawn(
     f"secret-audit/verifier/{job_id}",
-    content="@{apps/secret-audit/prompts/verifier.md}",
+    content="@{apps/secret-audit/verifier.md}",
     capabilities={
         "evidence": dir.scope(
             prefix=config["evidence_prefix"],
@@ -140,6 +143,7 @@ verifier = procs.spawn(
         "secrets": secrets.scope(keys=job["secret_keys"]),
         "config": file.scope(key="apps/secret-audit/config.json", ops=["read"]),
         "stdlib": stdlib,
+        "supervisor": channels.scope(names=["supervisor:help"], ops=["send"]),
     },
     schema={
         "job_id": "string",

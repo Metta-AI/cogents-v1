@@ -13,7 +13,7 @@ def test_cogent_v1_secret_audit_loads():
 
     audit = next(p for p in spec.processes if p["name"] == "secret-audit")
     assert audit["mode"] == "daemon"
-    assert audit["content"] == "@{apps/secret-audit/prompts/orchestrator.md}"
+    assert audit["content"] == "@{apps/secret-audit/orchestrator.md}"
     assert "procs" in audit["capabilities"]
     assert "secrets" in audit["capabilities"]
     assert "channels" in audit["capabilities"]
@@ -29,23 +29,19 @@ def test_cogent_v1_secret_audit_files():
     assert "apps/secret-audit/config.json" in audit_files
     assert "apps/secret-audit/heuristics.md" in audit_files
     assert "apps/secret-audit/report-format.md" in audit_files
-
-    prompt_files = {k for k in audit_files if "prompts/" in k}
-    assert prompt_files == {
-        "apps/secret-audit/prompts/orchestrator.md",
-        "apps/secret-audit/prompts/scout.md",
-        "apps/secret-audit/prompts/verifier.md",
-    }
+    assert "apps/secret-audit/orchestrator.md" in audit_files
+    assert "apps/secret-audit/scout.md" in audit_files
+    assert "apps/secret-audit/verifier.md" in audit_files
 
 
 def test_cogent_v1_secret_audit_prompt_refs_are_explicit():
     spec = load_image(Path("images/cogent-v1"))
 
-    assert "@{apps/secret-audit/config.json}" in spec.files["apps/secret-audit/prompts/orchestrator.md"]
-    assert "@{apps/secret-audit/heuristics.md}" in spec.files["apps/secret-audit/prompts/orchestrator.md"]
-    assert "@{apps/secret-audit/report-format.md}" in spec.files["apps/secret-audit/prompts/orchestrator.md"]
-    assert "@{apps/secret-audit/heuristics.md}" in spec.files["apps/secret-audit/prompts/scout.md"]
-    assert "@{apps/secret-audit/config.json}" in spec.files["apps/secret-audit/prompts/verifier.md"]
+    assert "@{apps/secret-audit/config.json}" in spec.files["apps/secret-audit/orchestrator.md"]
+    assert "@{apps/secret-audit/heuristics.md}" in spec.files["apps/secret-audit/orchestrator.md"]
+    assert "@{apps/secret-audit/report-format.md}" in spec.files["apps/secret-audit/orchestrator.md"]
+    assert "@{apps/secret-audit/heuristics.md}" in spec.files["apps/secret-audit/scout.md"]
+    assert "@{apps/secret-audit/config.json}" in spec.files["apps/secret-audit/verifier.md"]
 
 
 def test_cogent_v1_secret_audit_channels_and_schemas():

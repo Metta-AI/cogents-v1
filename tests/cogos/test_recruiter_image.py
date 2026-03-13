@@ -25,14 +25,13 @@ def _write_app_image(tmp: Path) -> Path:
     app_init.mkdir(parents=True)
     (app_init / "processes.py").write_text(
         'add_channel("myapp:events", channel_type="named")\n'
-        'add_process("myapp/worker", mode="daemon", content="@{myapp/prompt.md}", '
+        'add_process("myapp/worker", mode="daemon", content="@{apps/myapp/prompt.md}", '
         'capabilities=["dir"], handlers=["myapp:events"])\n'
     )
 
-    # App files
-    app_files = tmp / "apps" / "myapp" / "files" / "myapp"
-    app_files.mkdir(parents=True)
-    (app_files / "prompt.md").write_text("You are a worker.\n@{myapp/config.md}")
+    # App files — on disk matches the key (apps/myapp/...)
+    app_files = tmp / "apps" / "myapp"
+    (app_files / "prompt.md").write_text("You are a worker.\n@{apps/myapp/config.md}")
     (app_files / "config.md").write_text("Config here.")
 
     return tmp
@@ -55,9 +54,9 @@ def test_apps_load_files():
         _write_app_image(Path(td))
         spec = load_image(Path(td))
 
-    assert "myapp/prompt.md" in spec.files
-    assert spec.files["myapp/prompt.md"] == "You are a worker.\n@{myapp/config.md}"
-    assert "myapp/config.md" in spec.files
+    assert "apps/myapp/prompt.md" in spec.files
+    assert spec.files["apps/myapp/prompt.md"] == "You are a worker.\n@{apps/myapp/config.md}"
+    assert "apps/myapp/config.md" in spec.files
 
 
 def test_apps_load_channels():
@@ -76,7 +75,7 @@ def test_app_prompt_refs_are_explicit_in_file_content():
         _write_app_image(Path(td))
         spec = load_image(Path(td))
 
-    assert "@{myapp/config.md}" in spec.files["myapp/prompt.md"]
+    assert "@{apps/myapp/config.md}" in spec.files["apps/myapp/prompt.md"]
 
 
 def test_apps_dont_affect_top_level():
@@ -96,17 +95,12 @@ def test_cogent_v1_recruiter_loads():
 
     proc_names = {p["name"] for p in spec.processes}
     assert "recruiter" in proc_names
-    assert "recruiter/present" in proc_names
 
     recruiter = next(p for p in spec.processes if p["name"] == "recruiter")
     assert recruiter["mode"] == "daemon"
-    assert recruiter["content"] == "@{apps/recruiter/prompts/recruiter.md}"
+    assert recruiter["content"] == "@{apps/recruiter/recruiter.md}"
     assert "procs" in recruiter["capabilities"]
     assert "discord" in recruiter["capabilities"]
-
-    present = next(p for p in spec.processes if p["name"] == "recruiter/present")
-    assert present["mode"] == "daemon"
-    assert present["content"] == "@{apps/recruiter/prompts/present.md}"
 
 
 def test_cogent_v1_recruiter_files():
@@ -123,19 +117,22 @@ def test_cogent_v1_recruiter_files():
     sourcer_files = {k for k in recruiter_files if "sourcer/" in k}
     assert len(sourcer_files) == 4
 
-    prompt_files = {k for k in recruiter_files if "prompts/" in k}
-    assert len(prompt_files) == 5
+    prompt_files = {k for k in recruiter_files if k.endswith((".md", ".json")) and "sourcer/" not in k and "init/" not in k}
+    # recruiter.md, discover.md, evolve.md, present.md, profile.md,
+    # criteria.md, diagnosis.md, evolution.md, strategy.md, design.md
+    assert "apps/recruiter/recruiter.md" in prompt_files
+    assert "apps/recruiter/discover.md" in prompt_files
 
 
 def test_cogent_v1_recruiter_prompt_refs_are_explicit():
     """Recruiter prompt dependencies should be declared inline in prompt files."""
     spec = load_image(Path("images/cogent-v1"))
 
-    assert "@{apps/recruiter/criteria.md}" in spec.files["apps/recruiter/prompts/recruiter.md"]
-    assert "@{apps/recruiter/strategy.md}" in spec.files["apps/recruiter/prompts/recruiter.md"]
-    assert "@{apps/recruiter/rubric.json}" in spec.files["apps/recruiter/prompts/discover.md"]
-    assert "@{apps/recruiter/sourcer/github.md}" in spec.files["apps/recruiter/prompts/discover.md"]
-    assert "@{apps/recruiter/diagnosis.md}" in spec.files["apps/recruiter/prompts/evolve.md"]
+    assert "@{apps/recruiter/criteria.md}" in spec.files["apps/recruiter/recruiter.md"]
+    assert "@{apps/recruiter/strategy.md}" in spec.files["apps/recruiter/recruiter.md"]
+    assert "@{apps/recruiter/rubric.json}" in spec.files["apps/recruiter/discover.md"]
+    assert "@{apps/recruiter/sourcer/github.md}" in spec.files["apps/recruiter/discover.md"]
+    assert "@{apps/recruiter/diagnosis.md}" in spec.files["apps/recruiter/evolve.md"]
 
 
 def test_cogent_v1_recruiter_channel():

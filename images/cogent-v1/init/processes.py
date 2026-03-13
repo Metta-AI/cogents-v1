@@ -10,6 +10,7 @@ add_process(
         "scheduler/dispatch_process",
         "scheduler/unblock_processes",
         "scheduler/kill_process",
+        "channels",
     ],
     handlers=[],
 )
