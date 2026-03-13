@@ -952,6 +952,40 @@ def reload(ctx: click.Context, image: str, yes: bool):
 
 
 # ═══════════════════════════════════════════════════════════
+# LOCAL EXECUTOR
+# ═══════════════════════════════════════════════════════════
+
+@cogos.command("run-local")
+@click.option("--poll-interval", type=float, default=2.0, help="Seconds between ticks (default: 2)")
+@click.option("--once", is_flag=True, help="Run one tick and exit")
+@click.pass_context
+def run_local(ctx: click.Context, poll_interval: float, once: bool):
+    """Run the local executor loop (replaces Lambda dispatch)."""
+    os.environ["USE_LOCAL_DB"] = "1"
+
+    from cogos.executor.handler import get_config
+    from cogos.runtime.local import run_local_loop
+
+    repo = _repo()
+    config = get_config()
+    bedrock = _bedrock_client()
+
+    click.echo(f"Local executor running (poll={poll_interval}s, once={once})")
+    if not once:
+        click.echo("Press Ctrl+C to stop.")
+
+    try:
+        run_local_loop(
+            repo, config,
+            poll_interval=poll_interval,
+            once=once,
+            bedrock_client=bedrock,
+        )
+    except KeyboardInterrupt:
+        click.echo("\nLocal executor stopped.")
+
+
+# ═══════════════════════════════════════════════════════════
 # DISCORD commands
 # ═══════════════════════════════════════════════════════════
 
