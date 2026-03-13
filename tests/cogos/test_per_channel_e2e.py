@@ -1,0 +1,194 @@
+"""End-to-end test for per-channel Discord sub-handler routing.
+
+Boots cogent-v1 image, simulates Discord DM flow, verifies:
+1. Parent handler wakes on first DM
+2. Parent spawns a daemon child subscribed to the fine-grained channel
+3. On second DM, child has its own delivery on the fine-grained channel
+4. Idle reaping cleans up the child after timeout
+"""
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from uuid import UUID
+
+from cogos.capabilities.procs import ProcsCapability
+from cogos.capabilities.scheduler import SchedulerCapability
+from cogos.db.local_repository import LocalRepository
+from cogos.db.models import (
+    Channel,
+    ChannelMessage,
+    ChannelType,
+    Handler,
+    Process,
+    ProcessMode,
+    ProcessStatus,
+    Run,
+    RunStatus,
+)
+from cogos.image.apply import apply_image
+from cogos.image.spec import load_image
+from cogos.runtime.local import run_local_tick
+
+
+def _repo(tmp_path) -> LocalRepository:
+    return LocalRepository(str(tmp_path / "db"))
+
+
+def _dm_payload(author_id: str = "42", content: str = "hello") -> dict:
+    return {
+        "content": content,
+        "author": "tester",
+        "author_id": author_id,
+        "channel_id": "999",
+        "message_type": "discord:dm",
+        "is_dm": True,
+        "is_mention": False,
+        "attachments": [],
+        "embeds": [],
+    }
+
+
+def _simulate_bridge_dm(repo: LocalRepository, payload: dict) -> None:
+    """Simulate what the bridge does: write to catch-all + fine-grained channel."""
+    author_id = payload["author_id"]
+
+    # Catch-all
+    catch_all = repo.get_channel_by_name("io:discord:dm")
+    if catch_all is None:
+        catch_all = Channel(name="io:discord:dm", channel_type=ChannelType.NAMED)
+        repo.upsert_channel(catch_all)
+        catch_all = repo.get_channel_by_name("io:discord:dm")
+    repo.append_channel_message(ChannelMessage(
+        channel=catch_all.id, sender_process=None, payload=payload,
+    ))
+
+    # Fine-grained
+    fine_name = f"io:discord:dm:{author_id}"
+    fine = repo.get_channel_by_name(fine_name)
+    if fine is None:
+        fine = Channel(name=fine_name, channel_type=ChannelType.NAMED)
+        repo.upsert_channel(fine)
+        fine = repo.get_channel_by_name(fine_name)
+    repo.append_channel_message(ChannelMessage(
+        channel=fine.id, sender_process=None, payload=payload,
+    ))
+
+
+def test_per_channel_dm_routing_full_flow(tmp_path):
+    """Full flow: boot image, send DM, parent spawns child, second DM goes to child."""
+    repo = _repo(tmp_path)
+
+    # Boot cogent-v1 image
+    repo_root = Path(__file__).resolve().parents[2]
+    image_dir = repo_root / "images" / "cogent-v1"
+    spec = load_image(image_dir)
+    apply_image(spec, repo)
+
+    # Verify parent process exists with handlers
+    parent = repo.get_process_by_name("discord-handle-message")
+    assert parent is not None
+    assert parent.mode == ProcessMode.DAEMON
+    assert parent.status == ProcessStatus.WAITING
+
+    parent_handlers = repo.list_handlers(process_id=parent.id)
+    handler_channels = set()
+    for h in parent_handlers:
+        ch = repo.get_channel(h.channel)
+        if ch:
+            handler_channels.add(ch.name)
+    assert "io:discord:dm" in handler_channels
+    assert "io:discord:message" in handler_channels
+    assert "io:discord:mention" in handler_channels
+
+    # Send first DM — simulates bridge dual-write
+    _simulate_bridge_dm(repo, _dm_payload(author_id="42", content="hello"))
+
+    # Parent should now be RUNNABLE (got delivery on catch-all)
+    parent = repo.get_process(parent.id)
+    assert parent.status == ProcessStatus.RUNNABLE
+
+    # Run a tick with a fake executor that simulates what the LLM would do:
+    # check for child, spawn one if missing
+    def _parent_spawns_child(process, event_data, run, config, repo, **kwargs):
+        """Simulate parent's LLM behavior: spawn a child for this DM author."""
+        payload = event_data.get("payload", {})
+        author_id = payload.get("author_id")
+        if not author_id:
+            return run
+
+        child_name = f"discord-dm:{author_id}"
+        existing = repo.get_process_by_name(child_name)
+        if existing and existing.status not in (
+            ProcessStatus.COMPLETED, ProcessStatus.DISABLED
+        ):
+            # Child already exists, skip
+            return run
+
+        # Spawn child — replicate what the LLM would call via procs capability
+        procs = ProcsCapability(repo, process.id)
+        procs.spawn(
+            name=child_name,
+            content=f"DM handler for user {author_id}",
+            mode="daemon",
+            idle_timeout_ms=60_000,
+            subscribe=f"io:discord:dm:{author_id}",
+        )
+        return run
+
+    executed = run_local_tick(repo, None, execute_fn=_parent_spawns_child)
+    assert executed >= 1
+
+    # Verify child was spawned
+    child = repo.get_process_by_name("discord-dm:42")
+    assert child is not None
+    assert child.mode == ProcessMode.DAEMON
+    assert child.parent_process == parent.id
+    assert child.idle_timeout_ms == 60_000
+
+    # Verify child has a handler on the fine-grained channel
+    child_handlers = repo.list_handlers(process_id=child.id)
+    child_handler_channels = set()
+    for h in child_handlers:
+        ch = repo.get_channel(h.channel)
+        if ch:
+            child_handler_channels.add(ch.name)
+    assert "io:discord:dm:42" in child_handler_channels
+
+    # Send second DM from same author
+    _simulate_bridge_dm(repo, _dm_payload(author_id="42", content="second message"))
+
+    # Child should have pending deliveries on the fine-grained channel
+    child = repo.get_process(child.id)
+    child_deliveries = repo.get_pending_deliveries(child.id)
+    assert len(child_deliveries) >= 1
+    assert child.status == ProcessStatus.RUNNABLE
+
+
+def test_idle_reaping_cleans_up_child(tmp_path):
+    """Child daemon with idle_timeout_ms gets reaped after timeout expires."""
+    repo = _repo(tmp_path)
+    scheduler = SchedulerCapability(repo, UUID(int=0))
+
+    # Create a child daemon with short idle timeout
+    child = Process(
+        name="discord-dm:42",
+        mode=ProcessMode.DAEMON,
+        status=ProcessStatus.WAITING,
+        runner="lambda",
+        idle_timeout_ms=1_000,  # 1 second
+    )
+    repo.upsert_process(child)
+
+    # Create a completed run from 5 seconds ago
+    run = Run(process=child.id, status=RunStatus.COMPLETED)
+    run_id = repo.create_run(run)
+    repo.complete_run(run_id, status=RunStatus.COMPLETED, duration_ms=50)
+
+    # Backdate
+    r = repo.get_run(run_id)
+    r.created_at = datetime.now(timezone.utc) - timedelta(seconds=5)
+    repo._runs[run_id] = r
+
+    # Reap
+    result = scheduler.reap_idle_processes()
+    assert result.reaped_count == 1
+    assert repo.get_process(child.id).status == ProcessStatus.COMPLETED
