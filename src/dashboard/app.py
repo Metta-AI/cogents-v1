@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     )
 
     from dashboard.routers import (
+        alerts,
         capabilities,
         channels,
         cogos_status,
@@ -76,6 +77,7 @@ def create_app() -> FastAPI:
         setup,
         traces,
     )
+    app.include_router(alerts.router, prefix="/api/cogents/{name}")
     app.include_router(processes.router, prefix="/api/cogents/{name}")
     app.include_router(handlers.router, prefix="/api/cogents/{name}")
     app.include_router(files.router, prefix="/api/cogents/{name}")

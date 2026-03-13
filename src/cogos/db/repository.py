@@ -1119,6 +1119,21 @@ class Repository:
             ],
         )
 
+    def list_alerts(self, *, resolved: bool = False, limit: int = 50) -> list[dict]:
+        """Return recent alerts, unresolved by default."""
+        where = "" if resolved else "WHERE resolved_at IS NULL"
+        response = self._execute(
+            f"SELECT * FROM alerts {where} ORDER BY created_at DESC LIMIT :limit",
+            [self._param("limit", limit)],
+        )
+        return self._rows_to_dicts(response)
+
+    def resolve_alert(self, alert_id) -> None:
+        self._execute(
+            "UPDATE alerts SET resolved_at = now() WHERE id = :id",
+            [self._param("id", alert_id)],
+        )
+
     # ═══════════════════════════════════════════════════════════
     # SCHEMAS
     # ═══════════════════════════════════════════════════════════

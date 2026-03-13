@@ -442,10 +442,45 @@ export async function updateVersionContent(
 ): Promise<unknown> { return {}; }
 export async function deleteVersion(_name: string, _key: string, _version: number): Promise<void> {}
 
-// ── Alert management (stubs until backend routes exist) ─────────────────────
+// ── Alert management ─────────────────────────────────────────────────────────
 
-export async function resolveAlert(_name: string, _id: string): Promise<void> {}
-export async function resolveAllAlerts(_name: string): Promise<void> {}
-export async function getResolvedAlerts(_name: string, _limit?: number): Promise<Alert[]> { return []; }
-export async function createAlert(_name: string, _alert: Partial<Alert>): Promise<void> {}
-export async function deleteAlert(_name: string, _id: string): Promise<void> {}
+export async function getAlerts(name: string): Promise<Alert[]> {
+  const data = await fetchJSON<{ alerts: Alert[] }>(`/api/cogents/${name}/alerts`);
+  return data.alerts;
+}
+
+export async function resolveAlert(name: string, id: string): Promise<void> {
+  await fetch(`/api/cogents/${name}/alerts/${id}/resolve`, {
+    method: "POST",
+    headers: headers(),
+  });
+}
+
+export async function resolveAllAlerts(name: string): Promise<void> {
+  await fetch(`/api/cogents/${name}/alerts/resolve-all`, {
+    method: "POST",
+    headers: headers(),
+  });
+}
+
+export async function getResolvedAlerts(name: string, limit?: number): Promise<Alert[]> {
+  const params = new URLSearchParams({ resolved: "true" });
+  if (limit) params.set("limit", String(limit));
+  const data = await fetchJSON<{ alerts: Alert[] }>(`/api/cogents/${name}/alerts?${params}`);
+  return data.alerts;
+}
+
+export async function createAlert(name: string, alert: Partial<Alert>): Promise<void> {
+  await fetch(`/api/cogents/${name}/alerts`, {
+    method: "POST",
+    headers: { ...headers(), "Content-Type": "application/json" },
+    body: JSON.stringify(alert),
+  });
+}
+
+export async function deleteAlert(name: string, id: string): Promise<void> {
+  await fetch(`/api/cogents/${name}/alerts/${id}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+}
