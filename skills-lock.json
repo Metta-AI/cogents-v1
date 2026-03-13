@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "crawl": {
+      "source": "tavily-ai/skills",
+      "sourceType": "github",
+      "computedHash": "9620e0eb413c554263dd86d3c76be5f62590cc8388623b30cd68d06c7e8ec067"
+    },
+    "extract": {
+      "source": "tavily-ai/skills",
+      "sourceType": "github",
+      "computedHash": "d659e3ffc9339dee640484b2b2d2a5052375011bc9fcf57325180ce21e8fa097"
+    },
+    "research": {
+      "source": "tavily-ai/skills",
+      "sourceType": "github",
+      "computedHash": "cc0993d70b83bd356398569fb5204745d41ca30e0c7886f5df57b8ba4f4e588a"
+    },
+    "search": {
+      "source": "tavily-ai/skills",
+      "sourceType": "github",
+      "computedHash": "dffcec0ba919fe4bdecb9dda7b11a23b79a0185ad06c3cfd568a332828f774eb"
+    },
+    "tavily-best-practices": {
+      "source": "tavily-ai/skills",
+      "sourceType": "github",
+      "computedHash": "97857945b37eeea60400135e24eba92635c865d98c4a0fd1ed66eee33ee8bd45"
+    }
+  }
+}
