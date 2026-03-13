@@ -114,27 +114,88 @@ export function Header({
         borderBottom: "1px solid var(--border)",
       }}
     >
-      {/* Left: cogent name + status + WS indicator */}
+      {/* Left: cogent name (with hover panel) + tick */}
       <div className="flex items-center gap-3">
-        <span
-          style={{
-            color: "var(--accent)",
-            fontSize: "15px",
-            fontWeight: 700,
-          }}
-        >
-          {cogentName}
-        </span>
-        <span
-          style={{
-            color: error ? "var(--error)" : "var(--text-muted)",
-            fontSize: "11px",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          {statusText}
-        </span>
-        {/* Scheduler heartbeat */}
+        <div className="relative group">
+          <span
+            style={{
+              color: "var(--accent)",
+              fontSize: "15px",
+              fontWeight: 700,
+              cursor: "default",
+            }}
+          >
+            {cogentName}
+          </span>
+          {/* Hover panel */}
+          <div
+            className="absolute left-0 top-full mt-1 hidden group-hover:block z-50"
+            style={{
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border)",
+              borderRadius: "6px",
+              padding: "10px 14px",
+              minWidth: "220px",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div
+              style={{
+                color: error ? "var(--error)" : "var(--text-muted)",
+                fontSize: "11px",
+                fontFamily: "var(--font-mono)",
+                marginBottom: "8px",
+              }}
+            >
+              {statusText}
+            </div>
+            {tick != null && (
+              <div
+                style={{
+                  fontSize: "10px",
+                  fontFamily: "var(--font-mono)",
+                  color: tickColor(tick.ms),
+                  marginBottom: ages ? "8px" : 0,
+                }}
+              >
+                scheduler tick {tick.text}
+              </div>
+            )}
+            {ages && (
+              <div className="flex flex-wrap gap-1">
+                {(
+                  [
+                    ["image", ages.image],
+                    ["content", ages.content],
+                    ["stack", ages.stack],
+                    ["schema", ages.schema],
+                    ["state", ages.state],
+                  ] as const
+                ).map(([label, ts]) => {
+                  const age = fmtAge(ts);
+                  return (
+                    <span
+                      key={label}
+                      title={ts ? `${label}: ${new Date(ts).toLocaleString()}` : `${label}: unknown`}
+                      style={{
+                        fontSize: "9px",
+                        fontFamily: "var(--font-mono)",
+                        color: ageColor(ts),
+                        opacity: age ? 0.8 : 0.4,
+                        padding: "1px 4px",
+                        borderRadius: "3px",
+                        border: `1px solid ${age ? ageColor(ts) : "var(--border)"}`,
+                      }}
+                    >
+                      {label} {age ?? "?"}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Scheduler heartbeat — always visible */}
         {tick != null && (
           <span
             title={`Last scheduler tick: ${schedulerLastTick}`}
@@ -147,39 +208,6 @@ export function Header({
           >
             tick {tick.text}
           </span>
-        )}
-        {/* Age badges */}
-        {ages && (
-          <div className="flex items-center gap-1" style={{ marginLeft: "4px" }}>
-            {(
-              [
-                ["image", ages.image],
-                ["content", ages.content],
-                ["stack", ages.stack],
-                ["schema", ages.schema],
-                ["state", ages.state],
-              ] as const
-            ).map(([label, ts]) => {
-              const age = fmtAge(ts);
-              return (
-                <span
-                  key={label}
-                  title={ts ? `${label}: ${new Date(ts).toLocaleString()}` : `${label}: unknown`}
-                  style={{
-                    fontSize: "9px",
-                    fontFamily: "var(--font-mono)",
-                    color: ageColor(ts),
-                    opacity: age ? 0.8 : 0.4,
-                    padding: "1px 4px",
-                    borderRadius: "3px",
-                    border: `1px solid ${age ? ageColor(ts) : "var(--border)"}`,
-                  }}
-                >
-                  {label} {age ?? "?"}
-                </span>
-              );
-            })}
-          </div>
         )}
       </div>
 
