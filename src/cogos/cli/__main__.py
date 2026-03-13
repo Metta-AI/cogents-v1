@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
 from uuid import UUID
 
@@ -74,11 +73,9 @@ def _ensure_db_env(cogent_name: str) -> None:
 
 
 def _repo():
-    if os.environ.get("USE_LOCAL_DB") == "1":
-        from cogos.db.local_repository import LocalRepository
-        return LocalRepository()
-    from cogos.db.repository import Repository
-    return Repository.create()
+    from cogos.db.factory import create_repository
+
+    return create_repository()
 
 
 def _bedrock_client():

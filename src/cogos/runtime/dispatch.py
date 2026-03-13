@@ -1,0 +1,47 @@
+"""Shared dispatch-envelope helpers for local and remote runtimes."""
+
+from __future__ import annotations
+
+from typing import Any
+from uuid import UUID
+
+
+def _load_message_payload(repo, message_id: str | None) -> dict[str, Any]:
+    if not message_id:
+        return {}
+
+    msg_uuid = UUID(message_id)
+
+    channel_messages = getattr(repo, "_channel_messages", None)
+    if isinstance(channel_messages, dict):
+        msg = channel_messages.get(msg_uuid)
+        if msg is not None:
+            return msg.payload or {}
+
+    try:
+        rows = repo.query(
+            "SELECT payload FROM cogos_channel_message WHERE id = :id",
+            {"id": msg_uuid},
+        )
+    except Exception:
+        return {}
+
+    if not rows:
+        return {}
+
+    json_field = getattr(repo, "_json_field", None)
+    if callable(json_field):
+        return json_field(rows[0], "payload", {})
+
+    payload = rows[0].get("payload")
+    return payload if isinstance(payload, dict) else {}
+
+
+def build_dispatch_event(repo, dispatch_result) -> dict[str, Any]:
+    """Build the executor event envelope used by both local and prod dispatch."""
+    return {
+        "process_id": dispatch_result.process_id,
+        "run_id": dispatch_result.run_id,
+        "message_id": dispatch_result.message_id,
+        "payload": _load_message_payload(repo, dispatch_result.message_id),
+    }

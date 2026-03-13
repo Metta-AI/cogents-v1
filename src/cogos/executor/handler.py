@@ -9,13 +9,13 @@ import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from decimal import Decimal
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 import boto3
 
+from cogos.db.factory import create_repository
 from cogos.db.models import Process, ProcessStatus, Run, RunStatus
 from cogos.db.models.channel_message import ChannelMessage
 from cogos.db.repository import Repository
@@ -47,7 +47,7 @@ def get_config() -> ExecutorConfig:
 
 def get_repo(config: ExecutorConfig | None = None) -> Repository:
     config = config or get_config()
-    return Repository.create(
+    return create_repository(
         resource_arn=config.db_cluster_arn,
         secret_arn=config.db_secret_arn,
         database=config.db_name,

@@ -165,7 +165,7 @@ def snapshot_image(repo, output_dir: Path, *, cogent_name: str | None = None) ->
             parts.append(f'    schema={_repr_val(schema_name)}')
         parts.append(f'    channel_type={_repr_val(ch.channel_type.value)}')
         if ch.auto_close:
-            parts.append(f'    auto_close=True')
+            parts.append('    auto_close=True')
         lines.append(",\n".join(parts) + ",\n)")
     (init_dir / "channels.py").write_text("\n\n".join(lines) + "\n" if lines else "")
 
@@ -174,11 +174,11 @@ def snapshot_image(repo, output_dir: Path, *, cogent_name: str | None = None) ->
     lines = []
     for c in cron_rules:
         parts = [f'add_cron({_repr_val(c.expression)}']
-        parts.append(f'    event_type={_repr_val(c.event_type)}')
+        parts.append(f'    channel_name={_repr_val(c.channel_name)}')
         if c.payload:
             parts.append(f'    payload={_repr_val(c.payload)}')
         if not c.enabled:
-            parts.append(f'    enabled=False')
+            parts.append('    enabled=False')
         lines.append(",\n".join(parts) + ",\n)")
     (init_dir / "cron.py").write_text("\n\n".join(lines) + "\n" if lines else "")
 

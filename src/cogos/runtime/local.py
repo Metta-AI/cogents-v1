@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import logging
 import time
 from typing import Any, Callable
@@ -16,6 +17,8 @@ from cogos.db.models import (
     Run,
     RunStatus,
 )
+from cogos.runtime.dispatch import build_dispatch_event
+from cogos.runtime.schedule import apply_scheduled_messages
 
 logger = logging.getLogger(__name__)
 
@@ -83,22 +86,25 @@ def run_and_complete(
         )
 
         _emit_lifecycle(repo, process, {
-            "status": "success",
+            "type": "process:run:success",
             "run_id": str(run.id),
+            "process_id": str(process.id),
             "process_name": process.name,
             "duration_ms": duration_ms,
         })
 
-        # Transition process state
-        if process.mode.value == "daemon":
-            next_status = (
-                ProcessStatus.RUNNABLE
-                if repo.has_pending_deliveries(process.id)
-                else ProcessStatus.WAITING
-            )
-            repo.update_process_status(process.id, next_status)
-        else:
-            repo.update_process_status(process.id, ProcessStatus.COMPLETED)
+        # Transition process state — respect out-of-band status changes
+        current = repo.get_process(process.id)
+        if current and current.status not in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
+            if process.mode.value == "daemon":
+                next_status = (
+                    ProcessStatus.RUNNABLE
+                    if repo.has_pending_deliveries(process.id)
+                    else ProcessStatus.WAITING
+                )
+                repo.update_process_status(process.id, next_status)
+            else:
+                repo.update_process_status(process.id, ProcessStatus.COMPLETED)
 
     except Exception as e:
         duration_ms = int((time.time() - start) * 1000)
@@ -106,19 +112,26 @@ def run_and_complete(
         repo.complete_run(
             run.id,
             status=RunStatus.FAILED,
+            tokens_in=run.tokens_in,
+            tokens_out=run.tokens_out,
+            cost_usd=run.cost_usd,
             duration_ms=duration_ms,
             error=str(e)[:4000],
         )
 
         _emit_lifecycle(repo, process, {
-            "status": "failed",
+            "type": "process:run:failed",
             "run_id": str(run.id),
+            "process_id": str(process.id),
             "process_name": process.name,
             "error": str(e)[:1000],
         })
 
-        # Transition process state
-        if process.mode.value == "daemon":
+        # Retry logic — respect out-of-band status changes
+        current = repo.get_process(process.id)
+        if current and current.status in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
+            pass
+        elif process.mode.value == "daemon":
             next_status = (
                 ProcessStatus.RUNNABLE
                 if repo.has_pending_deliveries(process.id)
@@ -140,12 +153,15 @@ def run_local_tick(
     *,
     execute_fn: Callable | None = None,
     bedrock_client: Any | None = None,
+    now: datetime | None = None,
 ) -> int:
     """Run one tick of the local executor loop.
 
     Returns the number of processes executed.
     """
     scheduler = SchedulerCapability(repo, process_id=_SENTINEL_UUID)
+
+    apply_scheduled_messages(repo, now=now)
 
     # Backstop: ensure all channel messages have deliveries
     scheduler.match_messages()
@@ -165,18 +181,11 @@ def run_local_tick(
 
         process = repo.get_process(UUID(dispatch.process_id))
         run = repo.get_run(UUID(dispatch.run_id))
-
-        # Build payload from the channel message if available
-        message_payload: dict = {}
-        if dispatch.message_id:
-            msg_uuid = UUID(dispatch.message_id)
-            cm = repo._channel_messages.get(msg_uuid)
-            if cm is not None:
-                message_payload = cm.payload if cm.payload else {}
+        event_data = build_dispatch_event(repo, dispatch)
 
         run_and_complete(
             process,
-            message_payload,
+            event_data,
             run,
             config,
             repo,

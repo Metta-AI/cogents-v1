@@ -134,8 +134,9 @@ class DiscordBridge:
 
     def _get_repo(self):
         if self._repo is None:
-            from cogos.db.repository import Repository
-            self._repo = Repository.create()
+            from cogos.db.factory import create_repository
+
+            self._repo = create_repository()
         return self._repo
 
     def _get_bot_token(self) -> str:

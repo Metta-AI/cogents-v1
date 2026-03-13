@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 
+from cogos.db.local_repository import LocalRepository
 from cogos.db.models import Channel, ChannelType
+from cogos.io.discord import bridge as bridge_mod
 from cogos.io.discord.bridge import DiscordBridge, _reply_queue_latency_ms
 
 
@@ -84,3 +86,23 @@ async def test_relay_to_db_recreates_missing_system_channel():
     assert channel_message.payload["message_type"] == "discord:dm"
 
     bridge._start_typing.assert_called_once_with(msg.channel)
+
+
+def test_bridge_uses_local_repository_when_requested(monkeypatch, tmp_path):
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def event(self, fn):
+            return fn
+
+    monkeypatch.setenv("USE_LOCAL_DB", "1")
+    monkeypatch.setenv("COGENT_NAME", "local")
+    monkeypatch.setenv("COGENT_LOCAL_DATA", str(tmp_path))
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setattr(bridge_mod.boto3, "client", lambda *args, **kwargs: MagicMock())
+    monkeypatch.setattr(bridge_mod.discord, "Client", _FakeClient)
+
+    bridge = DiscordBridge()
+
+    assert isinstance(bridge._get_repo(), LocalRepository)

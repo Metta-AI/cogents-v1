@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import json
 import logging
 import os
@@ -15,7 +17,6 @@ from cogos.db.models import (
     Capability,
     Channel,
     ChannelMessage,
-    ChannelType,
     Cron,
     Delivery,
     DeliveryStatus,
@@ -26,7 +27,6 @@ from cogos.db.models import (
     ProcessCapability,
     ProcessStatus,
     Resource,
-    ResourceType,
     Run,
     RunStatus,
     Schema,
@@ -56,7 +56,9 @@ class LocalRepository:
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._file = self._data_dir / "cogos_data.json"
+        self._lock_file = self._data_dir / "cogos_data.lock"
         self._file_mtime: float = 0.0
+        self._write_depth = 0
         self._processes: dict[UUID, Process] = {}
         self._capabilities: dict[UUID, Capability] = {}
         self._handlers: dict[UUID, Handler] = {}
@@ -76,26 +78,7 @@ class LocalRepository:
 
     # ── Persistence ──────────────────────────────────────────
 
-    def _maybe_reload(self) -> None:
-        if not self._file.exists():
-            return
-        try:
-            mtime = self._file.stat().st_mtime
-        except OSError:
-            return
-        if mtime > self._file_mtime:
-            self._load()
-
-    def _load(self) -> None:
-        if not self._file.exists():
-            return
-        try:
-            self._file_mtime = self._file.stat().st_mtime
-            data = json.loads(self._file.read_text())
-        except (json.JSONDecodeError, OSError):
-            logger.warning("Could not load cogos data from %s", self._file)
-            return
-
+    def _reset_state(self) -> None:
         self._processes.clear()
         self._capabilities.clear()
         self._handlers.clear()
@@ -111,55 +94,17 @@ class LocalRepository:
         self._channel_messages.clear()
         self._meta.clear()
 
-        for p in data.get("processes", []):
-            proc = Process(**p)
-            self._processes[proc.id] = proc
-        for c in data.get("capabilities", []):
-            cap = Capability(**c)
-            self._capabilities[cap.id] = cap
-        for h in data.get("handlers", []):
-            handler = Handler(**h)
-            self._handlers[handler.id] = handler
-        for pc in data.get("process_capabilities", []):
-            pcap = ProcessCapability(**pc)
-            self._process_capabilities[pcap.id] = pcap
-        for res in data.get("resources", []):
-            r = Resource(**res)
-            self._resources[r.name] = r
-        for cr in data.get("cron_rules", []):
-            c = Cron(**cr)
-            self._cron_rules[c.id] = c
-        for f in data.get("files", []):
-            fi = File(**f)
-            self._files[fi.id] = fi
-        for fv in data.get("file_versions", []):
-            ver = FileVersion(**fv)
-            self._file_versions.setdefault(ver.file_id, []).append(ver)
-        for ed in data.get("deliveries", data.get("event_deliveries", [])):
-            delivery = Delivery(**ed)
-            self._deliveries[delivery.id] = delivery
-        for r in data.get("runs", []):
-            run = Run(**r)
-            self._runs[run.id] = run
-        for s in data.get("schemas", []):
-            schema = Schema(**s)
-            self._schemas[schema.id] = schema
-        for ch in data.get("channels", []):
-            channel = Channel(**ch)
-            self._channels[channel.id] = channel
-        for cm in data.get("channel_messages", []):
-            msg = ChannelMessage(**cm)
-            self._channel_messages[msg.id] = msg
-        self._meta.update(data.get("meta", {}))
+    def _read_persisted_data(self) -> dict[str, Any]:
+        if not self._file.exists():
+            return {}
+        try:
+            return json.loads(self._file.read_text())
+        except (json.JSONDecodeError, OSError):
+            logger.warning("Could not load cogos data from %s", self._file)
+            return {}
 
-        logger.info(
-            "Loaded cogos data: %d processes, %d capabilities, %d files, %d deliveries, %d runs",
-            len(self._processes), len(self._capabilities), len(self._files),
-            len(self._deliveries), len(self._runs),
-        )
-
-    def _save(self) -> None:
-        data = {
+    def _serialize_state(self) -> dict[str, Any]:
+        return {
             "processes": [p.model_dump(mode="json") for p in self._processes.values()],
             "capabilities": [c.model_dump(mode="json") for c in self._capabilities.values()],
             "handlers": [h.model_dump(mode="json") for h in self._handlers.values()],
@@ -179,8 +124,179 @@ class LocalRepository:
             "channel_messages": [m.model_dump(mode="json") for m in self._channel_messages.values()],
             "meta": self._meta,
         }
-        self._file.write_text(json.dumps(data, indent=2, default=_json_serial))
+
+    @staticmethod
+    def _row_key(row: dict[str, Any], *fields: str) -> Any:
+        if len(fields) == 1:
+            return row.get(fields[0])
+        return tuple(row.get(field) for field in fields)
+
+    @classmethod
+    def _merge_rows(
+        cls,
+        latest_rows: list[dict[str, Any]],
+        current_rows: list[dict[str, Any]],
+        *,
+        primary_fields: tuple[str, ...],
+        conflict_fields: tuple[str, ...] | None = None,
+    ) -> list[dict[str, Any]]:
+        merged = {
+            cls._row_key(row, *primary_fields): row
+            for row in latest_rows
+        }
+        conflicts = {}
+        if conflict_fields:
+            conflicts = {
+                cls._row_key(row, *conflict_fields): cls._row_key(row, *primary_fields)
+                for row in latest_rows
+            }
+
+        for row in current_rows:
+            primary_key = cls._row_key(row, *primary_fields)
+            if conflict_fields:
+                conflict_key = cls._row_key(row, *conflict_fields)
+                previous_primary = conflicts.get(conflict_key)
+                if previous_primary is not None and previous_primary != primary_key:
+                    merged.pop(previous_primary, None)
+                conflicts[conflict_key] = primary_key
+            merged[primary_key] = row
+
+        return list(merged.values())
+
+    @classmethod
+    def _merge_serialized_data(
+        cls,
+        latest_data: dict[str, Any],
+        current_data: dict[str, Any],
+    ) -> dict[str, Any]:
+        specs: dict[str, tuple[tuple[str, ...], tuple[str, ...] | None]] = {
+            "processes": (("id",), ("name",)),
+            "capabilities": (("id",), ("name",)),
+            "handlers": (("id",), ("process", "channel")),
+            "process_capabilities": (("id",), ("process", "name")),
+            "files": (("id",), ("key",)),
+            "file_versions": (("id",), ("file_id", "version")),
+            "resources": (("id",), ("name",)),
+            "cron_rules": (("id",), ("expression", "channel_name")),
+            "deliveries": (("id",), ("message", "handler")),
+            "runs": (("id",), None),
+            "schemas": (("id",), ("name",)),
+            "channels": (("id",), ("name",)),
+            "channel_messages": (("id",), None),
+        }
+
+        merged = {}
+        for key, (primary_fields, conflict_fields) in specs.items():
+            merged[key] = cls._merge_rows(
+                latest_data.get(key, []),
+                current_data.get(key, []),
+                primary_fields=primary_fields,
+                conflict_fields=conflict_fields,
+            )
+
+        merged["meta"] = dict(latest_data.get("meta", {}))
+        merged["meta"].update(current_data.get("meta", {}))
+        return merged
+
+    def _populate_from_data(self, data: dict[str, Any]) -> None:
+        self._reset_state()
+
+        for p in data.get("processes", []):
+            proc = Process(**p)
+            self._processes[proc.id] = proc
+        for c in data.get("capabilities", []):
+            cap = Capability(**c)
+            self._capabilities[cap.id] = cap
+        for h in data.get("handlers", []):
+            handler = Handler(**h)
+            self._handlers[handler.id] = handler
+        for pc in data.get("process_capabilities", []):
+            pcap = ProcessCapability(**pc)
+            self._process_capabilities[pcap.id] = pcap
+        for res in data.get("resources", []):
+            resource = Resource(**res)
+            self._resources[resource.name] = resource
+        for cr in data.get("cron_rules", []):
+            cron = Cron(**cr)
+            self._cron_rules[cron.id] = cron
+        for f in data.get("files", []):
+            file = File(**f)
+            self._files[file.id] = file
+        for fv in data.get("file_versions", []):
+            version = FileVersion(**fv)
+            self._file_versions.setdefault(version.file_id, []).append(version)
+        for ed in data.get("deliveries", data.get("event_deliveries", [])):
+            delivery = Delivery(**ed)
+            self._deliveries[delivery.id] = delivery
+        for r in data.get("runs", []):
+            run = Run(**r)
+            self._runs[run.id] = run
+        for s in data.get("schemas", []):
+            schema = Schema(**s)
+            self._schemas[schema.id] = schema
+        for ch in data.get("channels", []):
+            channel = Channel(**ch)
+            self._channels[channel.id] = channel
+        for cm in data.get("channel_messages", []):
+            message = ChannelMessage(**cm)
+            self._channel_messages[message.id] = message
+        self._meta.update(data.get("meta", {}))
+
+    @contextmanager
+    def _writing(self):
+        outermost = self._write_depth == 0
+        if outermost:
+            self._maybe_reload()
+        self._write_depth += 1
+        committed = False
+        try:
+            yield
+            committed = True
+        finally:
+            self._write_depth -= 1
+            if outermost and committed:
+                self._save()
+
+    def _maybe_reload(self) -> None:
+        if self._write_depth > 0:
+            return
+        if not self._file.exists():
+            return
+        try:
+            mtime = self._file.stat().st_mtime
+        except OSError:
+            return
+        if mtime > self._file_mtime:
+            self._load()
+
+    def _load(self) -> None:
+        if not self._file.exists():
+            return
         self._file_mtime = self._file.stat().st_mtime
+        data = self._read_persisted_data()
+        self._populate_from_data(data)
+
+        logger.info(
+            "Loaded cogos data: %d processes, %d capabilities, %d files, %d deliveries, %d runs",
+            len(self._processes), len(self._capabilities), len(self._files),
+            len(self._deliveries), len(self._runs),
+        )
+
+    def _save(self) -> None:
+        current_data = self._serialize_state()
+        self._lock_file.touch(exist_ok=True)
+        with self._lock_file.open("a+") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                latest_data = self._read_persisted_data()
+                merged = self._merge_serialized_data(latest_data, current_data)
+                tmp_file = self._data_dir / f".{self._file.name}.{os.getpid()}.tmp"
+                tmp_file.write_text(json.dumps(merged, indent=2, default=_json_serial))
+                tmp_file.replace(self._file)
+                self._file_mtime = self._file.stat().st_mtime
+                self._populate_from_data(merged)
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
     # ── Raw query stubs (used by cogos_events router) ────────
 
@@ -192,21 +308,8 @@ class LocalRepository:
 
     def clear_all(self) -> None:
         """Wipe all in-memory data and persist the empty state."""
-        self._processes.clear()
-        self._capabilities.clear()
-        self._handlers.clear()
-        self._files.clear()
-        self._file_versions.clear()
-        self._process_capabilities.clear()
-        self._resources.clear()
-        self._cron_rules.clear()
-        self._deliveries.clear()
-        self._runs.clear()
-        self._schemas.clear()
-        self._channels.clear()
-        self._channel_messages.clear()
-        self._meta.clear()
-        self._save()
+        with self._writing():
+            self._reset_state()
 
     @staticmethod
     def _json_field(row: dict, key: str, default: Any = None) -> Any:
@@ -223,23 +326,23 @@ class LocalRepository:
     # ── Processes ─────────────────────────────────────────────
 
     def upsert_process(self, p: Process) -> UUID:
-        now = datetime.utcnow()
-        existing = self._processes.get(p.id)
-        if existing is None:
-            # Check by name
-            for ep in self._processes.values():
-                if ep.name == p.name:
-                    existing = ep
-                    break
-        if existing:
-            p.id = existing.id
-            p.created_at = existing.created_at
-        else:
-            p.created_at = now
-        p.updated_at = now
-        self._processes[p.id] = p
-        self._save()
-        return p.id
+        with self._writing():
+            now = datetime.utcnow()
+            existing = self._processes.get(p.id)
+            if existing is None:
+                # Check by name
+                for ep in self._processes.values():
+                    if ep.name == p.name:
+                        existing = ep
+                        break
+            if existing:
+                p.id = existing.id
+                p.created_at = existing.created_at
+            else:
+                p.created_at = now
+            p.updated_at = now
+            self._processes[p.id] = p
+            return p.id
 
     def get_process(self, process_id: UUID) -> Process | None:
         self._maybe_reload()
@@ -253,11 +356,11 @@ class LocalRepository:
         return None
 
     def delete_process(self, process_id: UUID) -> bool:
-        if process_id in self._processes:
-            del self._processes[process_id]
-            self._save()
-            return True
-        return False
+        with self._writing():
+            if process_id in self._processes:
+                del self._processes[process_id]
+                return True
+            return False
 
     def list_processes(self, *, status: ProcessStatus | None = None, limit: int = 200) -> list[Process]:
         self._maybe_reload()
@@ -268,17 +371,17 @@ class LocalRepository:
         return procs[:limit]
 
     def update_process_status(self, process_id: UUID, status: ProcessStatus) -> bool:
-        process = self._processes.get(process_id)
-        if process is None:
-            return False
-        process.status = status
-        if status == ProcessStatus.RUNNABLE:
-            process.runnable_since = process.runnable_since or datetime.utcnow()
-        else:
-            process.runnable_since = None
-        process.updated_at = datetime.utcnow()
-        self._save()
-        return True
+        with self._writing():
+            process = self._processes.get(process_id)
+            if process is None:
+                return False
+            process.status = status
+            if status == ProcessStatus.RUNNABLE:
+                process.runnable_since = process.runnable_since or datetime.utcnow()
+            else:
+                process.runnable_since = None
+            process.updated_at = datetime.utcnow()
+            return True
 
     def get_runnable_processes(self, limit: int = 50) -> list[Process]:
         self._maybe_reload()
@@ -293,33 +396,33 @@ class LocalRepository:
         return runnable[:limit]
 
     def increment_retry(self, process_id: UUID) -> bool:
-        process = self._processes.get(process_id)
-        if process is None:
-            return False
-        process.retry_count += 1
-        process.updated_at = datetime.utcnow()
-        self._save()
-        return True
+        with self._writing():
+            process = self._processes.get(process_id)
+            if process is None:
+                return False
+            process.retry_count += 1
+            process.updated_at = datetime.utcnow()
+            return True
 
     # ── Capabilities ─────────────────────────────────────────
 
     def upsert_capability(self, cap: Capability) -> UUID:
-        now = datetime.utcnow()
-        existing = self._capabilities.get(cap.id)
-        if existing is None:
-            for ec in self._capabilities.values():
-                if ec.name == cap.name:
-                    existing = ec
-                    break
-        if existing:
-            cap.id = existing.id
-            cap.created_at = existing.created_at
-        else:
-            cap.created_at = now
-        cap.updated_at = now
-        self._capabilities[cap.id] = cap
-        self._save()
-        return cap.id
+        with self._writing():
+            now = datetime.utcnow()
+            existing = self._capabilities.get(cap.id)
+            if existing is None:
+                for ec in self._capabilities.values():
+                    if ec.name == cap.name:
+                        existing = ec
+                        break
+            if existing:
+                cap.id = existing.id
+                cap.created_at = existing.created_at
+            else:
+                cap.created_at = now
+            cap.updated_at = now
+            self._capabilities[cap.id] = cap
+            return cap.id
 
     def get_capability_by_name(self, name: str) -> Capability | None:
         self._maybe_reload()
@@ -354,17 +457,16 @@ class LocalRepository:
     # ── Handlers ─────────────────────────────────────────────
 
     def create_handler(self, h: Handler) -> UUID:
-        # Upsert by (process, channel)
-        for existing in self._handlers.values():
-            if h.channel is not None:
-                if existing.process == h.process and existing.channel == h.channel:
-                    existing.enabled = h.enabled
-                    self._save()
-                    return existing.id
-        h.created_at = datetime.utcnow()
-        self._handlers[h.id] = h
-        self._save()
-        return h.id
+        with self._writing():
+            # Upsert by (process, channel)
+            for existing in self._handlers.values():
+                if h.channel is not None:
+                    if existing.process == h.process and existing.channel == h.channel:
+                        existing.enabled = h.enabled
+                        return existing.id
+            h.created_at = datetime.utcnow()
+            self._handlers[h.id] = h
+            return h.id
 
     def list_handlers(self, *, process_id: UUID | None = None, enabled_only: bool = False) -> list[Handler]:
         self._maybe_reload()
@@ -377,11 +479,11 @@ class LocalRepository:
         return handlers
 
     def delete_handler(self, handler_id: UUID) -> bool:
-        if handler_id in self._handlers:
-            del self._handlers[handler_id]
-            self._save()
-            return True
-        return False
+        with self._writing():
+            if handler_id in self._handlers:
+                del self._handlers[handler_id]
+                return True
+            return False
 
     def match_handlers(self, event_type: str) -> list[Handler]:
         """Legacy stub -- returns empty list since event_pattern matching is removed."""
@@ -391,22 +493,21 @@ class LocalRepository:
 
     def create_process_capability(self, pc: ProcessCapability) -> UUID:
         """Upsert a process-capability binding by (process, name) pair."""
-        for existing in self._process_capabilities.values():
-            if existing.process == pc.process and existing.name == pc.name:
-                existing.capability = pc.capability
-                existing.config = pc.config
-                self._save()
-                return existing.id
-        self._process_capabilities[pc.id] = pc
-        self._save()
-        return pc.id
+        with self._writing():
+            for existing in self._process_capabilities.values():
+                if existing.process == pc.process and existing.name == pc.name:
+                    existing.capability = pc.capability
+                    existing.config = pc.config
+                    return existing.id
+            self._process_capabilities[pc.id] = pc
+            return pc.id
 
     def delete_process_capability(self, pc_id: UUID) -> bool:
-        if pc_id in self._process_capabilities:
-            del self._process_capabilities[pc_id]
-            self._save()
-            return True
-        return False
+        with self._writing():
+            if pc_id in self._process_capabilities:
+                del self._process_capabilities[pc_id]
+                return True
+            return False
 
     def list_process_capabilities(self, process_id: UUID) -> list[ProcessCapability]:
         self._maybe_reload()
@@ -437,12 +538,12 @@ class LocalRepository:
     # ── Files ────────────────────────────────────────────────
 
     def insert_file(self, f: File) -> UUID:
-        now = datetime.utcnow()
-        f.created_at = now
-        f.updated_at = now
-        self._files[f.id] = f
-        self._save()
-        return f.id
+        with self._writing():
+            now = datetime.utcnow()
+            f.created_at = now
+            f.updated_at = now
+            self._files[f.id] = f
+            return f.id
 
     def get_file_by_key(self, key: str) -> File | None:
         self._maybe_reload()
@@ -464,19 +565,19 @@ class LocalRepository:
         return files[:limit]
 
     def delete_file(self, file_id: UUID) -> bool:
-        if file_id in self._files:
-            del self._files[file_id]
-            self._file_versions.pop(file_id, None)
-            self._save()
-            return True
-        return False
+        with self._writing():
+            if file_id in self._files:
+                del self._files[file_id]
+                self._file_versions.pop(file_id, None)
+                return True
+            return False
 
     def insert_file_version(self, fv: FileVersion) -> None:
-        fv.created_at = datetime.utcnow()
-        self._file_versions.setdefault(fv.file_id, []).append(fv)
-        if fv.file_id in self._files:
-            self._files[fv.file_id].updated_at = datetime.utcnow()
-        self._save()
+        with self._writing():
+            fv.created_at = datetime.utcnow()
+            self._file_versions.setdefault(fv.file_id, []).append(fv)
+            if fv.file_id in self._files:
+                self._files[fv.file_id].updated_at = datetime.utcnow()
 
     def get_active_file_version(self, file_id: UUID) -> FileVersion | None:
         versions = self._file_versions.get(file_id, [])
@@ -493,40 +594,40 @@ class LocalRepository:
         return versions
 
     def set_active_file_version(self, file_id: UUID, version: int) -> None:
-        for fv in self._file_versions.get(file_id, []):
-            fv.is_active = fv.version == version
-        self._save()
+        with self._writing():
+            for fv in self._file_versions.get(file_id, []):
+                fv.is_active = fv.version == version
 
     def delete_file_version(self, file_id: UUID, version: int) -> bool:
-        versions = self._file_versions.get(file_id, [])
-        before = len(versions)
-        self._file_versions[file_id] = [v for v in versions if v.version != version]
-        if len(self._file_versions[file_id]) < before:
-            self._save()
-            return True
-        return False
+        with self._writing():
+            versions = self._file_versions.get(file_id, [])
+            before = len(versions)
+            self._file_versions[file_id] = [v for v in versions if v.version != version]
+            if len(self._file_versions[file_id]) < before:
+                return True
+            return False
 
     def update_file_version_content(self, file_id: UUID, version: int, content: str) -> bool:
-        for fv in self._file_versions.get(file_id, []):
-            if fv.version == version:
-                fv.content = content
-                self._save()
-                return True
-        return False
+        with self._writing():
+            for fv in self._file_versions.get(file_id, []):
+                if fv.version == version:
+                    fv.content = content
+                    return True
+            return False
 
     # ── Resources ─────────────────────────────────────────────
 
     def upsert_resource(self, r: Resource) -> str:
-        now = datetime.utcnow()
-        existing = self._resources.get(r.name)
-        if existing:
-            r.id = existing.id
-            r.created_at = existing.created_at
-        else:
-            r.created_at = now
-        self._resources[r.name] = r
-        self._save()
-        return r.name
+        with self._writing():
+            now = datetime.utcnow()
+            existing = self._resources.get(r.name)
+            if existing:
+                r.id = existing.id
+                r.created_at = existing.created_at
+            else:
+                r.created_at = now
+            self._resources[r.name] = r
+            return r.name
 
     def list_resources(self) -> list[Resource]:
         self._maybe_reload()
@@ -537,21 +638,21 @@ class LocalRepository:
     # ── Cron Rules ────────────────────────────────────────────
 
     def upsert_cron(self, c: Cron) -> UUID:
-        now = datetime.utcnow()
-        # Match by (expression, channel_name)
-        existing = None
-        for ec in self._cron_rules.values():
-            if ec.expression == c.expression and ec.channel_name == c.channel_name:
-                existing = ec
-                break
-        if existing:
-            c.id = existing.id
-            c.created_at = existing.created_at
-        else:
-            c.created_at = now
-        self._cron_rules[c.id] = c
-        self._save()
-        return c.id
+        with self._writing():
+            now = datetime.utcnow()
+            # Match by (expression, channel_name)
+            existing = None
+            for ec in self._cron_rules.values():
+                if ec.expression == c.expression and ec.channel_name == c.channel_name:
+                    existing = ec
+                    break
+            if existing:
+                c.id = existing.id
+                c.created_at = existing.created_at
+            else:
+                c.created_at = now
+            self._cron_rules[c.id] = c
+            return c.id
 
     def list_cron_rules(self, *, enabled_only: bool = False) -> list[Cron]:
         self._maybe_reload()
@@ -564,14 +665,13 @@ class LocalRepository:
     # ── Deliveries ───────────────────────────────────────────
 
     def create_delivery(self, ed: Delivery) -> tuple[UUID, bool]:
-        self._maybe_reload()
-        for existing in self._deliveries.values():
-            if existing.message == ed.message and existing.handler == ed.handler:
-                return existing.id, False
-        ed.created_at = datetime.utcnow()
-        self._deliveries[ed.id] = ed
-        self._save()
-        return ed.id, True
+        with self._writing():
+            for existing in self._deliveries.values():
+                if existing.message == ed.message and existing.handler == ed.handler:
+                    return existing.id, False
+            ed.created_at = datetime.utcnow()
+            self._deliveries[ed.id] = ed
+            return ed.id, True
 
     def get_pending_deliveries(self, process_id: UUID) -> list[Delivery]:
         self._maybe_reload()
@@ -587,41 +687,40 @@ class LocalRepository:
         return bool(self.get_pending_deliveries(process_id))
 
     def mark_delivered(self, delivery_id: UUID, run_id: UUID) -> bool:
-        delivery = self._deliveries.get(delivery_id)
-        if delivery is None:
-            return False
-        delivery.status = DeliveryStatus.DELIVERED
-        delivery.run = run_id
-        self._save()
-        return True
+        with self._writing():
+            delivery = self._deliveries.get(delivery_id)
+            if delivery is None:
+                return False
+            delivery.status = DeliveryStatus.DELIVERED
+            delivery.run = run_id
+            return True
 
     def mark_queued(self, delivery_id: UUID, run_id: UUID) -> bool:
-        delivery = self._deliveries.get(delivery_id)
-        if delivery is None:
-            return False
-        delivery.status = DeliveryStatus.QUEUED
-        delivery.run = run_id
-        self._save()
-        return True
+        with self._writing():
+            delivery = self._deliveries.get(delivery_id)
+            if delivery is None:
+                return False
+            delivery.status = DeliveryStatus.QUEUED
+            delivery.run = run_id
+            return True
 
     def requeue_delivery(self, delivery_id: UUID) -> bool:
-        delivery = self._deliveries.get(delivery_id)
-        if delivery is None:
-            return False
-        delivery.status = DeliveryStatus.PENDING
-        delivery.run = None
-        self._save()
-        return True
+        with self._writing():
+            delivery = self._deliveries.get(delivery_id)
+            if delivery is None:
+                return False
+            delivery.status = DeliveryStatus.PENDING
+            delivery.run = None
+            return True
 
     def mark_run_deliveries_delivered(self, run_id: UUID) -> int:
-        updated = 0
-        for delivery in self._deliveries.values():
-            if delivery.run == run_id and delivery.status == DeliveryStatus.QUEUED:
-                delivery.status = DeliveryStatus.DELIVERED
-                updated += 1
-        if updated:
-            self._save()
-        return updated
+        with self._writing():
+            updated = 0
+            for delivery in self._deliveries.values():
+                if delivery.run == run_id and delivery.status == DeliveryStatus.QUEUED:
+                    delivery.status = DeliveryStatus.DELIVERED
+                    updated += 1
+            return updated
 
     def rollback_dispatch(
         self,
@@ -631,20 +730,21 @@ class LocalRepository:
         *,
         error: str | None = None,
     ) -> None:
-        if delivery_id is not None:
-            self.requeue_delivery(delivery_id)
-        self.complete_run(run_id, status=RunStatus.FAILED, error=(error or "executor invoke failed")[:4000])
-        current = self._processes.get(process_id)
-        if current and current.status not in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
-            self.update_process_status(process_id, ProcessStatus.RUNNABLE)
+        with self._writing():
+            if delivery_id is not None:
+                self.requeue_delivery(delivery_id)
+            self.complete_run(run_id, status=RunStatus.FAILED, error=(error or "executor invoke failed")[:4000])
+            current = self._processes.get(process_id)
+            if current and current.status not in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
+                self.update_process_status(process_id, ProcessStatus.RUNNABLE)
 
     # ── Runs ─────────────────────────────────────────────────
 
     def create_run(self, run: Run) -> UUID:
-        run.created_at = datetime.utcnow()
-        self._runs[run.id] = run
-        self._save()
-        return run.id
+        with self._writing():
+            run.created_at = datetime.utcnow()
+            self._runs[run.id] = run
+            return run.id
 
     def complete_run(
         self,
@@ -659,22 +759,22 @@ class LocalRepository:
         result: dict | None = None,
         scope_log: list[dict] | None = None,
     ) -> bool:
-        run = self._runs.get(run_id)
-        if run is None:
-            return False
-        run.status = status
-        run.tokens_in = tokens_in
-        run.tokens_out = tokens_out
-        run.cost_usd = cost_usd
-        run.duration_ms = duration_ms
-        run.error = error
-        if result is not None:
-            run.result = result
-        if scope_log is not None:
-            run.scope_log = scope_log
-        run.completed_at = datetime.utcnow()
-        self._save()
-        return True
+        with self._writing():
+            run = self._runs.get(run_id)
+            if run is None:
+                return False
+            run.status = status
+            run.tokens_in = tokens_in
+            run.tokens_out = tokens_out
+            run.cost_usd = cost_usd
+            run.duration_ms = duration_ms
+            run.error = error
+            if result is not None:
+                run.result = result
+            if scope_log is not None:
+                run.scope_log = scope_log
+            run.completed_at = datetime.utcnow()
+            return True
 
     def get_run(self, run_id: UUID) -> Run | None:
         self._maybe_reload()
@@ -691,12 +791,12 @@ class LocalRepository:
     # ── Meta ────────────────────────────────────────────────
 
     def set_meta(self, key: str, value: str = "") -> None:
-        self._meta[key] = {
-            "key": key,
-            "value": value,
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-        self._save()
+        with self._writing():
+            self._meta[key] = {
+                "key": key,
+                "value": value,
+                "updated_at": datetime.utcnow().isoformat(),
+            }
 
     def get_meta(self, key: str) -> dict[str, str] | None:
         self._maybe_reload()
@@ -705,16 +805,16 @@ class LocalRepository:
     # ── Schema CRUD ──────────────────────────────────────────
 
     def upsert_schema(self, s: Schema) -> UUID:
-        for existing in self._schemas.values():
-            if existing.name == s.name:
-                s.id = existing.id
-                s.created_at = existing.created_at
-                break
-        if s.created_at is None:
-            s.created_at = datetime.utcnow()
-        self._schemas[s.id] = s
-        self._save()
-        return s.id
+        with self._writing():
+            for existing in self._schemas.values():
+                if existing.name == s.name:
+                    s.id = existing.id
+                    s.created_at = existing.created_at
+                    break
+            if s.created_at is None:
+                s.created_at = datetime.utcnow()
+            self._schemas[s.id] = s
+            return s.id
 
     def get_schema(self, schema_id: UUID) -> Schema | None:
         self._maybe_reload()
@@ -734,16 +834,16 @@ class LocalRepository:
     # ── Channel CRUD ─────────────────────────────────────────
 
     def upsert_channel(self, ch: Channel) -> UUID:
-        for existing in self._channels.values():
-            if existing.name == ch.name:
-                ch.id = existing.id
-                ch.created_at = existing.created_at
-                break
-        if ch.created_at is None:
-            ch.created_at = datetime.utcnow()
-        self._channels[ch.id] = ch
-        self._save()
-        return ch.id
+        with self._writing():
+            for existing in self._channels.values():
+                if existing.name == ch.name:
+                    ch.id = existing.id
+                    ch.created_at = existing.created_at
+                    break
+            if ch.created_at is None:
+                ch.created_at = datetime.utcnow()
+            self._channels[ch.id] = ch
+            return ch.id
 
     def get_channel(self, channel_id: UUID) -> Channel | None:
         self._maybe_reload()
@@ -764,33 +864,32 @@ class LocalRepository:
         return sorted(channels, key=lambda ch: ch.name)
 
     def close_channel(self, channel_id: UUID) -> bool:
-        self._maybe_reload()
-        ch = self._channels.get(channel_id)
-        if ch is None:
-            return False
-        ch.closed_at = datetime.utcnow()
-        self._save()
-        return True
+        with self._writing():
+            ch = self._channels.get(channel_id)
+            if ch is None:
+                return False
+            ch.closed_at = datetime.utcnow()
+            return True
 
     # ── Channel Message CRUD ─────────────────────────────────
 
     def append_channel_message(self, msg: ChannelMessage) -> UUID:
-        if msg.created_at is None:
-            msg.created_at = datetime.utcnow()
-        self._channel_messages[msg.id] = msg
+        with self._writing():
+            if msg.created_at is None:
+                msg.created_at = datetime.utcnow()
+            self._channel_messages[msg.id] = msg
 
-        # Auto-create deliveries for handlers bound to this channel
-        handlers = self.match_handlers_by_channel(msg.channel)
-        for handler in handlers:
-            delivery = Delivery(message=msg.id, handler=handler.id)
-            _delivery_id, inserted = self.create_delivery(delivery)
-            if inserted:
-                proc = self.get_process(handler.process)
-                if proc and proc.status == ProcessStatus.WAITING:
-                    self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
+            # Auto-create deliveries for handlers bound to this channel
+            handlers = self.match_handlers_by_channel(msg.channel)
+            for handler in handlers:
+                delivery = Delivery(message=msg.id, handler=handler.id)
+                _delivery_id, inserted = self.create_delivery(delivery)
+                if inserted:
+                    proc = self.get_process(handler.process)
+                    if proc and proc.status == ProcessStatus.WAITING:
+                        self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
 
-        self._save()
-        return msg.id
+            return msg.id
 
     def list_channel_messages(self, channel_id: UUID, *, limit: int = 100) -> list[ChannelMessage]:
         self._maybe_reload()
