@@ -10,31 +10,20 @@ import webbrowser
 from pathlib import Path
 
 import click
+
+from cli.local_dev import apply_local_checkout_env, repo_root, resolve_dashboard_ports
 from polis.aws import DEFAULT_ORG_PROFILE, ORG_PROFILE_ENV, resolve_org_profile
 
 _COGENT_DIR = Path.home() / ".cogents"
-_REPO_ROOT = Path(__file__).parent.parent.parent
+_REPO_ROOT = repo_root()
 _FRONTEND_DIR = _REPO_ROOT / "dashboard" / "frontend"
 _PROFILE_HELP = f"AWS profile for DB lookup (default: ${ORG_PROFILE_ENV} or {DEFAULT_ORG_PROFILE})"
 _REQUIRED_DB_ENV = ("DB_RESOURCE_ARN", "DB_SECRET_ARN", "DB_NAME")
 
 
 def _checkout_ports() -> tuple[int, int]:
-    """Read BE/FE ports from repo root .env file."""
-    env_file = _REPO_ROOT / ".env"
-    be, fe = 8100, 5200
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            v = v.split("#")[0].strip()
-            if k == "DASHBOARD_BE_PORT":
-                be = int(v)
-            elif k == "DASHBOARD_FE_PORT":
-                fe = int(v)
-    return be, fe
+    """Resolve dashboard ports from env, repo .env, or checkout defaults."""
+    return resolve_dashboard_ports(repo_root=_REPO_ROOT)
 
 
 def _key_file(name: str) -> Path:
@@ -201,7 +190,7 @@ def serve(
     }
 
     if db_mode == "local":
-        env["USE_LOCAL_DB"] = "1"
+        apply_local_checkout_env(env, repo_root=_REPO_ROOT)
     else:
         env = _ensure_db_env(name, env, assume_polis=(db_mode == "prod"), profile=profile)
         missing = _missing_db_env(env)

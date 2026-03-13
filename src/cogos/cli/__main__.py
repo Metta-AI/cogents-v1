@@ -11,6 +11,7 @@ from uuid import UUID
 
 import click
 
+from cli.local_dev import apply_local_checkout_env, repo_root, resolve_dashboard_ports
 
 _bedrock_session = None
 
@@ -117,7 +118,7 @@ def cogos(ctx: click.Context, cogent: str):
     ctx.ensure_object(dict)
     ctx.obj["cogent_name"] = cogent
     if cogent == "local":
-        os.environ["USE_LOCAL_DB"] = "1"
+        apply_local_checkout_env()
     else:
         _ensure_db_env(cogent)
 
@@ -165,8 +166,8 @@ def _run_migrations(repo) -> None:
 @click.pass_context
 def boot(ctx: click.Context, name: str, clean: bool):
     """Boot CogOS from an image."""
-    from cogos.image.spec import load_image
     from cogos.image.apply import apply_image
+    from cogos.image.spec import load_image
 
     # Find image directory
     repo_root = Path(__file__).resolve().parents[3]
@@ -247,7 +248,7 @@ def image_list():
 
 def _publish_process_event(repo, process, payload: dict) -> None:
     """Publish a message to the process's implicit channel (process:<name>)."""
-    from cogos.db.models import Channel, ChannelType, ChannelMessage
+    from cogos.db.models import Channel, ChannelMessage, ChannelType
     ch_name = f"process:{process.name}"
     ch = repo.get_channel_by_name(ch_name)
     if not ch:
@@ -333,9 +334,9 @@ def process_run(name: str, local: bool):
         return
 
     if local:
+        from cogos.db.models import ProcessStatus, Run, RunStatus
         from cogos.executor.handler import get_config
         from cogos.runtime.local import run_and_complete
-        from cogos.db.models import ProcessStatus, Run, RunStatus
 
         config = get_config()
         repo.update_process_status(p.id, ProcessStatus.RUNNING)
@@ -383,8 +384,15 @@ def process_load(file_path: str):
     channel names).
     """
     from cogos.db.models import (
-        Process as ProcessModel, ProcessMode, ProcessStatus,
-        Handler as HandlerModel, ProcessCapability,
+        Handler as HandlerModel,
+    )
+    from cogos.db.models import (
+        Process as ProcessModel,
+    )
+    from cogos.db.models import (
+        ProcessCapability,
+        ProcessMode,
+        ProcessStatus,
     )
 
     fp = Path(file_path).resolve()
@@ -504,7 +512,8 @@ def handler_list(process_name: str | None, use_json: bool):
 @click.argument("channel_name")
 def handler_add(process_name: str, channel_name: str):
     """Add a handler subscribing a process to a channel."""
-    from cogos.db.models import Handler as HandlerModel, Channel, ChannelType
+    from cogos.db.models import Channel, ChannelType
+    from cogos.db.models import Handler as HandlerModel
     repo = _repo()
     p = repo.get_process_by_name(process_name)
     if not p:
@@ -722,8 +731,9 @@ def capability_load(directory: str):
     Each entry should be a dict with keys matching the Capability model
     (name, description, handler, schema, etc.).
     """
-    from cogos.db.models import Capability as CapabilityModel
     import importlib.util
+
+    from cogos.db.models import Capability as CapabilityModel
 
     repo = _repo()
     dir_path = Path(directory).resolve()
@@ -771,7 +781,8 @@ def channel():
 @click.option("--payload", default="{}")
 def channel_send(channel_name: str, payload: str):
     """Send a message to a channel."""
-    from cogos.db.models import Channel as ChannelModel, ChannelType, ChannelMessage
+    from cogos.db.models import Channel as ChannelModel
+    from cogos.db.models import ChannelMessage, ChannelType
     repo = _repo()
     ch = repo.get_channel_by_name(channel_name)
     if not ch:
@@ -884,8 +895,8 @@ def reload(ctx: click.Context, image: str, yes: bool):
     if not yes:
         click.confirm(f"This will DELETE ALL data and reload from '{image}'. Continue?", abort=True)
 
-    from cogos.image.spec import load_image
     from cogos.image.apply import apply_image
+    from cogos.image.spec import load_image
 
     repo_root = Path(__file__).resolve().parents[3]
     image_dir = repo_root / "images" / image
@@ -954,27 +965,14 @@ def run_local(ctx: click.Context, poll_interval: float, once: bool):
 # DASHBOARD commands
 # ═══════════════════════════════════════════════════════════
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = repo_root()
 _FRONTEND_DIR = _REPO_ROOT / "dashboard" / "frontend"
 _PID_DIR = Path("/tmp/cogent-dashboard")
 
 
 def _read_ports() -> tuple[int, int]:
-    """Read BE/FE ports from .env."""
-    env_file = _REPO_ROOT / ".env"
-    be, fe = 8100, 5200
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            v = v.split("#")[0].strip()
-            if k == "DASHBOARD_BE_PORT":
-                be = int(v)
-            elif k == "DASHBOARD_FE_PORT":
-                fe = int(v)
-    return be, fe
+    """Resolve BE/FE ports from env, repo .env, or checkout defaults."""
+    return resolve_dashboard_ports(repo_root=_REPO_ROOT)
 
 
 def _pid_alive(pid: int) -> bool:
@@ -1051,7 +1049,12 @@ def dashboard_start():
     _kill_port(be_port)
     _kill_port(fe_port)
 
-    env = {**os.environ, "USE_LOCAL_DB": "1", "DASHBOARD_BE_PORT": str(be_port)}
+    env = {
+        **os.environ,
+        "DASHBOARD_BE_PORT": str(be_port),
+        "DASHBOARD_FE_PORT": str(fe_port),
+    }
+    apply_local_checkout_env(env, repo_root=_REPO_ROOT)
 
     # Start backend
     be_proc = _sp.Popen(

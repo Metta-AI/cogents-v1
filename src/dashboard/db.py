@@ -1,8 +1,9 @@
 """Singleton Repository for dashboard handlers.
 
 Requires DB_RESOURCE_ARN (or DB_CLUSTER_ARN), DB_SECRET_ARN, and DB_NAME env vars
-for RDS Data API. Set USE_LOCAL_DB=1 to use LocalRepository (JSON file
-persistence) for local dev.
+for RDS Data API. Set USE_LOCAL_DB=1 to use LocalRepository for local dev; the
+CLI defaults that store to the current checkout's `.local/cogos/` directory
+unless COGENT_LOCAL_DATA overrides it.
 """
 
 from __future__ import annotations

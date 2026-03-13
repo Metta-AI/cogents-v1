@@ -4,6 +4,7 @@ import sys
 import click
 
 from cli.dashboard import dashboard
+from cli.local_dev import apply_local_checkout_env
 
 # Known top-level commands — used to detect cogent name argument
 _COMMANDS = {"dashboard", "cogtainer", "memory", "run", "cogos", "status", "--help", "-h"}
@@ -19,7 +20,7 @@ def _preprocess_argv() -> None:
     if args and not args[0].startswith("-") and args[0] not in _COMMANDS:
         os.environ["COGENT_ID"] = args[0]
         if args[0] == "local":
-            os.environ["USE_LOCAL_DB"] = "1"
+            apply_local_checkout_env()
         sys.argv = [sys.argv[0]] + args[1:]
 
 
