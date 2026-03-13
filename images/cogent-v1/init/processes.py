@@ -22,15 +22,51 @@ add_process(
 
 You received a Discord message. Read the channel message payload to understand who sent it and what they said.
 
-Use the discord capability to respond:
-- For DMs: use discord.dm(user_id=author_id, content=your_reply)
-- For mentions: use discord.send(channel=channel_id, content=your_reply, reply_to=message_id)
+## Per-channel routing
+
+Before responding, check if a sub-handler already exists for this source:
+- For DMs: check `procs.get(name=f"discord-dm:{payload['author_id']}")`
+- For channel messages: check `procs.get(name=f"discord-ch:{payload['channel_id']}")`
+- For mentions: respond directly (no sub-handler needed)
+
+If the sub-handler exists and its status is not "completed" or "disabled", do nothing — the sub-handler already received this message on its own channel. Just return.
+
+If no sub-handler exists, spawn one:
+
+```python
+# For DMs:
+child = procs.spawn(
+    name=f"discord-dm:{author_id}",
+    content=f"You are a Discord DM handler for user {author_id} ({author_name}). Respond to their messages using discord.dm(user_id='{author_id}', content=your_reply). Be helpful, concise, and friendly.",
+    mode="daemon",
+    idle_timeout_ms=600000,
+    subscribe=f"io:discord:dm:{author_id}",
+    capabilities={"discord": discord, "channels": channels, "dir": dir, "procs": procs},
+)
+
+# For channel messages:
+child = procs.spawn(
+    name=f"discord-ch:{channel_id}",
+    content=f"You are a Discord channel handler for channel {channel_id}. Respond using discord.send(channel='{channel_id}', content=your_reply, reply_to=message_id). Be helpful, concise, and friendly.",
+    mode="daemon",
+    idle_timeout_ms=600000,
+    subscribe=f"io:discord:message:{channel_id}",
+    capabilities={"discord": discord, "channels": channels, "dir": dir, "procs": procs},
+)
+```
+
+Then return — the child will pick up this message from its fine-grained channel.
+
+## Direct response (mentions only)
+
+For mentions, respond directly:
+- discord.send(channel=channel_id, content=your_reply, reply_to=message_id)
 
 Be helpful, concise, and friendly. Always use your capabilities to answer — never guess or make up information. Use search() to find relevant capabilities before answering.
 """,
     runner="lambda",
     model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
     priority=10.0,
-    capabilities=["discord", "channels", "dir", "stdlib"],
-    handlers=["io:discord:dm", "io:discord:mention"],
+    capabilities=["discord", "channels", "dir", "stdlib", "procs"],
+    handlers=["io:discord:dm", "io:discord:mention", "io:discord:message"],
 )

@@ -130,6 +130,8 @@ class ProcsCapability(Capability):
         capabilities: dict[str, "Capability | None"] | None = None,
         schema: dict | None = None,
         subscribe: str | None = None,
+        mode: str = "one_shot",
+        idle_timeout_ms: int | None = None,
     ) -> ProcessHandle | ProcessError:
         """Spawn a child process. Capabilities are NOT inherited — pass them explicitly.
 
@@ -144,13 +146,14 @@ class ProcsCapability(Capability):
 
         child = Process(
             name=name,
-            mode=ProcessMode.ONE_SHOT,
+            mode=ProcessMode(mode),
             content=content,
             priority=priority,
             runner=runner,
             status=ProcessStatus.RUNNABLE,
             parent_process=self.process_id,
             model=model,
+            idle_timeout_ms=idle_timeout_ms,
         )
 
         child_id = self.repo.upsert_process(child)

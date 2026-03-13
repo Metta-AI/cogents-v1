@@ -125,6 +125,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
             priority=float(proc_dict.get("priority", 0.0)),
             status=ProcessStatus.WAITING if mode == ProcessMode.DAEMON else ProcessStatus.RUNNABLE,
             metadata=proc_dict.get("metadata") or {},
+            idle_timeout_ms=proc_dict.get("idle_timeout_ms"),
         )
         pid = repo.upsert_process(p)
 

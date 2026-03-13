@@ -39,13 +39,14 @@ def load_image(image_dir: Path) -> ImageSpec:
     def add_process(name, *, mode="one_shot", content="",
                     runner="lambda", model=None, priority=0.0,
                     capabilities=None, handlers=None,
-                    metadata=None):
+                    metadata=None, idle_timeout_ms=None):
         spec.processes.append({
             "name": name, "mode": mode, "content": content,
             "runner": runner, "model": model,
             "priority": priority, "capabilities": capabilities or [],
             "handlers": handlers or [],
             "metadata": metadata or {},
+            "idle_timeout_ms": idle_timeout_ms,
         })
 
     def add_cron(expression, *, channel_name=None, event_type=None, payload=None, enabled=True):
