@@ -172,7 +172,7 @@ function VersionPanel({ file, fileSuggestions, cogentName, canMutate, onRefresh,
         </span>
         {file.includes.length > 0 && (
           <span className="text-[10px] text-[var(--text-muted)]">
-            includes: {file.includes.join(", ")}
+            refs: {file.includes.join(", ")}
           </span>
         )}
         {canMutate && (

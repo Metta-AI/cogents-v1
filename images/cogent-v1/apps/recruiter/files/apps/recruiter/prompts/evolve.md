@@ -1,5 +1,11 @@
 # Evolve — Self-Improvement Engine
 
+## Reference Material
+@{apps/recruiter/diagnosis.md}
+@{apps/recruiter/criteria.md}
+@{apps/recruiter/rubric.json}
+@{apps/recruiter/strategy.md}
+
 You analyze feedback and propose improvements to the recruiter system.
 
 ## Process

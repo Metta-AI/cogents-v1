@@ -24,7 +24,6 @@ def _write_app_image(tmp: Path) -> Path:
     app_init = tmp / "apps" / "myapp" / "init"
     app_init.mkdir(parents=True)
     (app_init / "processes.py").write_text(
-        'add_file("myapp/prompt.md", content="", includes=["myapp/config.md"])\n'
         'add_channel("myapp:events", channel_type="named")\n'
         'add_process("myapp/worker", mode="daemon", content="@{myapp/prompt.md}", '
         'capabilities=["dir"], handlers=["myapp:events"])\n'
@@ -33,7 +32,7 @@ def _write_app_image(tmp: Path) -> Path:
     # App files
     app_files = tmp / "apps" / "myapp" / "files" / "myapp"
     app_files.mkdir(parents=True)
-    (app_files / "prompt.md").write_text("You are a worker.")
+    (app_files / "prompt.md").write_text("You are a worker.\n@{myapp/config.md}")
     (app_files / "config.md").write_text("Config here.")
 
     return tmp
@@ -57,7 +56,7 @@ def test_apps_load_files():
         spec = load_image(Path(td))
 
     assert "myapp/prompt.md" in spec.files
-    assert spec.files["myapp/prompt.md"] == "You are a worker."
+    assert spec.files["myapp/prompt.md"] == "You are a worker.\n@{myapp/config.md}"
     assert "myapp/config.md" in spec.files
 
 
@@ -71,26 +70,13 @@ def test_apps_load_channels():
     assert "myapp:events" in names
 
 
-def test_add_file_includes():
-    """add_file should set up file_includes metadata."""
+def test_app_prompt_refs_are_explicit_in_file_content():
+    """App prompt dependencies should be declared inline in file content."""
     with tempfile.TemporaryDirectory() as td:
         _write_app_image(Path(td))
         spec = load_image(Path(td))
 
-    assert "myapp/prompt.md" in spec.file_includes
-    assert spec.file_includes["myapp/prompt.md"] == ["myapp/config.md"]
-
-
-def test_app_files_overwrite_add_file_content():
-    """Files from files/ dir should overwrite empty add_file content."""
-    with tempfile.TemporaryDirectory() as td:
-        _write_app_image(Path(td))
-        spec = load_image(Path(td))
-
-    # add_file set content="" but files/ dir loaded "You are a worker."
-    assert spec.files["myapp/prompt.md"] == "You are a worker."
-    # includes should still be set
-    assert spec.file_includes["myapp/prompt.md"] == ["myapp/config.md"]
+    assert "@{myapp/config.md}" in spec.files["myapp/prompt.md"]
 
 
 def test_apps_dont_affect_top_level():
@@ -141,15 +127,15 @@ def test_cogent_v1_recruiter_files():
     assert len(prompt_files) == 5
 
 
-def test_cogent_v1_recruiter_includes():
-    """Recruiter prompt files should have correct includes."""
+def test_cogent_v1_recruiter_prompt_refs_are_explicit():
+    """Recruiter prompt dependencies should be declared inline in prompt files."""
     spec = load_image(Path("images/cogent-v1"))
 
-    assert spec.file_includes["apps/recruiter/prompts/recruiter.md"] == [
-        "apps/recruiter/criteria.md", "apps/recruiter/strategy.md",
-    ]
-    assert "apps/recruiter/rubric.json" in spec.file_includes["apps/recruiter/prompts/discover.md"]
-    assert "apps/recruiter/diagnosis.md" in spec.file_includes["apps/recruiter/prompts/evolve.md"]
+    assert "@{apps/recruiter/criteria.md}" in spec.files["apps/recruiter/prompts/recruiter.md"]
+    assert "@{apps/recruiter/strategy.md}" in spec.files["apps/recruiter/prompts/recruiter.md"]
+    assert "@{apps/recruiter/rubric.json}" in spec.files["apps/recruiter/prompts/discover.md"]
+    assert "@{apps/recruiter/sourcer/github.md}" in spec.files["apps/recruiter/prompts/discover.md"]
+    assert "@{apps/recruiter/diagnosis.md}" in spec.files["apps/recruiter/prompts/evolve.md"]
 
 
 def test_cogent_v1_recruiter_channel():

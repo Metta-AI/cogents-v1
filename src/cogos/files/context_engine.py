@@ -1,12 +1,11 @@
-"""Context engine -- resolves file includes to build full prompt context.
+"""Context engine -- resolves file references to build full prompt context.
 
-Files in CogOS can declare an ``includes`` list of other file keys. The
-context engine recursively resolves those includes, expands inline
-``@{file-key}`` references, concatenates their content with section
-headers, and returns a single string suitable for injection into an LLM
-prompt.
+Files in CogOS reference other files with inline ``@{file-key}`` syntax.
+The context engine parses those references from file content, resolves
+them recursively, concatenates their content with section headers, and
+returns a single string suitable for injection into an LLM prompt.
 
-Circular includes are detected and reported as errors in the output.
+Circular references are detected and reported as errors in the output.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ PROMPT_REF_RE = re.compile(r"@\{([^{}\n]+)\}")
 
 
 class ContextEngine:
-    """Resolves file includes into a single concatenated context string."""
+    """Resolves file references into a single concatenated context string."""
 
     def __init__(self, file_store: FileStore) -> None:
         self._store = file_store
@@ -60,7 +59,7 @@ class ContextEngine:
         The process prompt now comes entirely from ``process.content``.
         Any inline ``@{file-key}`` references the process can read are
         expanded recursively, and referenced files still honor their own
-        ``includes`` lists.
+        inline references.
         """
         return self._expand_process_text(process, process.content, visited=set())
 
@@ -111,9 +110,6 @@ class ContextEngine:
             result.append({"key": key, "content": f"[not found: {key}]", "is_direct": key in direct_keys})
             return
 
-        for include_key in file.includes:
-            self._collect_tree(include_key, seen, result, direct_keys)
-
         content = self._store.get_content(key) or ""
         for ref_key in self._extract_refs(content):
             self._collect_tree(ref_key, seen, result, direct_keys)
@@ -155,7 +151,7 @@ class ContextEngine:
         return False
 
     def _resolve_key(self, key: str, *, visited: set[str]) -> str:
-        """Recursively resolve *key* and its includes.
+        """Recursively resolve *key* and its referenced files.
 
         *visited* tracks keys already seen on the current resolution path
         to detect circular references.
@@ -175,20 +171,8 @@ class ContextEngine:
 
         content = self._store.get_content(key) or ""
 
-        sections: list[str] = []
-        for include_key in file.includes:
-            section = self._resolve_key(include_key, visited=set(visited))
-            sections.append(section)
-
-        parts: list[str] = []
-
-        if sections:
-            parts.extend(sections)
-
         header = f"--- {key} ---"
-        parts.append(f"{header}\n{self._expand_text(content, visited=set(visited))}")
-
-        return "\n\n".join(parts)
+        return f"{header}\n{self._expand_text(content, visited=set(visited))}"
 
     def _expand_text(self, text: str, *, visited: set[str]) -> str:
         if not text:

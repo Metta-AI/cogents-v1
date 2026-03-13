@@ -116,14 +116,13 @@ class FilesCapability(Capability):
         content: str,
         source: str = "agent",
         read_only: bool = False,
-        includes: list[str] | None = None,
     ) -> FileWriteResult | FileError:
         if not key:
             return FileError(error="key is required")
         self._check("write", key=key)
 
         store = FileStore(self.repo)
-        result = store.upsert(key, content, source=source, read_only=read_only, includes=includes)
+        result = store.upsert(key, content, source=source, read_only=read_only)
 
         if result is None:
             return FileWriteResult(id="", key=key, version=0, created=False, changed=False)
