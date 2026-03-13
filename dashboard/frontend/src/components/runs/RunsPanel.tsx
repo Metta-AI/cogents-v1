@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { CogosRun, CogosRunLogsResponse } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
@@ -40,6 +40,8 @@ function renderLogPreview(
   run: CogosRun,
   state: CogosRunLogsResponse | undefined,
   loading: boolean,
+  copiedRunId: string | null,
+  copyRunId: (runId: string) => void,
   cogentName?: string,
 ) {
   if (loading) {
@@ -54,16 +56,18 @@ function renderLogPreview(
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[var(--text-muted)]">
         <span className="inline-flex items-center gap-2">
           <span>run:</span>
-          <code className="rounded bg-[var(--bg-surface)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]">
-            {run.id}
-          </code>
           <button
             type="button"
-            className="rounded border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
-            onClick={() => navigator.clipboard.writeText(run.id)}
-            title="Copy run ID"
+            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+              copiedRunId === run.id
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                : "border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--border-active)] hover:text-[var(--text-primary)]"
+            }`}
+            onClick={() => copyRunId(run.id)}
+            title={copiedRunId === run.id ? "Run ID copied" : "Copy run ID"}
           >
-            Copy ID
+            <code>{run.id}</code>
+            {copiedRunId === run.id ? <span className="font-sans uppercase tracking-wide">copied</span> : null}
           </button>
         </span>
         <span>group: {state.log_group}</span>
@@ -84,31 +88,27 @@ function renderLogPreview(
       ) : state.entries.length === 0 ? (
         <div className="text-[11px] text-[var(--text-muted)]">No run logs found for this run.</div>
       ) : (
-      <div className="rounded border border-[var(--border)] bg-[var(--bg-surface)]">
-        {state.entries.map((entry, index) => (
-          <div
-            key={`${entry.log_stream}-${entry.timestamp}-${index}`}
-            className="grid gap-2 px-3 py-2 text-[11px] font-mono border-b border-[var(--border)] last:border-b-0"
-            style={{ gridTemplateColumns: "180px 1fr" }}
-          >
-            <div className="text-[var(--text-muted)]">{fmtTimestamp(entry.timestamp)}</div>
-            <pre className="whitespace-pre-wrap break-words text-[var(--text-secondary)] m-0">
-              {entry.message}
-            </pre>
-          </div>
-        ))}
-      </div>
+        <div className="rounded border border-[var(--border)] bg-[var(--bg-surface)]">
+          {state.entries.map((entry, index) => (
+            <div
+              key={`${entry.log_stream}-${entry.timestamp}-${index}`}
+              className="grid gap-2 px-3 py-2 text-[11px] font-mono border-b border-[var(--border)] last:border-b-0"
+              style={{ gridTemplateColumns: "180px 1fr" }}
+            >
+              <div className="text-[var(--text-muted)]">{fmtTimestamp(entry.timestamp)}</div>
+              <pre className="whitespace-pre-wrap break-words text-[var(--text-secondary)] m-0">
+                {entry.message}
+              </pre>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-function makeColumns(
-  cogentName: string | undefined,
-  expandedRunIds: Set<string>,
-  toggleRunLogs: (runId: string) => void,
-): Column<RunRow>[] {
-  const cols: Column<RunRow>[] = [
+function makeColumns(): Column<RunRow>[] {
+  return [
     {
       key: "process_name",
       label: "Process",
@@ -177,46 +177,39 @@ function makeColumns(
       ),
     },
   ];
-
-  if (cogentName) {
-    cols.push({
-      key: "id" as keyof RunRow,
-      label: "Logs",
-      render: (row) => (
-        <div className="inline-flex items-center gap-2">
-          <button
-            type="button"
-            className="text-[var(--text-muted)] text-xs hover:text-[var(--text-primary)]"
-            title={expandedRunIds.has(row.id) ? "Hide inline logs" : "Show inline logs"}
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleRunLogs(row.id);
-            }}
-          >
-            {expandedRunIds.has(row.id) ? "▾" : "▸"}
-          </button>
-          <a
-            href={buildCogentRunLogsUrl(cogentName, row.id, row.created_at, row.runner)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[var(--accent)] text-xs hover:underline"
-            title="View CloudWatch logs for this run"
-            onClick={(e) => e.stopPropagation()}
-          >
-            CW
-          </a>
-        </div>
-      ),
-    });
-  }
-
-  return cols;
 }
 
 export function RunsPanel({ runs, cogentName }: Props) {
   const [expandedRunIds, setExpandedRunIds] = useState<Set<string>>(new Set());
   const [logPreviewByRun, setLogPreviewByRun] = useState<Record<string, CogosRunLogsResponse>>({});
   const [loadingRunIds, setLoadingRunIds] = useState<Set<string>>(new Set());
+  const [copiedRunId, setCopiedRunId] = useState<string | null>(null);
+  const copiedResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedResetTimeoutRef.current) {
+        clearTimeout(copiedResetTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const copyRunId = useCallback(async (runId: string) => {
+    try {
+      await navigator.clipboard.writeText(runId);
+      setCopiedRunId(runId);
+      if (copiedResetTimeoutRef.current) {
+        clearTimeout(copiedResetTimeoutRef.current);
+      }
+      copiedResetTimeoutRef.current = setTimeout(() => {
+        setCopiedRunId((current) => (current === runId ? null : current));
+        copiedResetTimeoutRef.current = null;
+      }, 1500);
+    } catch {
+      setCopiedRunId(null);
+    }
+  }, []);
+
   const toggleRunLogs = useCallback(async (runId: string) => {
     if (!cogentName) return;
 
@@ -251,7 +244,7 @@ export function RunsPanel({ runs, cogentName }: Props) {
     }
   }, [cogentName, expandedRunIds, loadingRunIds]);
 
-  const columns = makeColumns(cogentName, expandedRunIds, toggleRunLogs);
+  const columns = makeColumns();
   const rows = runs.map((r) => ({ ...r } as RunRow));
 
   return (
@@ -283,7 +276,9 @@ export function RunsPanel({ runs, cogentName }: Props) {
           void toggleRunLogs(row.id);
         }}
         expandedRowIds={expandedRunIds}
-        renderExpandedRow={(row) => renderLogPreview(row, logPreviewByRun[row.id], loadingRunIds.has(row.id), cogentName)}
+        renderExpandedRow={(row) =>
+          renderLogPreview(row, logPreviewByRun[row.id], loadingRunIds.has(row.id), copiedRunId, copyRunId, cogentName)
+        }
       />
     </div>
   );
