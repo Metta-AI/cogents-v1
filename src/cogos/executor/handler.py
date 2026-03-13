@@ -8,6 +8,7 @@ import os
 import re
 import time
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -32,6 +33,8 @@ class ExecutorConfig:
     db_name: str = ""
     max_turns: int = 20
     default_model: str = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    prompt_cache_enabled: bool = True
+    prompt_cache_ttl: str = ""
 
 
 def get_config() -> ExecutorConfig:
@@ -42,6 +45,8 @@ def get_config() -> ExecutorConfig:
         db_name=os.environ.get("DB_NAME", ""),
         max_turns=int(os.environ.get("MAX_TURNS", "20")),
         default_model=os.environ.get("DEFAULT_MODEL", "us.anthropic.claude-sonnet-4-20250514-v1:0"),
+        prompt_cache_enabled=os.environ.get("PROMPT_CACHE_ENABLED", "1").lower() not in {"0", "false", "no"},
+        prompt_cache_ttl=os.environ.get("PROMPT_CACHE_TTL", "").strip(),
     )
 
 
@@ -102,6 +107,26 @@ SUPPORTED_TOOL_NAMES = {
     for tool in TOOL_CONFIG["tools"]
 }
 TOOL_NAME_PLACEHOLDER = "search"
+
+
+def _cache_point_block(ttl: str = "") -> dict[str, Any]:
+    block: dict[str, Any] = {"type": "default"}
+    if ttl:
+        block["ttl"] = ttl
+    return {"cachePoint": block}
+
+
+def _append_cache_point(blocks: list[dict[str, Any]], config: ExecutorConfig) -> list[dict[str, Any]]:
+    if not config.prompt_cache_enabled or not blocks:
+        return blocks
+    return [*blocks, _cache_point_block(config.prompt_cache_ttl)]
+
+
+def _build_tool_config(config: ExecutorConfig) -> dict[str, Any]:
+    tool_config = deepcopy(TOOL_CONFIG)
+    if config.prompt_cache_enabled:
+        tool_config["tools"].append(_cache_point_block(config.prompt_cache_ttl))
+    return tool_config
 
 
 def handler(event: dict, context: Any = None) -> dict:
@@ -275,7 +300,7 @@ def execute_process(
     if includes_content:
         system_prompt = includes_content + "\n\n" + system_prompt
 
-    system = [{"text": system_prompt}]
+    system = _append_cache_point([{"text": system_prompt}], config)
 
     # Build user message from process content + event
     user_text = ""
@@ -288,7 +313,7 @@ def execute_process(
     if not user_text.strip():
         user_text = "Execute your task."
 
-    messages = [{"role": "user", "content": [{"text": user_text}]}]
+    messages = [{"role": "user", "content": _append_cache_point([{"text": user_text}], config)}]
 
     # Set up sandbox with capability proxies
     vt = VariableTable()
@@ -307,7 +332,10 @@ def execute_process(
     bedrock_total_ms = 0
     tool_total_ms = 0
     tool_latency_by_name: dict[str, int] = defaultdict(int)
+    cache_read_input_tokens = 0
+    cache_write_input_tokens = 0
     final_stop_reason = "end_turn"
+    tool_config = _build_tool_config(config)
 
     for _turn in range(config.max_turns):
         turn_number = _turn + 1
@@ -315,7 +343,7 @@ def execute_process(
             "modelId": model_id,
             "messages": messages,
             "system": system,
-            "toolConfig": TOOL_CONFIG,
+            "toolConfig": tool_config,
         }
 
         bedrock_started = time.monotonic()
@@ -334,12 +362,14 @@ def execute_process(
         usage = response.get("usage", {})
         total_input_tokens += usage.get("inputTokens", 0)
         total_output_tokens += usage.get("outputTokens", 0)
+        cache_read_input_tokens += usage.get("cacheReadInputTokens", 0)
+        cache_write_input_tokens += usage.get("cacheWriteInputTokens", 0)
 
         stop_reason = response.get("stopReason", "end_turn")
         final_stop_reason = stop_reason
         logger.info(
             "CogOS latency bedrock_turn=%sms run=%s process=%s turn=%s stop_reason=%s "
-            "input_tokens=%s output_tokens=%s",
+            "input_tokens=%s output_tokens=%s cache_read_input_tokens=%s cache_write_input_tokens=%s",
             bedrock_latency_ms,
             run.id,
             process.name,
@@ -347,6 +377,8 @@ def execute_process(
             stop_reason,
             usage.get("inputTokens", 0),
             usage.get("outputTokens", 0),
+            usage.get("cacheReadInputTokens", 0),
+            usage.get("cacheWriteInputTokens", 0),
         )
 
         if stop_reason == "tool_use":
@@ -413,7 +445,8 @@ def execute_process(
         "CogOS execution breakdown run=%s process=%s model=%s turns=%s final_stop_reason=%s "
         "bedrock_calls=%s tool_turns=%s tool_calls=%s invalid_tool_calls=%s "
         "bedrock_total_ms=%s tool_total_ms=%s "
-        "search_ms=%s run_code_ms=%s tokens_in=%s tokens_out=%s",
+        "search_ms=%s run_code_ms=%s cache_read_input_tokens=%s cache_write_input_tokens=%s "
+        "tokens_in=%s tokens_out=%s",
         run.id,
         process.name,
         model_id,
@@ -427,6 +460,8 @@ def execute_process(
         tool_total_ms,
         tool_latency_by_name.get("search", 0),
         tool_latency_by_name.get("run_code", 0),
+        cache_read_input_tokens,
+        cache_write_input_tokens,
         total_input_tokens,
         total_output_tokens,
     )
