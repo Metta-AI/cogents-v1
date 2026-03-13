@@ -204,6 +204,7 @@ def _ensure_dm_handlers(repo) -> None:
             parent_process=parent.id,
         )
         child_id = repo.upsert_process(child)
+        repo.update_process_status(child_id, ProcessStatus.WAITING)
 
         # Bind capabilities — same as parent discord-handle-message
         parent_caps = repo.list_process_capabilities(parent.id)
@@ -219,7 +220,6 @@ def _ensure_dm_handlers(repo) -> None:
                 pass  # already bound
 
         # Create fine-grained channel
-        fine_ch_name = f"io:discord:dm:{author_id}"
         fine_ch = repo.get_channel_by_name(fine_ch_name)
         if fine_ch is None:
             fine_ch = Channel(name=fine_ch_name, channel_type=ChannelType.NAMED)
@@ -227,7 +227,10 @@ def _ensure_dm_handlers(repo) -> None:
             fine_ch = repo.get_channel_by_name(fine_ch_name)
 
         # Bind handler to fine-grained channel
-        repo.create_handler(Handler(process=child_id, channel=fine_ch.id))
+        try:
+            repo.create_handler(Handler(process=child_id, channel=fine_ch.id))
+        except Exception:
+            pass  # already bound
 
         # Copy the message to the fine-grained channel so it's picked up
         repo.append_channel_message(ChannelMessage(
