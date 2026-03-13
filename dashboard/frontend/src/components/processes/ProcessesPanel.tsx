@@ -1826,6 +1826,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
   const [detailHandlers, setDetailHandlers] = useState<Array<{ id: string; channel?: string; event_pattern?: string; enabled: boolean }>>([]);
   const [editingFileKey, setEditingFileKey] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"tree" | "status">("tree");
 
   const resourceSuggestions = useMemo(() => resources.map((r) => r.name), [resources]);
   const fileSuggestions = useMemo(() => files.map((f) => f.key), [files]);
@@ -2029,43 +2030,117 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
         </div>
       )}
 
-      {/* Process list */}
+      {/* View mode toggle + Process list */}
       {processes.length === 0 && editingId !== "new" && (
         <div className="text-[var(--text-muted)] text-xs py-8 text-center">No processes</div>
       )}
 
+      {processes.length > 0 && (
+        <div className="flex items-center gap-1 mb-2">
+          {(["tree", "status"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setViewMode(m)}
+              className="px-2 py-0.5 text-[10px] rounded cursor-pointer border-0"
+              style={{
+                background: viewMode === m ? "var(--bg-hover)" : "transparent",
+                color: viewMode === m ? "var(--text-primary)" : "var(--text-muted)",
+              }}
+            >
+              {m === "tree" ? "Tree" : "Status"}
+            </button>
+          ))}
+        </div>
+      )}
+
       {(() => {
+        // Build parent→children map
+        const procById = new Map(processes.map((p) => [p.id, p]));
+        const childrenByParent = new Map<string, CogosProcess[]>();
+        const rootProcesses: CogosProcess[] = [];
+        for (const p of processes) {
+          if (p.parent_process && procById.has(p.parent_process)) {
+            const siblings = childrenByParent.get(p.parent_process) || [];
+            siblings.push(p);
+            childrenByParent.set(p.parent_process, siblings);
+          } else {
+            rootProcesses.push(p);
+          }
+        }
+        // Flatten a process and its descendants into an ordered list with depth
+        function flattenTree(proc: CogosProcess, depth: number): { proc: CogosProcess; depth: number }[] {
+          const result: { proc: CogosProcess; depth: number }[] = [{ proc, depth }];
+          const children = childrenByParent.get(proc.id) || [];
+          for (const child of children) {
+            result.push(...flattenTree(child, depth + 1));
+          }
+          return result;
+        }
+
+        // Build ancestor path for a process (for status view breadcrumbs)
+        function ancestorPath(proc: CogosProcess): string[] {
+          const path: string[] = [];
+          let cur = proc.parent_process ? procById.get(proc.parent_process) : undefined;
+          while (cur) {
+            path.unshift(cur.name);
+            cur = cur.parent_process ? procById.get(cur.parent_process) : undefined;
+          }
+          return path;
+        }
+
         const STATUS_ORDER = ["running", "runnable", "waiting", "blocked", "suspended", "completed", "disabled"];
-        const grouped = STATUS_ORDER
-          .map((status) => ({ status, procs: processes.filter((p) => p.status === status) }))
-          .filter((g) => g.procs.length > 0);
-        // Include any statuses not in the predefined order
-        const knownStatuses = new Set(STATUS_ORDER);
-        const extra = processes.filter((p) => !knownStatuses.has(p.status));
-        if (extra.length > 0) grouped.push({ status: "other", procs: extra });
+
+        type GroupEntry = { proc: CogosProcess; depth: number; ancestors?: string[] };
+
+        let grouped: { label: string; variant: string; entries: GroupEntry[] }[];
+
+        if (viewMode === "tree") {
+          // Tree view: group by root process, show full hierarchy
+          const treeEntries = rootProcesses.flatMap((p) => flattenTree(p, 0));
+          grouped = [{ label: "all", variant: "neutral", entries: treeEntries }];
+        } else {
+          // Status view: flat list grouped by status, with ancestor breadcrumbs
+          grouped = STATUS_ORDER
+            .map((status) => {
+              const matching = processes.filter((p) => p.status === status);
+              const entries: GroupEntry[] = matching.map((p) => ({
+                proc: p, depth: 0, ancestors: ancestorPath(p),
+              }));
+              return { label: status, variant: STATUS_VARIANT[status] || "neutral", entries };
+            })
+            .filter((g) => g.entries.length > 0);
+          const knownStatuses = new Set(STATUS_ORDER);
+          const extra = processes.filter((p) => !knownStatuses.has(p.status));
+          if (extra.length > 0) {
+            grouped.push({ label: "other", variant: "neutral", entries: extra.map((p) => ({ proc: p, depth: 0, ancestors: ancestorPath(p) })) });
+          }
+        }
 
         return grouped.map((group) => (
-      <div key={group.status} className="mb-4 rounded-md overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+      <div key={group.label} className="mb-4 rounded-md overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+        {/* Hide group header in tree view when there's only one "all" group */}
+        {viewMode !== "tree" && (
         <div
           className="flex items-center px-3 py-1.5 text-[10px] uppercase tracking-wide font-medium text-[var(--text-muted)] cursor-pointer select-none"
           style={{
             background: "var(--bg-deep)",
-            borderBottom: collapsedGroups.has(group.status) ? "none" : "1px solid var(--border)",
+            borderBottom: collapsedGroups.has(group.label) ? "none" : "1px solid var(--border)",
           }}
           onClick={() => setCollapsedGroups((prev) => {
             const next = new Set(prev);
-            if (next.has(group.status)) next.delete(group.status);
-            else next.add(group.status);
+            if (next.has(group.label)) next.delete(group.label);
+            else next.add(group.label);
             return next;
           })}
         >
           <span className="mr-2 text-[10px]" style={{ width: "12px", display: "inline-block" }}>
-            {collapsedGroups.has(group.status) ? "▸" : "▾"}
+            {collapsedGroups.has(group.label) ? "▸" : "▾"}
           </span>
-          <Badge variant={STATUS_VARIANT[group.status] || "neutral"}>{group.status}</Badge>
-          <span className="ml-2 text-[var(--text-muted)]">({group.procs.length})</span>
+          <Badge variant={(STATUS_VARIANT[group.label] || "neutral") as BadgeVariant}>{group.label}</Badge>
+          <span className="ml-2 text-[var(--text-muted)]">({group.entries.length})</span>
         </div>
-        {!collapsedGroups.has(group.status) && group.procs.map((proc) => {
+        )}
+        {!collapsedGroups.has(group.label) && group.entries.map(({ proc, depth, ancestors }) => {
           const isSelected = selectedId === proc.id;
           const isEditing = editingId === proc.id;
           const lastRun = lastRunByProcess[proc.id];
@@ -2079,6 +2154,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                   gridTemplateColumns: "1fr 1fr 90px",
                   background: isSelected ? "var(--bg-hover)" : "var(--bg-surface)",
                   borderBottom: "1px solid var(--border)",
+                  paddingLeft: `${12 + depth * 20}px`,
                 }}
                 role="button"
                 tabIndex={0}
@@ -2090,10 +2166,19 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                 onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-surface)"; }}
               >
                 <span className="inline-flex items-center gap-1.5 text-[var(--text-primary)] font-medium text-[12px] truncate">
+                  {depth > 0 && <span className="text-[var(--text-muted)] text-[10px]">└</span>}
                   <span className="text-[var(--text-muted)]" title={proc.mode}>
                     {proc.mode === "daemon" ? "⟳" : "→"}
                   </span>
+                  {viewMode === "status" && ancestors && ancestors.length > 0 && (
+                    <span className="text-[var(--text-muted)] text-[10px]">
+                      {ancestors.join(" › ")}{" › "}
+                    </span>
+                  )}
                   {proc.name}
+                  {viewMode === "tree" && (
+                    <Badge variant={STATUS_VARIANT[proc.status] || "neutral"}>{proc.status}</Badge>
+                  )}
                 </span>
                 <span className="text-[11px] text-red-400 truncate" title={lastRun?.error || ""}>
                   {lastRun?.error ? (lastRun.error.length > 40 ? lastRun.error.slice(0, 40) + "…" : lastRun.error) : ""}

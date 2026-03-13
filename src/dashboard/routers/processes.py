@@ -75,6 +75,7 @@ class ProcessCreate(BaseModel):
     priority: float = 0.0
     runner: str = "lambda"
     status: str = "waiting"
+    parent_process: str | None = None
     model: str | None = None
     model_constraints: dict | None = None
     return_schema: dict | None = None
@@ -376,6 +377,7 @@ def create_process(name: str, body: ProcessCreate) -> ProcessDetail:
         priority=body.priority,
         runner=body.runner,
         status=ProcessStatus(body.status),
+        parent_process=UUID(body.parent_process) if body.parent_process else None,
         model=body.model,
         model_constraints=body.model_constraints or {},
         return_schema=body.return_schema,

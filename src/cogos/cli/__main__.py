@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import signal
+import sys
 from pathlib import Path
 from uuid import UUID
 
@@ -946,6 +948,163 @@ def run_local(ctx: click.Context, poll_interval: float, once: bool):
         )
     except KeyboardInterrupt:
         click.echo("\nLocal executor stopped.")
+
+
+# ═══════════════════════════════════════════════════════════
+# DASHBOARD commands
+# ═══════════════════════════════════════════════════════════
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_FRONTEND_DIR = _REPO_ROOT / "dashboard" / "frontend"
+_PID_DIR = Path("/tmp/cogent-dashboard")
+
+
+def _read_ports() -> tuple[int, int]:
+    """Read BE/FE ports from .env."""
+    env_file = _REPO_ROOT / ".env"
+    be, fe = 8100, 5200
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            v = v.split("#")[0].strip()
+            if k == "DASHBOARD_BE_PORT":
+                be = int(v)
+            elif k == "DASHBOARD_FE_PORT":
+                fe = int(v)
+    return be, fe
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _read_pid(name: str) -> int | None:
+    f = _PID_DIR / f"{name}.pid"
+    if not f.exists():
+        return None
+    pid = int(f.read_text().strip())
+    if _pid_alive(pid):
+        return pid
+    f.unlink(missing_ok=True)
+    return None
+
+
+def _write_pid(name: str, pid: int) -> None:
+    _PID_DIR.mkdir(parents=True, exist_ok=True)
+    (_PID_DIR / f"{name}.pid").write_text(str(pid))
+
+
+def _kill_pid(name: str) -> bool:
+    pid = _read_pid(name)
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
+    (_PID_DIR / f"{name}.pid").unlink(missing_ok=True)
+    return True
+
+
+def _kill_port(port: int) -> None:
+    """Kill any process listening on port."""
+    import subprocess as _sp
+    try:
+        out = _sp.check_output(["lsof", "-ti", f":{port}"], text=True).strip()
+        for pid_str in out.splitlines():
+            try:
+                os.kill(int(pid_str), signal.SIGKILL)
+            except OSError:
+                pass
+    except Exception:
+        pass
+
+
+@cogos.group("dashboard")
+def dashboard_group():
+    """Manage local dashboard (start/stop/reload)."""
+
+
+@dashboard_group.command("start")
+def dashboard_start():
+    """Start the dashboard backend + frontend in the background."""
+    import subprocess as _sp
+
+    be_port, fe_port = _read_ports()
+
+    # Check if already running
+    be_pid = _read_pid("backend")
+    fe_pid = _read_pid("frontend")
+    if be_pid and fe_pid:
+        click.echo(f"Dashboard already running (backend={be_pid}, frontend={fe_pid})")
+        click.echo(f"  http://localhost:{fe_port}")
+        return
+
+    # Kill anything on those ports
+    _kill_port(be_port)
+    _kill_port(fe_port)
+
+    env = {**os.environ, "USE_LOCAL_DB": "1", "DASHBOARD_BE_PORT": str(be_port)}
+
+    # Start backend
+    be_proc = _sp.Popen(
+        [sys.executable, "-m", "uvicorn", "dashboard.app:app", "--host", "0.0.0.0", "--port", str(be_port)],
+        env={**env, "PYTHONPATH": str(_REPO_ROOT / "src")},
+        stdout=open("/tmp/cogent-backend.log", "w"),
+        stderr=_sp.STDOUT,
+        start_new_session=True,
+    )
+    _write_pid("backend", be_proc.pid)
+
+    # Start frontend
+    fe_proc = _sp.Popen(
+        ["npx", "next", "dev", "-p", str(fe_port)],
+        cwd=str(_FRONTEND_DIR),
+        env=env,
+        stdout=open("/tmp/cogent-frontend.log", "w"),
+        stderr=_sp.STDOUT,
+        start_new_session=True,
+    )
+    _write_pid("frontend", fe_proc.pid)
+
+    click.echo(f"Dashboard started (backend={be_proc.pid}, frontend={fe_proc.pid})")
+    click.echo(f"  http://localhost:{fe_port}")
+    click.echo("  Logs: /tmp/cogent-backend.log, /tmp/cogent-frontend.log")
+
+
+@dashboard_group.command("stop")
+def dashboard_stop():
+    """Stop the dashboard backend + frontend."""
+    be_port, fe_port = _read_ports()
+    stopped = []
+    if _kill_pid("backend"):
+        stopped.append("backend")
+    if _kill_pid("frontend"):
+        stopped.append("frontend")
+    # Also kill by port in case PIDs are stale
+    _kill_port(be_port)
+    _kill_port(fe_port)
+    if stopped:
+        click.echo(f"Dashboard stopped ({', '.join(stopped)})")
+    else:
+        click.echo("Dashboard was not running")
+
+
+@dashboard_group.command("reload")
+@click.pass_context
+def dashboard_reload(ctx: click.Context):
+    """Restart the dashboard (stop + start)."""
+    ctx.invoke(dashboard_stop)
+    import time as _time
+    _time.sleep(1)
+    ctx.invoke(dashboard_start)
 
 
 # ═══════════════════════════════════════════════════════════

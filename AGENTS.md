@@ -119,16 +119,17 @@ In production (Docker), both are served on a single port (8100) — Next.js is s
 ### Starting the dashboard
 
 ```bash
-# All-in-one (starts both backend + frontend, opens browser):
+# Background (recommended for dev):
+cogent local cogos dashboard start             # local JSON DB, runs in background
+cogent local cogos dashboard stop              # stop both servers
+cogent local cogos dashboard reload            # restart (stop + start)
+
+# Foreground (opens browser):
 cogent local dashboard serve --db local        # local JSON DB
 cogent dr.alpha dashboard serve --db prod      # live polis DB
-
-# Manual (two terminals):
-USE_LOCAL_DB=1 uv run uvicorn dashboard.app:app --host 0.0.0.0 --port 8100
-cd dashboard/frontend && npm run dev
 ```
 
-`--db local` sets `USE_LOCAL_DB=1` (JSON file, no AWS needed). `--db prod` assumes into the polis account to get live RDS credentials.
+`cogos dashboard start` runs both backend and frontend in the background, tracking PIDs for clean stop/reload. Logs go to `/tmp/cogent-backend.log` and `/tmp/cogent-frontend.log`.
 
 ## Remote Deployment and Testing
 
@@ -180,14 +181,10 @@ Use the `agent-browser` skill to test the Cogent Dashboard interactively.
 
 ### Prerequisites
 
-Start the dashboard backend and frontend:
+Start the dashboard:
 
 ```bash
-# Terminal 1: Backend (FastAPI on port 8100)
-uv run uvicorn dashboard.app:app --host 0.0.0.0 --port 8100 --reload
-
-# Terminal 2: Frontend (Next.js on port 5200 by default)
-cd dashboard/frontend && npm run dev
+cogent local cogos dashboard start
 ```
 
 ### Quick Start
