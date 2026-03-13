@@ -62,6 +62,11 @@ class UnblockResult(BaseModel):
     unblocked: list[UnblockInfo] = []
 
 
+class ReapResult(BaseModel):
+    reaped_count: int = 0
+    reaped: list[UnblockInfo] = []
+
+
 class KillResult(BaseModel):
     process_id: str
     name: str
@@ -251,6 +256,37 @@ class SchedulerCapability(Capability):
             previous_status=previous_status,
             new_status=ProcessStatus.DISABLED.value,
         )
+
+    def reap_idle_processes(self) -> ReapResult:
+        """Reap daemon processes that have been idle longer than their idle_timeout_ms."""
+        now_ts = time.time()
+        daemons = self.repo.list_processes(status=ProcessStatus.WAITING)
+        reaped = []
+
+        for proc in daemons:
+            if proc.mode.value != "daemon":
+                continue
+            if proc.idle_timeout_ms is None:
+                continue
+
+            # Find most recent run
+            runs = self.repo.list_runs(process_id=proc.id, limit=1)
+            if not runs:
+                if proc.created_at:
+                    idle_ms = (now_ts - proc.created_at.timestamp()) * 1000
+                    if idle_ms > proc.idle_timeout_ms:
+                        self.repo.update_process_status(proc.id, ProcessStatus.COMPLETED)
+                        reaped.append(UnblockInfo(id=str(proc.id), name=proc.name))
+                continue
+
+            last_run = runs[0]
+            if last_run.created_at:
+                idle_ms = (now_ts - last_run.created_at.timestamp()) * 1000
+                if idle_ms > proc.idle_timeout_ms:
+                    self.repo.update_process_status(proc.id, ProcessStatus.COMPLETED)
+                    reaped.append(UnblockInfo(id=str(proc.id), name=proc.name))
+
+        return ReapResult(reaped_count=len(reaped), reaped=reaped)
 
     @staticmethod
     def _effective_priority(proc, now_ts: float) -> float:
