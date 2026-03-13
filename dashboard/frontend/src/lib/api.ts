@@ -18,6 +18,12 @@ import type {
   MessageTrace,
 } from "./types";
 
+interface MessageTraceFilters {
+  messageTypes?: string[];
+  emittedMessageTypes?: string[];
+  limit?: number;
+}
+
 function getApiKey(): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("cogent-api-key");
@@ -44,9 +50,20 @@ async function fetchJSON<T>(path: string): Promise<T> {
 export async function getMessageTraces(
   name: string,
   range: TimeRange = "1h",
+  filters: MessageTraceFilters = {},
 ): Promise<MessageTrace[]> {
+  const params = new URLSearchParams({ range });
+  for (const value of filters.messageTypes ?? []) {
+    params.append("message_type", value);
+  }
+  for (const value of filters.emittedMessageTypes ?? []) {
+    params.append("emitted_message_type", value);
+  }
+  if (filters.limit != null) {
+    params.set("limit", String(filters.limit));
+  }
   const r = await fetchJSON<{ traces: MessageTrace[] }>(
-    `/api/cogents/${name}/message-traces?range=${range}`,
+    `/api/cogents/${name}/message-traces?${params.toString()}`,
   );
   return r.traces;
 }

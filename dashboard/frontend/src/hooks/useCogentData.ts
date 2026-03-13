@@ -48,7 +48,7 @@ export function useCogentData(cogentName: string) {
       api.getCapabilities(cogentName),
       api.getHandlers(cogentName),
       api.getRuns(cogentName),
-      api.getMessageTraces(cogentName, timeRange),
+      api.getMessageTraces(cogentName, timeRange, { limit: 100 }),
       api.getCrons(cogentName),
       api.getEventTypes(cogentName),
       api.getResources(cogentName),

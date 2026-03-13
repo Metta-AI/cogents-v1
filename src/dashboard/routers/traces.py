@@ -28,6 +28,7 @@ class TraceMessageOut(BaseModel):
     id: str
     channel_id: str
     channel_name: str
+    message_type: str | None = None
     sender_process: str | None = None
     sender_process_name: str | None = None
     payload: dict[str, Any]
@@ -88,6 +89,34 @@ def _iso(dt: datetime | None) -> str | None:
 def _message_sort_key(msg: ChannelMessage) -> datetime:
     return _as_utc(msg.created_at) or datetime.min.replace(tzinfo=timezone.utc)
 
+
+_UNTYPED_MESSAGE_TYPE = "__untyped__"
+
+
+def _message_type(message: ChannelMessage) -> str | None:
+    payload = message.payload or {}
+    for key in ("message_type", "type"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                return normalized
+    return None
+
+
+def _normalize_type_filters(values: list[str] | None) -> set[str]:
+    if not values:
+        return set()
+    return {value.strip() for value in values if value.strip()}
+
+
+def _matches_type_filter(message: ChannelMessage, allowed_types: set[str]) -> bool:
+    if not allowed_types:
+        return True
+    message_type = _message_type(message) or _UNTYPED_MESSAGE_TYPE
+    return message_type in allowed_types
+
+
 def _message_out(
     message: ChannelMessage,
     *,
@@ -98,6 +127,7 @@ def _message_out(
         id=str(message.id),
         channel_id=str(message.channel),
         channel_name=channel_names.get(message.channel, str(message.channel)),
+        message_type=_message_type(message),
         sender_process=str(message.sender_process) if message.sender_process else None,
         sender_process_name=process_names.get(message.sender_process) if message.sender_process else None,
         payload=message.payload or {},
@@ -164,12 +194,16 @@ def _emitted_messages_for_run(
 def list_message_traces(
     name: str,
     range: TraceRange = Query("1h"),
+    message_type: list[str] | None = Query(None),
+    emitted_message_type: list[str] | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
 ) -> MessageTracesResponse:
     repo = get_repo()
 
     cutoff = datetime.now(timezone.utc) - _RANGE_TO_DELTA[range]
-    fetch_limit = max(limit * 10, 500)
+    source_type_filters = _normalize_type_filters(message_type)
+    emitted_type_filters = _normalize_type_filters(emitted_message_type)
+    fetch_limit = max(limit * 20, 1000) if source_type_filters or emitted_type_filters else max(limit * 10, 500)
 
     processes = repo.list_processes(limit=1000)
     channels = repo.list_channels()
@@ -193,13 +227,15 @@ def list_message_traces(
         created_at = _as_utc(message.created_at)
         if created_at is not None and created_at < cutoff:
             continue
+        if not _matches_type_filter(message, source_type_filters):
+            continue
         if message.sender_process is None or deliveries_by_message.get(message.id):
             candidate_messages.append(message)
 
     candidate_messages.sort(key=_message_sort_key, reverse=True)
 
     traces = []
-    for message in candidate_messages[:limit]:
+    for message in candidate_messages:
         delivery_items = []
         message_deliveries = sorted(
             deliveries_by_message.get(message.id, []),
@@ -223,6 +259,7 @@ def list_message_traces(
                         process_names=process_names,
                     )
                     for emitted in _emitted_messages_for_run(run, message.id, messages)
+                    if _matches_type_filter(emitted, emitted_type_filters)
                 ]
 
             delivery_items.append(
@@ -238,6 +275,9 @@ def list_message_traces(
                 )
             )
 
+        if emitted_type_filters and not any(delivery.emitted_messages for delivery in delivery_items):
+            continue
+
         traces.append(
             MessageTraceOut(
                 message=_message_out(
@@ -248,5 +288,7 @@ def list_message_traces(
                 deliveries=delivery_items,
             )
         )
+        if len(traces) >= limit:
+            break
 
     return MessageTracesResponse(count=len(traces), traces=traces)

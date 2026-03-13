@@ -48,7 +48,7 @@ class _TraceRepoStub:
             id=uuid4(),
             channel=self.inbound_channel.id,
             sender_process=None,
-            payload={"task": "index workspace"},
+            payload={"task": "index workspace", "message_type": "filesystem:index.request"},
             created_at=now,
         )
         self.handler = Handler(
@@ -136,9 +136,51 @@ def test_message_traces_endpoint_returns_channel_delivery_run_graph():
 
     trace = payload["traces"][0]
     assert trace["message"]["channel_name"] == "filesystem-lab:requests"
+    assert trace["message"]["message_type"] == "filesystem:index.request"
     assert trace["deliveries"][0]["process_name"] == "alpha.worker"
     assert trace["deliveries"][0]["run"]["id"] == str(repo.run.id)
+    assert trace["deliveries"][0]["emitted_messages"][0]["message_type"] == "process:run:success"
     assert trace["deliveries"][0]["emitted_messages"][0]["channel_name"] == f"process:{repo.process.name}"
+
+
+def test_message_traces_endpoint_filters_by_source_message_type():
+    app = create_app()
+    client = TestClient(app)
+    repo = _TraceRepoStub()
+
+    with patch("dashboard.routers.traces.get_repo", return_value=repo):
+        response = client.get("/api/cogents/test/message-traces?range=1h&message_type=filesystem:index.request")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["traces"][0]["message"]["id"] == str(repo.message.id)
+
+    with patch("dashboard.routers.traces.get_repo", return_value=repo):
+        response = client.get("/api/cogents/test/message-traces?range=1h&message_type=discord:dm")
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 0
+
+
+def test_message_traces_endpoint_filters_by_emitted_message_type():
+    app = create_app()
+    client = TestClient(app)
+    repo = _TraceRepoStub()
+
+    with patch("dashboard.routers.traces.get_repo", return_value=repo):
+        response = client.get("/api/cogents/test/message-traces?range=1h&emitted_message_type=process:run:success")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["traces"][0]["message"]["id"] == str(repo.message.id)
+
+    with patch("dashboard.routers.traces.get_repo", return_value=repo):
+        response = client.get("/api/cogents/test/message-traces?range=1h&emitted_message_type=discord:dm")
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 0
 
 
 def test_runs_endpoint_maps_message_id_into_legacy_event_field():

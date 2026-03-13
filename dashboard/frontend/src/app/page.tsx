@@ -131,7 +131,7 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
           <RunsPanel runs={data.runs} cogentName={cogentName} />
         )}
         {activeTab === "trace" && (
-          <TracePanel traces={data.traces} cogentName={cogentName} />
+          <TracePanel traces={data.traces} cogentName={cogentName} timeRange={timeRange} />
         )}
         {activeTab === "cron" && (
           <CronPanel crons={data.crons} cogentName={cogentName} onRefresh={refresh} />

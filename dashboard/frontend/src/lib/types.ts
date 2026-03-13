@@ -205,6 +205,7 @@ export interface TraceMessage {
   id: string;
   channel_id: string;
   channel_name: string;
+  message_type: string | null;
   sender_process: string | null;
   sender_process_name: string | null;
   payload: Record<string, unknown>;

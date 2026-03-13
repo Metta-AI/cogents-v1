@@ -1,16 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/shared/Badge";
 import { JsonViewer } from "@/components/shared/JsonViewer";
 import { buildCogentRunLogsUrl } from "@/lib/cloudwatch";
 import { fmtCost, fmtMs, fmtNum, fmtTimestamp } from "@/lib/format";
-import type { MessageTrace, TraceDelivery, TraceMessage } from "@/lib/types";
+import type { MessageTrace, TimeRange, TraceDelivery, TraceMessage } from "@/lib/types";
+import * as api from "@/lib/api";
 
 interface TracePanelProps {
   traces: MessageTrace[];
   cogentName: string;
+  timeRange: TimeRange;
 }
 
 type BadgeVariant = "success" | "warning" | "error" | "info" | "neutral" | "accent";
@@ -29,6 +31,10 @@ const RUN_STATUS_VARIANT: Record<string, BadgeVariant> = {
   timeout: "warning",
   suspended: "neutral",
 };
+
+const ALL_FILTER_VALUE = "__all__";
+const UNTYPED_FILTER_VALUE = "__untyped__";
+const FILTER_FETCH_LIMIT = 100;
 
 function shortId(value: string | null | undefined): string {
   if (!value) return "--";
@@ -53,11 +59,89 @@ function emittedCount(deliveries: TraceDelivery[]): number {
   return deliveries.reduce((count, delivery) => count + delivery.emitted_messages.length, 0);
 }
 
+function normalizeMessageType(messageType: string | null | undefined): string {
+  return messageType?.trim() ? messageType : UNTYPED_FILTER_VALUE;
+}
+
+function displayMessageType(messageType: string | null | undefined): string {
+  return normalizeMessageType(messageType) === UNTYPED_FILTER_VALUE ? "untyped" : String(messageType);
+}
+
+function addTypeCount(counts: Map<string, number>, messageType: string | null | undefined) {
+  const key = normalizeMessageType(messageType);
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+function sortTypeEntries(counts: Map<string, number>): Array<[string, number]> {
+  return Array.from(counts.entries()).sort(([left], [right]) => {
+    if (left === UNTYPED_FILTER_VALUE) return 1;
+    if (right === UNTYPED_FILTER_VALUE) return -1;
+    return left.localeCompare(right);
+  });
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function traceSearchBlob(trace: MessageTrace): string {
+  const parts: string[] = [
+    trace.message.channel_name,
+    trace.message.message_type ?? "",
+    trace.message.sender_process_name ?? "",
+    trace.message.sender_process ?? "",
+    payloadPreview(trace.message.payload),
+    safeJson(trace.message.payload),
+  ];
+
+  for (const delivery of trace.deliveries) {
+    parts.push(
+      delivery.status,
+      delivery.handler_id,
+      delivery.process_name ?? "",
+      delivery.process_id ?? "",
+      delivery.run?.id ?? "",
+      delivery.run?.status ?? "",
+    );
+
+    for (const emitted of delivery.emitted_messages) {
+      parts.push(
+        emitted.channel_name,
+        emitted.message_type ?? "",
+        payloadPreview(emitted.payload),
+        safeJson(emitted.payload),
+      );
+    }
+  }
+
+  return parts.join(" ").toLowerCase();
+}
+
+function MessageTypeBadge({
+  messageType,
+  variant = "accent",
+}: {
+  messageType: string | null | undefined;
+  variant?: BadgeVariant;
+}) {
+  const normalized = normalizeMessageType(messageType);
+  return (
+    <Badge variant={normalized === UNTYPED_FILTER_VALUE ? "neutral" : variant}>
+      {displayMessageType(messageType)}
+    </Badge>
+  );
+}
+
 function TraceMessageCard({ message }: { message: TraceMessage }) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
         <Badge variant="info">{message.channel_name}</Badge>
+        <MessageTypeBadge messageType={message.message_type} />
         <span>message {shortId(message.id)}</span>
         <span>sender {message.sender_process_name ?? message.sender_process ?? "external"}</span>
         <span>{fmtTimestamp(message.created_at)}</span>
@@ -70,11 +154,92 @@ function TraceMessageCard({ message }: { message: TraceMessage }) {
   );
 }
 
-export function TracePanel({ traces, cogentName }: TracePanelProps) {
+export function TracePanel({ traces, cogentName, timeRange }: TracePanelProps) {
   const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedMessageType, setSelectedMessageType] = useState(ALL_FILTER_VALUE);
+  const [selectedEmittedMessageType, setSelectedEmittedMessageType] = useState(ALL_FILTER_VALUE);
+  const [filteredTraceResults, setFilteredTraceResults] = useState<MessageTrace[] | null>(null);
+  const [filterLoading, setFilterLoading] = useState(false);
+  const [filterError, setFilterError] = useState<string | null>(null);
+
+  const hasServerFilters = selectedMessageType !== ALL_FILTER_VALUE || selectedEmittedMessageType !== ALL_FILTER_VALUE;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!hasServerFilters) {
+      setFilteredTraceResults(null);
+      setFilterLoading(false);
+      setFilterError(null);
+      return;
+    }
+
+    const loadFilteredTraces = async () => {
+      setFilterLoading(true);
+      setFilterError(null);
+      try {
+        const next = await api.getMessageTraces(cogentName, timeRange, {
+          messageTypes: selectedMessageType === ALL_FILTER_VALUE ? [] : [selectedMessageType],
+          emittedMessageTypes: selectedEmittedMessageType === ALL_FILTER_VALUE ? [] : [selectedEmittedMessageType],
+          limit: FILTER_FETCH_LIMIT,
+        });
+        if (!cancelled) {
+          setFilteredTraceResults(next);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setFilteredTraceResults([]);
+          setFilterError(error instanceof Error ? error.message : "Could not load filtered traces.");
+        }
+      } finally {
+        if (!cancelled) {
+          setFilterLoading(false);
+        }
+      }
+    };
+
+    void loadFilteredTraces();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cogentName, hasServerFilters, selectedEmittedMessageType, selectedMessageType, timeRange, traces]);
+
+  const sourceTypeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const trace of traces) {
+      addTypeCount(counts, trace.message.message_type);
+    }
+    return sortTypeEntries(counts);
+  }, [traces]);
+
+  const emittedTypeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const trace of traces) {
+      for (const delivery of trace.deliveries) {
+        for (const emitted of delivery.emitted_messages) {
+          addTypeCount(counts, emitted.message_type);
+        }
+      }
+    }
+    return sortTypeEntries(counts);
+  }, [traces]);
+
+  const traceSource = hasServerFilters ? (filteredTraceResults ?? []) : traces;
+  const visibleTraces = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    if (!normalizedQuery) return traceSource;
+    return traceSource.filter((trace) => traceSearchBlob(trace).includes(normalizedQuery));
+  }, [searchQuery, traceSource]);
+
+  useEffect(() => {
+    const visibleIds = new Set(visibleTraces.map((trace) => trace.message.id));
+    setExpandedMessageIds((prev) => new Set(Array.from(prev).filter((id) => visibleIds.has(id))));
+  }, [visibleTraces]);
 
   const summary = useMemo(() => {
-    return traces.reduce(
+    return visibleTraces.reduce(
       (acc, trace) => {
         acc.deliveries += trace.deliveries.length;
         acc.runs += trace.deliveries.filter((delivery) => delivery.run).length;
@@ -83,7 +248,7 @@ export function TracePanel({ traces, cogentName }: TracePanelProps) {
       },
       { deliveries: 0, runs: 0, emitted: 0 },
     );
-  }, [traces]);
+  }, [visibleTraces]);
 
   const toggleExpanded = (messageId: string) => {
     setExpandedMessageIds((prev) => {
@@ -97,27 +262,137 @@ export function TracePanel({ traces, cogentName }: TracePanelProps) {
     });
   };
 
+  const clearFilters = () => {
+    setSearchQuery("");
+    setSelectedMessageType(ALL_FILTER_VALUE);
+    setSelectedEmittedMessageType(ALL_FILTER_VALUE);
+  };
+
+  const hasClientFilters = searchQuery.trim().length > 0;
+  const hasAnyFilters = hasServerFilters || hasClientFilters;
+  const emptyMessage = hasAnyFilters
+    ? "No channel message traces matched the current filters."
+    : "No channel message traces in this time window.";
+  const showLoadingState = hasServerFilters && filterLoading && filteredTraceResults === null;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-[var(--text-primary)]">
           Message Trace
-          <span className="ml-2 text-[var(--text-muted)] font-normal">({traces.length})</span>
+          <span className="ml-2 text-[var(--text-muted)] font-normal">({visibleTraces.length})</span>
         </h2>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           <Badge variant="info">{summary.deliveries} deliveries</Badge>
           <Badge variant="accent">{summary.runs} runs</Badge>
           <Badge variant="success">{summary.emitted} emitted</Badge>
         </div>
       </div>
 
-      {traces.length === 0 && (
+      <div className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] p-4 space-y-3">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px_220px_auto]">
+          <div className="space-y-1">
+            <label className="block text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+              Search
+            </label>
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="channel, sender, type, payload"
+              className="w-full rounded-md border px-3 py-2 text-[12px] font-mono"
+              style={{
+                background: "var(--bg-base)",
+                borderColor: "var(--border)",
+                color: "var(--text-primary)",
+              }}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+              Message Type
+            </label>
+            <select
+              value={selectedMessageType}
+              onChange={(event) => setSelectedMessageType(event.target.value)}
+              className="w-full rounded-md border px-3 py-2 text-[12px] font-mono"
+              style={{
+                background: "var(--bg-base)",
+                borderColor: "var(--border)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <option value={ALL_FILTER_VALUE}>all types</option>
+              {sourceTypeCounts.map(([type, count]) => (
+                <option key={type} value={type}>
+                  {displayMessageType(type)} ({count})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="block text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+              Emits Type
+            </label>
+            <select
+              value={selectedEmittedMessageType}
+              onChange={(event) => setSelectedEmittedMessageType(event.target.value)}
+              className="w-full rounded-md border px-3 py-2 text-[12px] font-mono"
+              style={{
+                background: "var(--bg-base)",
+                borderColor: "var(--border)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <option value={ALL_FILTER_VALUE}>all emitted types</option>
+              {emittedTypeCounts.map(([type, count]) => (
+                <option key={type} value={type}>
+                  {displayMessageType(type)} ({count})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={clearFilters}
+              disabled={!hasAnyFilters}
+              className="rounded-md border px-3 py-2 text-[11px] font-medium uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              style={{
+                background: "transparent",
+                borderColor: "var(--border)",
+                color: "var(--text-muted)",
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+          <span>{traceSource.length} trace{traceSource.length === 1 ? "" : "s"} in view</span>
+          {hasServerFilters && <Badge variant="accent">server filtered</Badge>}
+          {hasClientFilters && <Badge variant="info">search filtered</Badge>}
+          {filterLoading && <span>Updating filtered traces...</span>}
+          {filterError && <span className="text-red-400">{filterError}</span>}
+        </div>
+      </div>
+
+      {showLoadingState && (
         <div className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-8 text-center text-[12px] text-[var(--text-muted)]">
-          No channel message traces in this time window.
+          Loading filtered traces...
         </div>
       )}
 
-      {traces.map((trace) => {
+      {!showLoadingState && visibleTraces.length === 0 && (
+        <div className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-8 text-center text-[12px] text-[var(--text-muted)]">
+          {emptyMessage}
+        </div>
+      )}
+
+      {visibleTraces.map((trace) => {
         const { message, deliveries } = trace;
         const isExpanded = expandedMessageIds.has(message.id);
         const targetNames = Array.from(
@@ -138,6 +413,7 @@ export function TracePanel({ traces, cogentName }: TracePanelProps) {
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="info">{message.channel_name}</Badge>
+                    <MessageTypeBadge messageType={message.message_type} />
                     <span className="text-[11px] text-[var(--text-muted)] font-mono">{shortId(message.id)}</span>
                     <span className="text-[11px] text-[var(--text-muted)]">
                       {message.sender_process_name ?? message.sender_process ?? "external sender"}
@@ -246,6 +522,7 @@ export function TracePanel({ traces, cogentName }: TracePanelProps) {
                                   >
                                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
                                       <Badge variant="accent">{emitted.channel_name}</Badge>
+                                      <MessageTypeBadge messageType={emitted.message_type} variant="warning" />
                                       <span className="font-mono">{shortId(emitted.id)}</span>
                                       <span>{fmtTimestamp(emitted.created_at)}</span>
                                     </div>
