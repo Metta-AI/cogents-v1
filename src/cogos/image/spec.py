@@ -49,9 +49,13 @@ def load_image(image_dir: Path) -> ImageSpec:
             "metadata": metadata or {},
         })
 
-    def add_cron(expression, *, event_type, payload=None, enabled=True):
+    def add_cron(expression, *, channel_name=None, event_type=None, payload=None, enabled=True):
+        target_channel = channel_name or event_type
+        if not target_channel:
+            raise TypeError("add_cron() requires channel_name")
         spec.cron_rules.append({
-            "expression": expression, "event_type": event_type,
+            "expression": expression,
+            "channel_name": target_channel,
             "payload": payload or {}, "enabled": enabled,
         })
 

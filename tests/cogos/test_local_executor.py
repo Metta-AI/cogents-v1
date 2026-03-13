@@ -1,5 +1,7 @@
 """Tests for cogos.runtime.local – run_and_complete and run_local_tick."""
 
+from datetime import datetime, timezone
+
 from cogos.db.local_repository import LocalRepository
 from cogos.db.models import (
     Channel,
@@ -47,6 +49,10 @@ def _failing_execute(process, event_data, run, config, repo, **kwargs):
     raise RuntimeError("boom")
 
 
+def _process(name: str, *, mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING) -> Process:
+    return Process(name=name, mode=mode, status=status, runner="local")
+
+
 # ---- Tests ----
 
 
@@ -85,7 +91,7 @@ def test_run_and_complete_failure_disables_one_shot(tmp_path):
     process = _make_process(repo, max_retries=0)
     run = _make_run(repo, process)
 
-    result = run_and_complete(
+    run_and_complete(
         process, {}, run, None, repo, execute_fn=_failing_execute,
     )
 
@@ -106,6 +112,39 @@ def test_run_and_complete_returns_run_on_failure(tmp_path):
     assert result.id == run.id
     assert repo.get_run(run.id).status == RunStatus.FAILED
     assert repo.get_process(process.id).status == ProcessStatus.RUNNABLE
+
+
+def test_local_repository_merges_stale_writers(tmp_path):
+    repo1 = _repo(tmp_path)
+    repo2 = _repo(tmp_path)
+
+    repo1.upsert_process(_process("p1", status=ProcessStatus.RUNNABLE))
+    repo2.upsert_process(_process("p2", status=ProcessStatus.RUNNABLE))
+
+    names = [process.name for process in _repo(tmp_path).list_processes()]
+    assert names == ["p1", "p2"]
+
+
+def test_run_and_complete_respects_out_of_band_disable(tmp_path):
+    repo = _repo(tmp_path)
+    process = _make_process(repo)
+    run = _make_run(repo, process)
+
+    def _disable_mid_run(process, event_data, run, config, repo, **kwargs):
+        repo.update_process_status(process.id, ProcessStatus.DISABLED)
+        return run
+
+    run_and_complete(
+        process,
+        {},
+        run,
+        None,
+        repo,
+        execute_fn=_disable_mid_run,
+    )
+
+    assert repo.get_run(run.id).status == RunStatus.COMPLETED
+    assert repo.get_process(process.id).status == ProcessStatus.DISABLED
 
 
 # ---- run_local_tick tests ----
@@ -173,3 +212,66 @@ def test_run_local_tick_matches_channel_messages(tmp_path):
 
     assert executed == 1
     assert repo.get_process(p.id).status == ProcessStatus.WAITING
+
+
+def test_run_local_tick_uses_prod_dispatch_envelope(tmp_path):
+    repo = _repo(tmp_path)
+    process = Process(
+        name="daemon-proc",
+        mode=ProcessMode.DAEMON,
+        status=ProcessStatus.WAITING,
+        runner="local",
+    )
+    repo.upsert_process(process)
+
+    channel = Channel(name="test-channel", channel_type=ChannelType.NAMED)
+    repo.upsert_channel(channel)
+    channel = repo.get_channel_by_name("test-channel")
+
+    repo.create_handler(Handler(process=process.id, channel=channel.id, enabled=True))
+    message = ChannelMessage(
+        channel=channel.id,
+        sender_process=process.id,
+        payload={"hello": "world"},
+    )
+    repo.append_channel_message(message)
+
+    captured = {}
+
+    def _capture_execute(process, event_data, run, config, repo, **kwargs):
+        captured.update(event_data)
+        return run
+
+    executed = run_local_tick(repo, None, execute_fn=_capture_execute)
+
+    assert executed == 1
+    assert captured["process_id"] == str(process.id)
+    assert captured["run_id"]
+    assert captured["message_id"] == str(message.id)
+    assert captured["payload"] == {"hello": "world"}
+
+
+def test_run_local_tick_applies_system_ticks(tmp_path):
+    repo = _repo(tmp_path)
+    process = Process(
+        name="hourly-daemon",
+        mode=ProcessMode.DAEMON,
+        status=ProcessStatus.WAITING,
+        runner="local",
+    )
+    repo.upsert_process(process)
+
+    channel = Channel(name="system:tick:hour", channel_type=ChannelType.NAMED)
+    repo.upsert_channel(channel)
+    channel = repo.get_channel_by_name("system:tick:hour")
+    repo.create_handler(Handler(process=process.id, channel=channel.id, enabled=True))
+
+    executed = run_local_tick(
+        repo,
+        None,
+        execute_fn=_noop_execute,
+        now=datetime(2026, 3, 13, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert executed == 1
+    assert repo.get_process(process.id).status == ProcessStatus.WAITING

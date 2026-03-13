@@ -62,9 +62,12 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
     # 3. Cron rules (skip if no table/method yet)
     if hasattr(repo, "upsert_cron"):
         for cron_dict in spec.cron_rules:
+            channel_name = cron_dict.get("channel_name") or cron_dict.get("event_type")
+            if not channel_name:
+                raise ValueError("cron rule missing channel_name")
             c = Cron(
                 expression=cron_dict["expression"],
-                event_type=cron_dict["event_type"],
+                channel_name=channel_name,
                 payload=cron_dict.get("payload") or {},
                 enabled=cron_dict.get("enabled", True),
             )

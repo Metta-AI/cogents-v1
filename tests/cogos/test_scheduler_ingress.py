@@ -1,8 +1,11 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from cogos.capabilities.scheduler import SchedulerCapability
 from cogos.db.local_repository import LocalRepository
-from cogos.db.models import Channel, ChannelMessage, ChannelType, DeliveryStatus, Handler, Process, ProcessMode, ProcessStatus, RunStatus
+from cogos.db.models import Channel, ChannelMessage, ChannelType, Cron, DeliveryStatus, Handler, Process, ProcessMode, ProcessStatus, RunStatus
+from cogos.runtime.schedule import apply_scheduled_messages
+from cogtainer.lambdas.dispatcher.handler import _apply_system_ticks
 from cogos.runtime.ingress import dispatch_ready_processes
 
 
@@ -128,3 +131,47 @@ def test_dispatch_rolls_back_failed_invoke(tmp_path):
     delivery = next(iter(repo._deliveries.values()))
     assert delivery.status == DeliveryStatus.PENDING
     assert delivery.run is None
+
+
+def test_apply_system_ticks_wakes_channel_subscribers(tmp_path):
+    repo = _repo(tmp_path)
+    proc = _daemon("hourly")
+    repo.upsert_process(proc)
+
+    channel = Channel(name="system:tick:hour", channel_type=ChannelType.NAMED)
+    repo.upsert_channel(channel)
+    channel = repo.get_channel_by_name("system:tick:hour")
+    repo.create_handler(Handler(process=proc.id, channel=channel.id))
+
+    _apply_system_ticks(repo, now=datetime(2026, 3, 13, 12, 0, tzinfo=timezone.utc))
+
+    assert repo.get_process(proc.id).status == ProcessStatus.RUNNABLE
+    assert len(repo.get_pending_deliveries(proc.id)) == 1
+
+
+def test_apply_scheduled_messages_emits_matching_cron_channels(tmp_path):
+    repo = _repo(tmp_path)
+    proc = _daemon("cron-worker")
+    repo.upsert_process(proc)
+
+    channel = Channel(name="check:health", channel_type=ChannelType.NAMED)
+    repo.upsert_channel(channel)
+    channel = repo.get_channel_by_name("check:health")
+    repo.create_handler(Handler(process=proc.id, channel=channel.id))
+    repo.upsert_cron(
+        Cron(
+            expression="15 8 * * *",
+            channel_name="check:health",
+            payload={"kind": "cron"},
+        )
+    )
+
+    emitted = apply_scheduled_messages(
+        repo,
+        now=datetime(2026, 3, 13, 8, 15, tzinfo=timezone.utc),
+    )
+
+    assert emitted >= 2
+    assert repo.get_process(proc.id).status == ProcessStatus.RUNNABLE
+    messages = repo.list_channel_messages(channel.id)
+    assert messages[-1].payload == {"kind": "cron"}

@@ -5,12 +5,11 @@ EventBridge fires this every 60s. Each invocation:
 2. Matches channel messages to handlers
 3. Selects runnable processes and dispatches executors
 
-Virtual tick events match handlers directly and set processes to RUNNABLE.
+Virtual tick events are emitted as channel messages and wake handlers via deliveries.
 """
 
 from __future__ import annotations
 
-import logging
 import os
 from datetime import datetime, timezone
 from uuid import UUID
@@ -20,6 +19,7 @@ import boto3
 from cogtainer.lambdas.shared.config import get_config
 from cogtainer.lambdas.shared.logging import setup_logging
 from cogos.runtime.ingress import dispatch_ready_processes
+from cogos.runtime.schedule import apply_scheduled_messages
 
 logger = setup_logging()
 
@@ -91,23 +91,10 @@ def handler(event: dict, context) -> dict:
     return {"statusCode": 200, "dispatched": dispatched}
 
 
-def _apply_system_ticks(repo) -> None:
+def _apply_system_ticks(repo, *, now: datetime | None = None) -> None:
     """Generate virtual system:tick:minute (and :hour) events.
 
-    These match handlers and set processes to RUNNABLE but are never
-    written to the cogos_event table.
+    These now flow through the shared channel scheduler path so both
+    local and prod dispatch wake handlers the same way.
     """
-    from cogos.db.models import ProcessStatus
-
-    now = datetime.now(timezone.utc)
-    tick_types = ["system:tick:minute"]
-    if now.minute == 0:
-        tick_types.append("system:tick:hour")
-
-    for tick_type in tick_types:
-        handlers = repo.match_handlers(tick_type)
-        for h in handlers:
-            proc = repo.get_process(h.process)
-            if proc and proc.status == ProcessStatus.WAITING:
-                repo.update_process_status(h.process, ProcessStatus.RUNNABLE)
-                logger.info(f"System tick {tick_type} -> {proc.name} RUNNABLE")
+    apply_scheduled_messages(repo, now=now or datetime.now(timezone.utc))

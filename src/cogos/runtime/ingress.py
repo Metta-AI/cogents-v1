@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from cogos.db.models import ProcessStatus
+from cogos.runtime.dispatch import build_dispatch_event
 
 logger = logging.getLogger(__name__)
 
@@ -31,32 +32,7 @@ def dispatch_ready_processes(
             logger.warning("Dispatch failed for %s: %s", process_id, dispatch_result.error)
             continue
 
-        message_payload: dict[str, Any] = {}
-        if dispatch_result.message_id:
-            msg_id = UUID(dispatch_result.message_id)
-            # Try channel message lookup
-            for ch_msg in getattr(repo, '_channel_messages', {}).values():
-                if ch_msg.id == msg_id:
-                    message_payload = ch_msg.payload or {}
-                    break
-            else:
-                # RDS path: query by message ID
-                try:
-                    rows = repo.query(
-                        "SELECT payload FROM cogos_channel_message WHERE id = :id",
-                        {"id": msg_id},
-                    )
-                    if rows:
-                        message_payload = repo._json_field(rows[0], "payload", {})
-                except Exception:
-                    pass
-
-        payload = {
-            "process_id": dispatch_result.process_id,
-            "run_id": dispatch_result.run_id,
-            "message_id": dispatch_result.message_id,
-            "payload": message_payload,
-        }
+        payload = build_dispatch_event(repo, dispatch_result)
 
         try:
             response = lambda_client.invoke(
