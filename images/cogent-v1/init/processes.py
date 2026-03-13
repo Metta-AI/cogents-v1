@@ -18,15 +18,7 @@ add_process(
 add_process(
     "discord-handle-message",
     mode="daemon",
-    content="""\
-You received a Discord message. Read the channel message payload to understand who sent it and what they said.
-
-Use the discord capability to respond:
-- For DMs: use discord.dm(user_id=author_id, content=your_reply)
-- For mentions: use discord.send(channel=channel_id, content=your_reply, reply_to=message_id)
-
-Be helpful, concise, and friendly. If you don't know something, say so.
-""",
+    code_key="cogos/lib/discord-handle-message",
     runner="lambda",
     model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
     priority=10.0,
