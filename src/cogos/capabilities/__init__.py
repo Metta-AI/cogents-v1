@@ -84,22 +84,21 @@ BUILTIN_CAPABILITIES: list[dict] = [
     },
     {
         "name": "dir",
-        "description": "Directory access — list, read, write, create, and delete files under a prefix.",
-        "handler": "cogos.capabilities.files.FilesCapability",
+        "description": "Directory access — list files and get file handles for read/write/append.",
+        "handler": "cogos.capabilities.file_cap.DirCapability",
         "instructions": (
             "Use dir to access files under a directory prefix.\n"
-            "- dir.list(prefix?) — list files under the prefix\n"
-            "- dir.read(key) — read a file by key\n"
-            "- dir.write(key, content) — create or update a file\n"
-            "- dir.create(key, content) — create a new file (fails if exists)\n"
-            "- dir.delete(key) — delete a file\n"
-            "Dir grants full file access to everything under its prefix."
+            "- dir.list(prefix?) — list files\n"
+            "- f = dir.get(key) — get a file handle\n"
+            "- f.read() — read file content\n"
+            "- f.write(content) — overwrite file\n"
+            "- f.append(content) — append to file (creates if missing)\n"
+            "Example: f = dir.get('log.txt'); f.append('\\nnew line'); print(f.read().content)"
         ),
         "schema": {
             "scope": {
                 "properties": {
                     "prefix": {"type": "string", "description": "Key prefix to restrict access"},
-                    "ops": {"type": "array", "items": {"type": "string", "enum": ["list", "read", "write", "create", "delete"]}},
                 },
             },
             "list": {
@@ -115,61 +114,13 @@ BUILTIN_CAPABILITIES: list[dict] = [
                     "items": {"type": "object", "properties": {"id": {"type": "string"}, "key": {"type": "string"}}},
                 },
             },
-            "read": {
+            "get": {
                 "input": {
                     "type": "object",
-                    "properties": {"key": {"type": "string", "description": "File key"}},
+                    "properties": {"key": {"type": "string", "description": "File key (relative to prefix)"}},
                     "required": ["key"],
                 },
-                "output": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string"}, "key": {"type": "string"},
-                        "version": {"type": "integer"}, "content": {"type": "string"},
-                    },
-                },
-            },
-            "write": {
-                "input": {
-                    "type": "object",
-                    "properties": {
-                        "key": {"type": "string"}, "content": {"type": "string"},
-                        "source": {"type": "string", "default": "agent"},
-                    },
-                    "required": ["key", "content"],
-                },
-                "output": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string"}, "key": {"type": "string"},
-                        "version": {"type": "integer"},
-                    },
-                },
-            },
-            "create": {
-                "input": {
-                    "type": "object",
-                    "properties": {
-                        "key": {"type": "string"}, "content": {"type": "string"},
-                        "source": {"type": "string", "default": "agent"},
-                    },
-                    "required": ["key", "content"],
-                },
-                "output": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string"}, "key": {"type": "string"},
-                        "version": {"type": "integer"},
-                    },
-                },
-            },
-            "delete": {
-                "input": {
-                    "type": "object",
-                    "properties": {"key": {"type": "string"}},
-                    "required": ["key"],
-                },
-                "output": {"type": "object", "properties": {"deleted": {"type": "boolean"}}},
+                "output": {"type": "string", "description": "FileCapability with read(), write(content), append(content)"},
             },
         },
     },

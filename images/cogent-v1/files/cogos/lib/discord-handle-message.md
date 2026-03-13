@@ -10,7 +10,7 @@ it and what they said. Check the payload fields to decide how to respond.
 ```python
 import json
 
-state_file = dir.read("newsfromthefront/state.json")
+state_file = dir.get("newsfromthefront/state.json").read()
 state = json.loads(state_file.content) if state_file else {"threads": {}}
 known_threads = state.get("threads", {})
 

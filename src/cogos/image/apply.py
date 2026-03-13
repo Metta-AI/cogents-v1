@@ -130,10 +130,21 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
         pid = repo.upsert_process(p)
 
         # Bind capabilities
-        for cap_name in proc_dict.get("capabilities", []):
+        for cap_entry in proc_dict.get("capabilities", []):
+            if isinstance(cap_entry, dict):
+                cap_name = cap_entry["name"]
+                cap_config = cap_entry.get("config")
+                cap_alias = cap_entry.get("alias", cap_name)
+            else:
+                cap_name = cap_entry
+                cap_config = None
+                cap_alias = cap_name
             cap = repo.get_capability_by_name(cap_name)
             if cap:
-                pc = ProcessCapability(process=pid, capability=cap.id, name=cap_name)
+                pc = ProcessCapability(
+                    process=pid, capability=cap.id,
+                    name=cap_alias, config=cap_config,
+                )
                 repo.create_process_capability(pc)
 
         # Create handlers — channel-based

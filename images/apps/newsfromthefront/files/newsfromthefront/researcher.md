@@ -8,7 +8,7 @@ intelligence and save it for the analyst.
 ### 1. Read the project brief
 
 ```python
-brief = dir.read("newsfromthefront/brief.md")
+brief = dir.get("newsfromthefront/brief.md").read()
 print(brief.content)
 ```
 
@@ -79,7 +79,7 @@ for f in findings:
     content += f"## {f['source'].upper()}: {f['query']}\n\n"
     content += json.dumps(f['result'], indent=2) + "\n\n"
 
-dir.write(findings_key, content)
+dir.get(findings_key).write(content)
 print(f"Wrote findings to {findings_key}")
 ```
 

@@ -1,6 +1,6 @@
 # Files API
 
-Three capabilities for file access: `file` (single key), `dir` (prefix), `file_version` (history).
+Three capabilities for file access: `file` (single key), `dir` (prefix/directory), `file_version` (history).
 
 Use exact file keys, including suffixes like `.md` and `.json`. Inline prompt references should also keep the suffix: `@{cogos/docs/layout.md}`, not `@{cogos/docs/layout}`.
 
@@ -13,14 +13,14 @@ for e in entries:
     print(e.key)
 
 # Read a file
-doc = dir.read("cogos/docs/layout.md")
+doc = dir.get("cogos/docs/layout.md").read()
 print(doc.content)
 
 # Write a file (creates or updates)
-dir.write("workspace/notes.md", "my notes here")
+dir.get("workspace/notes.md").write("my notes here")
 
-# Delete a file
-dir.delete("workspace/old-notes.md")
+# Append to a file
+dir.get("workspace/notes.md").append("more notes")
 ```
 
 **Scoping:** `dir.scope(prefix="/workspace/", ops=["list", "read"])`

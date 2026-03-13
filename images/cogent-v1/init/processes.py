@@ -22,6 +22,10 @@ add_process(
     runner="lambda",
     model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
     priority=10.0,
-    capabilities=["discord", "channels", "dir", "stdlib", "procs", "file"],
+    capabilities=[
+        "discord", "channels",
+        {"name": "dir", "alias": "data", "config": {"prefix": "discord/channels/"}},
+        "stdlib", "procs", "file",
+    ],
     handlers=["io:discord:dm", "io:discord:mention", "io:discord:message"],
 )

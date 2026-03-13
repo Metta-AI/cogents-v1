@@ -16,8 +16,8 @@ channel message payload to determine which:
 import json
 
 # The triggering message payload is in the channel message
-findings_text = dir.read(payload["findings_key"]).content
-kb_file = dir.read("newsfromthefront/knowledge-base.json")
+findings_text = dir.get(payload["findings_key"]).read().content
+kb_file = dir.get("newsfromthefront/knowledge-base.json").read()
 kb = json.loads(kb_file.content) if kb_file else {"findings": [], "competitors": [], "last_run": ""}
 ```
 
@@ -49,14 +49,14 @@ else:
         report += f"[Source]({f['url']})\n\n"
         report += f"**Why it matters:** {f['relevance']}\n\n"
 
-dir.write(report_key, report)
+dir.get(report_key).write(report)
 ```
 
 ### 4. Post to Discord (production runs only)
 
 ```python
 if not payload["is_test"] and not payload["is_backfill"]:
-    state_file = dir.read("newsfromthefront/state.json")
+    state_file = dir.get("newsfromthefront/state.json").read()
     state = json.loads(state_file.content) if state_file else {"threads": {}}
 
     discord_channel_id = secrets.get("cogent/discord_channel_id").value
@@ -64,7 +64,7 @@ if not payload["is_test"] and not payload["is_backfill"]:
     discord.send(thread.id, report)
 
     state["threads"][thread.id] = {"date": date, "report_key": report_key}
-    dir.write("newsfromthefront/state.json", json.dumps(state, indent=2))
+    dir.get("newsfromthefront/state.json").write(json.dumps(state, indent=2))
 ```
 
 ### 5. Update knowledge base (skip if is_test or is_backfill)
@@ -76,7 +76,7 @@ if not payload["is_test"] and not payload["is_backfill"]:
     for f in new_findings:
         kb["findings"].append(f)
     kb["last_run"] = date
-    dir.write("newsfromthefront/knowledge-base.json", json.dumps(kb, indent=2))
+    dir.get("newsfromthefront/knowledge-base.json").write(json.dumps(kb, indent=2))
 ```
 
 ---
@@ -91,7 +91,7 @@ The user replied to a report thread and @mentioned the bot.
 feedback = payload["content"]
 author = payload["author"]
 
-brief = dir.read("newsfromthefront/brief.md").content
+brief = dir.get("newsfromthefront/brief.md").read().content
 ```
 
 Read the feedback carefully. Update the brief to incorporate:
@@ -103,7 +103,7 @@ Read the feedback carefully. Update the brief to incorporate:
 ### 2. Save updated brief
 
 ```python
-dir.write("newsfromthefront/brief.md", updated_brief)
+dir.get("newsfromthefront/brief.md").write(updated_brief)
 ```
 
 ### 3. Confirm in Discord
