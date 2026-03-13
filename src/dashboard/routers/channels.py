@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from cogos.channels.schema_validator import SchemaValidationError, SchemaValidator
 from cogos.db.models import Channel, ChannelMessage
 from dashboard.db import get_repo
 
@@ -20,7 +21,9 @@ class ChannelOut(BaseModel):
     channel_type: str
     owner_process: str | None = None
     owner_process_name: str | None = None
+    schema_name: str | None = None
     schema_id: str | None = None
+    schema_definition: dict | None = None
     inline_schema: dict | None = None
     auto_close: bool = False
     closed_at: str | None = None
@@ -43,9 +46,45 @@ class ChannelDetail(BaseModel):
     messages: list[ChannelMessageOut]
 
 
+class ChannelSendIn(BaseModel):
+    payload: dict
+
+
+class ChannelSendOut(BaseModel):
+    id: str
+    channel_id: str
+    channel_name: str
+    payload: dict
+
+
 class ChannelsResponse(BaseModel):
     count: int
     channels: list[ChannelOut]
+
+
+def _schema_definition(repo, ch: Channel) -> dict | None:
+    if ch.inline_schema:
+        return ch.inline_schema
+    if ch.schema_id:
+        schema = repo.get_schema(ch.schema_id)
+        if schema:
+            return schema.definition
+    return None
+
+
+def _schema_name(repo, ch: Channel) -> str | None:
+    if ch.schema_id:
+        schema = repo.get_schema(ch.schema_id)
+        if schema:
+            return schema.name
+    return None
+
+
+def _schema_registry(repo) -> dict[str, dict]:
+    return {
+        schema.name: schema.definition
+        for schema in repo.list_schemas()
+    }
 
 
 @router.get("/channels", response_model=ChannelsResponse)
@@ -73,7 +112,9 @@ def list_channels(
             channel_type=ch.channel_type.value,
             owner_process=str(ch.owner_process) if ch.owner_process else None,
             owner_process_name=proc_names.get(ch.owner_process) if ch.owner_process else None,
+            schema_name=_schema_name(repo, ch),
             schema_id=str(ch.schema_id) if ch.schema_id else None,
+            schema_definition=_schema_definition(repo, ch),
             inline_schema=ch.inline_schema,
             auto_close=ch.auto_close,
             closed_at=str(ch.closed_at) if ch.closed_at else None,
@@ -115,7 +156,9 @@ def get_channel(name: str, channel_id: str, limit: int = Query(50)) -> ChannelDe
         channel_type=ch.channel_type.value,
         owner_process=str(ch.owner_process) if ch.owner_process else None,
         owner_process_name=proc_names.get(ch.owner_process) if ch.owner_process else None,
+        schema_name=_schema_name(repo, ch),
         schema_id=str(ch.schema_id) if ch.schema_id else None,
+        schema_definition=_schema_definition(repo, ch),
         inline_schema=ch.inline_schema,
         auto_close=ch.auto_close,
         closed_at=str(ch.closed_at) if ch.closed_at else None,
@@ -125,3 +168,45 @@ def get_channel(name: str, channel_id: str, limit: int = Query(50)) -> ChannelDe
     )
 
     return ChannelDetail(channel=ch_out, messages=msg_out)
+
+
+@router.post("/channels/{channel_id}/messages", response_model=ChannelSendOut, status_code=201)
+def send_channel_message(name: str, channel_id: str, body: ChannelSendIn) -> ChannelSendOut:
+    repo = get_repo()
+    ch = repo.get_channel(UUID(channel_id))
+    if not ch:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if ch.channel_type.value != "named":
+        raise HTTPException(
+            status_code=400,
+            detail="Only named channels can receive dashboard-composed messages",
+        )
+    if ch.closed_at is not None:
+        raise HTTPException(status_code=400, detail="Channel is closed")
+
+    schema_definition = _schema_definition(repo, ch)
+    if schema_definition:
+        validator = SchemaValidator(
+            schema_definition,
+            schema_registry=_schema_registry(repo),
+        )
+        try:
+            validator.validate(body.payload)
+        except SchemaValidationError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Schema validation failed: {exc}",
+            ) from exc
+
+    message = ChannelMessage(
+        channel=ch.id,
+        sender_process=None,
+        payload=body.payload,
+    )
+    message_id = repo.append_channel_message(message)
+    return ChannelSendOut(
+        id=str(message_id),
+        channel_id=str(ch.id),
+        channel_name=ch.name,
+        payload=body.payload,
+    )

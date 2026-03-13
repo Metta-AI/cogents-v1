@@ -28,6 +28,7 @@ def test_all_rest_endpoints_registered():
         ("GET", "/api/cogents/test/memory"),
         ("GET", "/api/cogents/test/tasks"),
         ("GET", "/api/cogents/test/channels"),
+        ("POST", "/api/cogents/test/channels/00000000-0000-0000-0000-000000000000/messages"),
         ("GET", "/api/cogents/test/alerts"),
         ("GET", "/api/cogents/test/resources"),
     ]

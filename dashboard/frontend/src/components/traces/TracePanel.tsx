@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/shared/Badge";
 import { JsonViewer } from "@/components/shared/JsonViewer";
 import { buildCogentRunLogsUrl } from "@/lib/cloudwatch";
 import { fmtCost, fmtMs, fmtNum, fmtTimestamp } from "@/lib/format";
-import type { MessageTrace, TimeRange, TraceDelivery, TraceMessage } from "@/lib/types";
+import type { CogosChannel, MessageTrace, TimeRange, TraceDelivery, TraceMessage } from "@/lib/types";
 import * as api from "@/lib/api";
 
 interface TracePanelProps {
   traces: MessageTrace[];
   cogentName: string;
   timeRange: TimeRange;
+  onRefresh?: () => Promise<void> | void;
 }
 
 type BadgeVariant = "success" | "warning" | "error" | "info" | "neutral" | "accent";
@@ -88,6 +89,52 @@ function safeJson(value: unknown): string {
   }
 }
 
+function prettyJson(value: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "{}";
+  }
+}
+
+function buildPayloadTemplateValue(typeSpec: unknown): unknown {
+  if (typeSpec && typeof typeSpec === "object" && !Array.isArray(typeSpec)) {
+    return Object.fromEntries(
+      Object.entries(typeSpec as Record<string, unknown>).map(([key, value]) => [
+        key,
+        buildPayloadTemplateValue(value),
+      ]),
+    );
+  }
+
+  if (typeof typeSpec !== "string") {
+    return {};
+  }
+
+  if (typeSpec === "string") return "";
+  if (typeSpec === "number") return 0;
+  if (typeSpec === "bool") return false;
+  if (typeSpec === "dict") return {};
+  if (typeSpec === "list" || typeSpec.startsWith("list[")) return [];
+  return {};
+}
+
+function buildPayloadTemplate(channel: CogosChannel | null): Record<string, unknown> {
+  const schema = channel?.schema_definition;
+  if (!schema || typeof schema !== "object") {
+    return {};
+  }
+  const rawFields = "fields" in schema
+    ? (schema.fields as Record<string, unknown> | undefined)
+    : (schema as Record<string, unknown>);
+  if (!rawFields || typeof rawFields !== "object" || Array.isArray(rawFields)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(rawFields).map(([key, value]) => [key, buildPayloadTemplateValue(value)]),
+  );
+}
+
 function traceSearchBlob(trace: MessageTrace): string {
   const parts: string[] = [
     trace.message.channel_name,
@@ -136,15 +183,37 @@ function MessageTypeBadge({
   );
 }
 
-function TraceMessageCard({ message }: { message: TraceMessage }) {
+function TraceMessageCard({
+  message,
+  onPrefill,
+}: {
+  message: TraceMessage;
+  onPrefill?: (message: TraceMessage) => void;
+}) {
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
-        <Badge variant="info">{message.channel_name}</Badge>
-        <MessageTypeBadge messageType={message.message_type} />
-        <span>message {shortId(message.id)}</span>
-        <span>sender {message.sender_process_name ?? message.sender_process ?? "external"}</span>
-        <span>{fmtTimestamp(message.created_at)}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+          <Badge variant="info">{message.channel_name}</Badge>
+          <MessageTypeBadge messageType={message.message_type} />
+          <span>message {shortId(message.id)}</span>
+          <span>sender {message.sender_process_name ?? message.sender_process ?? "external"}</span>
+          <span>{fmtTimestamp(message.created_at)}</span>
+        </div>
+        {onPrefill && (
+          <button
+            type="button"
+            onClick={() => onPrefill(message)}
+            className="rounded-md border px-2 py-1 text-[10px] font-medium uppercase tracking-wide transition-colors"
+            style={{
+              background: "transparent",
+              borderColor: "var(--border)",
+              color: "var(--text-muted)",
+            }}
+          >
+            Prefill Composer
+          </button>
+        )}
       </div>
       <div className="text-[12px] text-[var(--text-secondary)] font-mono">
         {payloadPreview(message.payload)}
@@ -154,7 +223,7 @@ function TraceMessageCard({ message }: { message: TraceMessage }) {
   );
 }
 
-export function TracePanel({ traces, cogentName, timeRange }: TracePanelProps) {
+export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePanelProps) {
   const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMessageType, setSelectedMessageType] = useState(ALL_FILTER_VALUE);
@@ -162,8 +231,47 @@ export function TracePanel({ traces, cogentName, timeRange }: TracePanelProps) {
   const [filteredTraceResults, setFilteredTraceResults] = useState<MessageTrace[] | null>(null);
   const [filterLoading, setFilterLoading] = useState(false);
   const [filterError, setFilterError] = useState<string | null>(null);
+  const [channels, setChannels] = useState<CogosChannel[]>([]);
+  const [channelsLoading, setChannelsLoading] = useState(false);
+  const [channelsError, setChannelsError] = useState<string | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState("");
+  const [payloadDraft, setPayloadDraft] = useState("{}");
+  const [composerError, setComposerError] = useState<string | null>(null);
+  const [composerSuccess, setComposerSuccess] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const skipNextChannelAutofill = useRef(false);
 
   const hasServerFilters = selectedMessageType !== ALL_FILTER_VALUE || selectedEmittedMessageType !== ALL_FILTER_VALUE;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadChannels = async () => {
+      setChannelsLoading(true);
+      setChannelsError(null);
+      try {
+        const next = await api.getChannels(cogentName, "named");
+        if (cancelled) return;
+        setChannels(
+          [...next].sort((left, right) => left.name.localeCompare(right.name)),
+        );
+      } catch (error) {
+        if (cancelled) return;
+        setChannels([]);
+        setChannelsError(error instanceof Error ? error.message : "Could not load named channels.");
+      } finally {
+        if (!cancelled) {
+          setChannelsLoading(false);
+        }
+      }
+    };
+
+    void loadChannels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cogentName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -227,11 +335,63 @@ export function TracePanel({ traces, cogentName, timeRange }: TracePanelProps) {
   }, [traces]);
 
   const traceSource = hasServerFilters ? (filteredTraceResults ?? []) : traces;
+  const sendableChannels = useMemo(
+    () => channels.filter((channel) => channel.channel_type === "named" && !channel.closed_at),
+    [channels],
+  );
+  const selectedChannel = useMemo(
+    () => sendableChannels.find((channel) => channel.id === selectedChannelId) ?? null,
+    [sendableChannels, selectedChannelId],
+  );
+  const selectedChannelTemplate = useMemo(
+    () => prettyJson(buildPayloadTemplate(selectedChannel)),
+    [selectedChannel],
+  );
+  const payloadValidation = useMemo(() => {
+    const trimmed = payloadDraft.trim();
+    if (!trimmed) {
+      return { payload: null, error: "Payload is required." };
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { payload: null, error: "Payload must be a JSON object." };
+      }
+      return { payload: parsed as Record<string, unknown>, error: null };
+    } catch (error) {
+      return {
+        payload: null,
+        error: error instanceof Error ? error.message : "Invalid JSON payload.",
+      };
+    }
+  }, [payloadDraft]);
   const visibleTraces = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     if (!normalizedQuery) return traceSource;
     return traceSource.filter((trace) => traceSearchBlob(trace).includes(normalizedQuery));
   }, [searchQuery, traceSource]);
+
+  useEffect(() => {
+    setSelectedChannelId((prev) => {
+      if (prev && sendableChannels.some((channel) => channel.id === prev)) {
+        return prev;
+      }
+      return sendableChannels[0]?.id ?? "";
+    });
+  }, [sendableChannels]);
+
+  useEffect(() => {
+    if (!selectedChannel) {
+      return;
+    }
+    if (skipNextChannelAutofill.current) {
+      skipNextChannelAutofill.current = false;
+      return;
+    }
+    setPayloadDraft(selectedChannelTemplate);
+    setComposerError(null);
+    setComposerSuccess(null);
+  }, [selectedChannel, selectedChannelTemplate]);
 
   useEffect(() => {
     const visibleIds = new Set(visibleTraces.map((trace) => trace.message.id));
@@ -268,12 +428,62 @@ export function TracePanel({ traces, cogentName, timeRange }: TracePanelProps) {
     setSelectedEmittedMessageType(ALL_FILTER_VALUE);
   };
 
+  const clearComposer = () => {
+    setPayloadDraft("{}");
+    setComposerError(null);
+    setComposerSuccess(null);
+  };
+
+  const prefillComposer = (message: TraceMessage) => {
+    setPayloadDraft(prettyJson(message.payload));
+    setComposerSuccess(null);
+    const matchingChannel = sendableChannels.find((channel) => channel.id === message.channel_id);
+    if (matchingChannel) {
+      skipNextChannelAutofill.current = true;
+      setSelectedChannelId(matchingChannel.id);
+      setComposerError(null);
+      return;
+    }
+    setComposerError(
+      `Prefilled payload from ${message.channel_name}. Select a named channel to send it.`,
+    );
+  };
+
+  const sendMessage = async () => {
+    if (!selectedChannelId || !payloadValidation.payload || sending) {
+      return;
+    }
+    setSending(true);
+    setComposerError(null);
+    setComposerSuccess(null);
+    try {
+      const result = await api.sendChannelMessage(
+        cogentName,
+        selectedChannelId,
+        payloadValidation.payload,
+      );
+      setComposerSuccess(`Sent ${shortId(result.id)} to ${result.channel_name}.`);
+      if (onRefresh) {
+        try {
+          await onRefresh();
+        } catch {
+          // Preserve the send success state even if the follow-up refresh fails.
+        }
+      }
+    } catch (error) {
+      setComposerError(error instanceof Error ? error.message : "Could not send message.");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const hasClientFilters = searchQuery.trim().length > 0;
   const hasAnyFilters = hasServerFilters || hasClientFilters;
   const emptyMessage = hasAnyFilters
     ? "No channel message traces matched the current filters."
     : "No channel message traces in this time window.";
   const showLoadingState = hasServerFilters && filterLoading && filteredTraceResults === null;
+  const canSend = !!selectedChannelId && payloadValidation.error === null && !sending && !channelsLoading;
 
   return (
     <div className="space-y-4">
@@ -286,6 +496,132 @@ export function TracePanel({ traces, cogentName, timeRange }: TracePanelProps) {
           <Badge variant="info">{summary.deliveries} deliveries</Badge>
           <Badge variant="accent">{summary.runs} runs</Badge>
           <Badge variant="success">{summary.emitted} emitted</Badge>
+        </div>
+      </div>
+
+      <div className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">Compose Message</h3>
+            <div className="text-[11px] text-[var(--text-muted)]">
+              Send test traffic to named channels and replay payloads from traces.
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Badge variant="neutral">named channels only</Badge>
+            {selectedChannel && <Badge variant="info">{selectedChannel.subscriber_count} subscribers</Badge>}
+          </div>
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="block text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                Channel
+              </label>
+              <select
+                value={selectedChannelId}
+                onChange={(event) => setSelectedChannelId(event.target.value)}
+                disabled={channelsLoading || sendableChannels.length === 0}
+                className="w-full rounded-md border px-3 py-2 text-[12px] font-mono disabled:opacity-60"
+                style={{
+                  background: "var(--bg-base)",
+                  borderColor: "var(--border)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                {sendableChannels.length === 0 && (
+                  <option value="">
+                    {channelsLoading ? "loading channels..." : "no named channels"}
+                  </option>
+                )}
+                {sendableChannels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    {channel.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="rounded-md border border-[var(--border)] bg-[var(--bg-deep)] px-3 py-3 text-[11px] text-[var(--text-muted)] space-y-1">
+              {selectedChannel ? (
+                <>
+                  <div>{selectedChannel.message_count} messages so far</div>
+                  <div>
+                    {selectedChannel.schema_definition
+                      ? `Schema: ${selectedChannel.schema_name ?? "inline"}`
+                      : "Schema: none, any JSON object is allowed"}
+                  </div>
+                  <div>
+                    {selectedChannel.schema_definition
+                      ? "Payload will be checked against the schema when you click Send."
+                      : "No channel schema is attached, so only JSON-object shape is checked locally."}
+                  </div>
+                </>
+              ) : (
+                <div>Select a named channel to send a message.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+              Payload JSON
+            </label>
+            <textarea
+              value={payloadDraft}
+              onChange={(event) => setPayloadDraft(event.target.value)}
+              spellCheck={false}
+              rows={10}
+              placeholder='{"message_type":"secret-audit:request"}'
+              className="w-full rounded-md border px-3 py-2 text-[12px] font-mono"
+              style={{
+                background: "var(--bg-base)",
+                borderColor: "var(--border)",
+                color: "var(--text-primary)",
+              }}
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[11px] text-[var(--text-muted)]">
+                Prefill from any expanded trace message or emitted message below.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={clearComposer}
+                  className="rounded-md border px-3 py-2 text-[11px] font-medium uppercase tracking-wide transition-colors"
+                  style={{
+                    background: "transparent",
+                    borderColor: "var(--border)",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void sendMessage()}
+                  disabled={!canSend}
+                  className="rounded-md border px-3 py-2 text-[11px] font-medium uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{
+                    background: "var(--accent)",
+                    borderColor: "var(--accent)",
+                    color: "var(--bg-base)",
+                  }}
+                >
+                  {sending ? "Sending..." : "Send"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+          {channelsLoading && <span>Loading named channels...</span>}
+          {channelsError && <span className="text-red-400">{channelsError}</span>}
+          {payloadValidation.error && <span className="text-red-400">{payloadValidation.error}</span>}
+          {composerError && <span className="text-red-400">{composerError}</span>}
+          {composerSuccess && <span className="text-emerald-300">{composerSuccess}</span>}
         </div>
       </div>
 
@@ -439,7 +775,7 @@ export function TracePanel({ traces, cogentName, timeRange }: TracePanelProps) {
 
             {isExpanded && (
               <div className="border-t border-[var(--border)] bg-[var(--bg-deep)] px-4 py-4 space-y-4">
-                <TraceMessageCard message={message} />
+                <TraceMessageCard message={message} onPrefill={prefillComposer} />
 
                 {deliveries.length === 0 ? (
                   <div className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-3 text-[12px] text-[var(--text-muted)]">
@@ -525,6 +861,18 @@ export function TracePanel({ traces, cogentName, timeRange }: TracePanelProps) {
                                       <MessageTypeBadge messageType={emitted.message_type} variant="warning" />
                                       <span className="font-mono">{shortId(emitted.id)}</span>
                                       <span>{fmtTimestamp(emitted.created_at)}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => prefillComposer(emitted)}
+                                        className="ml-auto rounded-md border px-2 py-1 text-[10px] font-medium uppercase tracking-wide transition-colors"
+                                        style={{
+                                          background: "transparent",
+                                          borderColor: "var(--border)",
+                                          color: "var(--text-muted)",
+                                        }}
+                                      >
+                                        Prefill Composer
+                                      </button>
                                     </div>
                                     <div className="text-[12px] text-[var(--text-secondary)] font-mono">
                                       {payloadPreview(emitted.payload)}

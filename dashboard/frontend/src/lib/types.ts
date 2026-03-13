@@ -136,6 +136,30 @@ export interface CogosRunLogsResponse {
   error: string | null;
 }
 
+export interface CogosChannel {
+  id: string;
+  name: string;
+  channel_type: string;
+  owner_process: string | null;
+  owner_process_name: string | null;
+  schema_name: string | null;
+  schema_id: string | null;
+  schema_definition: Record<string, unknown> | null;
+  inline_schema: Record<string, unknown> | null;
+  auto_close: boolean;
+  closed_at: string | null;
+  message_count: number;
+  subscriber_count: number;
+  created_at: string | null;
+}
+
+export interface ChannelSendResult {
+  id: string;
+  channel_id: string;
+  channel_name: string;
+  payload: Record<string, unknown>;
+}
+
 export interface AgeInfo {
   image: string | null;
   content: string | null;

@@ -16,6 +16,8 @@ import type {
   Alert,
   SetupResponse,
   MessageTrace,
+  CogosChannel,
+  ChannelSendResult,
 } from "./types";
 
 interface MessageTraceFilters {
@@ -66,6 +68,49 @@ export async function getMessageTraces(
     `/api/cogents/${name}/message-traces?${params.toString()}`,
   );
   return r.traces;
+}
+
+export async function getChannels(
+  name: string,
+  channelType?: string,
+): Promise<CogosChannel[]> {
+  const params = new URLSearchParams();
+  if (channelType) {
+    params.set("channel_type", channelType);
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  const response = await fetchJSON<{ channels: CogosChannel[] }>(
+    `/api/cogents/${name}/channels${suffix}`,
+  );
+  return response.channels;
+}
+
+export async function sendChannelMessage(
+  name: string,
+  channelId: string,
+  payload: Record<string, unknown>,
+): Promise<ChannelSendResult> {
+  const resp = await fetch(
+    `/api/cogents/${name}/channels/${encodeURIComponent(channelId)}/messages`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers() },
+      body: JSON.stringify({ payload }),
+    },
+  );
+  if (!resp.ok) {
+    let detail = `${resp.status} ${resp.statusText}`;
+    try {
+      const body = await resp.json();
+      if (body?.detail && typeof body.detail === "string") {
+        detail = body.detail;
+      }
+    } catch {
+      // Preserve the default status message when the body is not JSON.
+    }
+    throw new Error(detail);
+  }
+  return resp.json();
 }
 
 // ── Cron ────────────────────────────────────────────────────────────────────

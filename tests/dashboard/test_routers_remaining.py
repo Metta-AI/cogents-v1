@@ -27,6 +27,12 @@ def test_channels_route_registered():
     assert "/api/cogents/{name}/channels" in routes
 
 
+def test_channel_send_route_registered():
+    client = _client()
+    routes = [r.path for r in client.app.routes]
+    assert "/api/cogents/{name}/channels/{channel_id}/messages" in routes
+
+
 def test_alerts_route_registered():
     client = _client()
     routes = [r.path for r in client.app.routes]
