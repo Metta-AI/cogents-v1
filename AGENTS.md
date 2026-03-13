@@ -6,13 +6,15 @@ Built on the Viable System Model. Each cogent is an autonomous agent with its ow
 
 ```
 src/
-  body/         # Agent runtime (ECS task)
   cogtainer/    # Persistent state, DB, infrastructure (firmware)
   cogos/        # Execution engine (operating system)
   memory/       # Persistent memory (PostgreSQL)
   channels/     # External integrations (Discord, GitHub, Asana)
   cli/          # Main cogent CLI
   polis/        # Shared infrastructure hub (see docs/polis/)
+  dashboard/    # Operational dashboard
+  body/         # Agent runtime (ECS task)
+  run/          # Run management CLI
 docs/
   polis/        # Polis design and CLI reference
 tests/
@@ -126,18 +128,26 @@ The backend serves REST API under `/api/cogents/{name}/`:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/healthz` | GET | Health check |
-| `/api/cogents/{name}/status` | GET | Cogent status |
-| `/api/cogents/{name}/programs` | GET | Programs list |
-| `/api/cogents/{name}/sessions` | GET | Sessions list |
+| `/api/cogents/{name}/cogos-status` | GET | CogOS status overview |
+| `/api/cogents/{name}/processes` | GET | Process list |
+| `/api/cogents/{name}/processes/{id}` | GET | Process detail |
+| `/api/cogents/{name}/handlers` | GET | Event handler list |
+| `/api/cogents/{name}/files` | GET | File browser |
+| `/api/cogents/{name}/files/{key}` | GET | File detail with versions |
+| `/api/cogents/{name}/capabilities` | GET | Capability list |
+| `/api/cogents/{name}/capabilities/{name}/methods` | GET | Capability methods |
+| `/api/cogents/{name}/channels` | GET | Channels list |
+| `/api/cogents/{name}/channels/{id}` | GET | Channel detail with messages |
+| `/api/cogents/{name}/schemas` | GET | Schema definitions |
+| `/api/cogents/{name}/runs` | GET | Run history |
+| `/api/cogents/{name}/runs/{id}` | GET | Run detail |
+| `/api/cogents/{name}/runs/{id}/logs` | GET | Run CloudWatch logs |
 | `/api/cogents/{name}/events` | GET | Events log |
 | `/api/cogents/{name}/events/{id}/tree` | GET | Event causal tree |
-| `/api/cogents/{name}/triggers` | GET | Triggers list |
-| `/api/cogents/{name}/triggers/toggle` | POST | Toggle trigger |
-| `/api/cogents/{name}/memory` | GET | Memory items |
-| `/api/cogents/{name}/tasks` | GET | Task queue |
-| `/api/cogents/{name}/channels` | GET | Channels |
-| `/api/cogents/{name}/alerts` | GET | Unresolved alerts |
+| `/api/cogents/{name}/cron` | GET | Cron rules |
+| `/api/cogents/{name}/cron/toggle` | POST | Toggle cron rule |
 | `/api/cogents/{name}/resources` | GET | Active resources |
+| `/api/cogents/{name}/setup` | GET | Channel setup wizard |
 | `/ws/cogents/{name}` | WS | Real-time updates |
 
 ### Architecture

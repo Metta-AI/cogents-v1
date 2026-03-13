@@ -4,16 +4,6 @@ Missing capabilities and infrastructure needed for the recruiter app (and genera
 
 ## New Capabilities
 
-### P0 — Required for recruiter MVP
-
-- [x] **WebSearchCapability** — search the web via Tavily API. Methods: `search(query, limit) -> list[SearchResult]`. Scopeable by domain allowlist or query budget.
-
-- [x] **WebFetchCapability** — fetch and extract content from URLs. Methods: `fetch(url) -> PageContent`, `extract_text(url) -> TextContent`. Scopeable by domain allowlist.
-
-- [x] **AsanaCapability** — create and manage Asana tasks. Methods: `create_task`, `update_task`, `list_tasks`, `add_comment`. Scopeable by project/ops. Uses PAT from secrets.
-
-- [x] **GitHubCapability** — read GitHub data. Methods: `search_repos`, `get_user`, `list_contributions`, `get_repo`. Read-only, scopeable by org/query budget.
-
 ### P1 — Required for full recruiter experience
 
 - [ ] **TwitterCapability** — read Twitter/X data. Methods: `search(query) -> list[Tweet]`, `get_user(handle) -> UserProfile`, `get_timeline(handle, limit) -> list[Tweet]`. Read-only. API access may be expensive — consider web scraping fallback via WebFetchCapability.
@@ -45,11 +35,11 @@ Missing capabilities and infrastructure needed for the recruiter app (and genera
 
 - [ ] **File editing in dashboard** — criteria editor view needs to let users edit `.md` and `.json` files directly in the dashboard and save them back to the file store (treated as manual feedback).
 
-## Event System Extensions
+## Channel Extensions
 
-- [ ] **Discord response routing** — when `present` asks a question on Discord, the response needs to be routed back to the right process/context. Currently Discord messages come in as generic `discord:*` events. Need a way to correlate a response with the question that prompted it (e.g., thread-based routing: ask in a thread, responses in that thread route to the originating process).
+- [ ] **Discord response routing** — when `present` asks a question on Discord, the response needs to be routed back to the right process/context. Currently Discord messages come in as generic `io:discord:*` channel messages. Need a way to correlate a response with the question that prompted it (e.g., thread-based routing: ask in a thread, responses in that thread route to the originating process).
 
-- [ ] **Feedback event type** — standardize a `feedback:candidate` event type so dashboard input and Discord responses flow through the same pipeline. Payload: `{candidate, text, source: "discord"|"dashboard", timestamp}`.
+- [ ] **Feedback channel** — standardize a `feedback:candidate` channel so dashboard input and Discord responses flow through the same pipeline. Payload: `{candidate, text, source: "discord"|"dashboard", timestamp}`.
 
 ## Process Model Extensions
 
