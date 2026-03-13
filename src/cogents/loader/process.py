@@ -1,11 +1,16 @@
 """Load Process definitions from Python files and sync to the datastore.
 
+Legacy note: this module predates the channel-based handler model and still
+documents the older event-pattern flow used by the `src/cogents/` loader
+stack. Current CogOS images and CLIs model handlers as process-to-channel
+subscriptions instead.
+
 Each file must define one or more top-level variables whose values are
 ``Process`` instances, optionally accompanied by ``Handler`` and
 ``ProcessCapability`` instances that bind event patterns and capabilities
 to the process.
 
-Example file::
+Legacy example file::
 
     from cogos.db.models.process import Process, ProcessMode
     from cogos.db.models.handler import Handler
@@ -29,7 +34,7 @@ Example file::
     )
 
 For convenience, processes can also declare handlers and capabilities inline
-via metadata keys:
+via metadata keys in this legacy loader:
 
     triage = Process(
         name="triage-issue",
@@ -90,11 +95,16 @@ def load_processes_from_dir(root: Path) -> list[Process]:
 
 
 def _sync_inline_handlers(proc: Process, repo: Repository) -> int:
-    """Create handlers from ``metadata["handlers"]`` patterns."""
+    """Legacy event-pattern sync path for older ``src/cogents/`` loaders.
+
+    Current CogOS handlers subscribe processes to channels. New code should use
+    the image/apply flow or the channel-based CLI in ``src/cogos/cli/__main__.py``.
+    """
     patterns = proc.metadata.get("handlers", [])
     if not patterns:
         return 0
     existing = repo.list_handlers(process_id=proc.id)
+    # Legacy-only path: older Handler objects exposed ``event_pattern``.
     existing_patterns = {h.event_pattern for h in existing}
     count = 0
     for pattern in patterns:
@@ -135,6 +145,9 @@ def sync_processes(root: Path, repo: Repository) -> tuple[int, int]:
 
     Also syncs inline handlers and capability bindings declared in
     ``metadata["handlers"]`` and ``metadata["capabilities"]``.
+
+    The inline handler support here is legacy and assumes event-pattern
+    handlers, not the current channel-subscription model.
 
     Returns ``(synced, errors)``.
     """

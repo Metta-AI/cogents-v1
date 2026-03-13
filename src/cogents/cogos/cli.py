@@ -1,4 +1,8 @@
-"""cogent cogos — unified CLI for all CogOS subsystems.
+"""Legacy CogOS CLI retained for older `src/cogents/` workflows.
+
+The active `cogent <name> cogos ...` entrypoint lives in
+`src/cogos/cli/__main__.py` and uses channel-based handlers. This module still
+contains event-pattern-oriented commands and examples from the older model.
 
 Usage:
     cogent <name> cogos capability list
@@ -236,7 +240,8 @@ def process_load(directory: str):
     """Load Process definitions from .py files containing Process instances.
 
     Also syncs inline handlers and capability bindings declared in
-    metadata["handlers"] and metadata["capabilities"].
+    metadata["handlers"] and metadata["capabilities"] in the legacy
+    event-pattern loader format.
     """
     from cogents.loader.process import sync_processes
     repo = _repo()
@@ -248,9 +253,13 @@ def process_load(directory: str):
 # HANDLER
 # ═══════════════════════════════════════════════════════════
 
+# Legacy event-pattern commands kept for older `src/cogents/` flows. The
+# active CLI entrypoint in `src/cogos/cli/__main__.py` manages channel
+# subscriptions instead.
+
 @cogos.group()
 def handler():
-    """Manage handlers (bind processes to event patterns)."""
+    """Legacy handler commands for the older event-pattern model."""
 
 
 @handler.command("list")

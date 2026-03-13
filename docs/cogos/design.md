@@ -261,7 +261,7 @@ ChannelMessage
 
 ### Handler
 
-Binds a process to a channel. When a matching message arrives on that channel, the process becomes eligible to run.
+Binds a process to a channel. In the channel model, handlers are subscriptions and wakeup bindings, not a separate event transport. When a matching message arrives on that channel, the process becomes eligible to run.
 
 ```
 Handler
@@ -269,7 +269,7 @@ Handler
   process         UUID            FK -> Process
   channel         UUID            FK -> Channel (bound channel)
   enabled         bool
-  fire_count      int             how many times this handler has fired
+  created_at      datetime
 ```
 
 ### Delivery
@@ -279,7 +279,7 @@ Per-handler delivery tracking. One idempotent row per channel message per matchi
 ```
 Delivery
   id              UUID            PK
-  channel_message UUID            FK -> ChannelMessage
+  message         UUID            FK -> ChannelMessage
   handler         UUID            FK -> Handler
   status          enum            pending | queued | delivered | skipped
   run             UUID?           FK -> Run
@@ -452,7 +452,7 @@ The scheduler is itself a daemon process. It registers for `system:tick:minute` 
 
 ### Per-Tick Flow
 
-1. **match_channel_messages()** -- scan undelivered channel messages, match to handlers by channel, create delivery rows. Mark WAITING processes with pending deliveries as RUNNABLE.
+1. **scheduler.match_messages()** -- scan undelivered channel messages, match to handlers by channel, create delivery rows. Mark WAITING processes with pending deliveries as RUNNABLE.
 
 2. **unblock_processes()** -- check BLOCKED processes. Resources now available -> RUNNABLE.
 

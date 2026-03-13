@@ -6,6 +6,8 @@ Replace free-form text events with explicit, typed channels. Every process gets 
 
 A **Channel** is a typed, append-only message stream with a defined schema and an owner.
 
+A **Handler** is still part of the channel model, but only as a subscription and wakeup binding. Channels carry the messages; handlers say which daemon processes should receive deliveries and become RUNNABLE when messages arrive.
+
 Three ways channels get created:
 
 1. **Implicit process channel** — every process automatically gets a channel named `process:<name>`. The process can publish to it. Closes when the process completes/is disabled.
@@ -129,7 +131,7 @@ ch.send({"severity": "high", "msg": "disk full"})
 # Consume — pull
 msgs = ch.read(limit=10)
 
-# Consume — push (handler-based wakeup)
+# Consume — push (subscribe a handler for wakeup on new messages)
 ch.subscribe()
 
 # Discovery
@@ -209,7 +211,7 @@ cogos_schema (
 
 **Modified tables:**
 
-- `cogos_handler` — replace `event_pattern TEXT` with `channel UUID FK → cogos_channel`
+- `cogos_handler` — keep handlers as first-class subscriptions, but replace `event_pattern TEXT` with `channel UUID FK → cogos_channel`
 - `cogos_process` — add `schema_id UUID FK → cogos_schema` (optional, for implicit channel schema). Deprecate `output_events`.
 
 **Dropped tables:**

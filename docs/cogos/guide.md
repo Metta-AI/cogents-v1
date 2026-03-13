@@ -85,13 +85,7 @@ add_process(
     code_key="cogos/scheduler",       # key in files/ directory
     runner="lambda",
     priority=100.0,
-    capabilities=[
-        "scheduler/match_channel_messages",
-        "scheduler/select_processes",
-        "scheduler/dispatch_process",
-        "scheduler/unblock_processes",
-        "scheduler/kill_process",
-    ],
+    capabilities=["scheduler"],
     handlers=[],                      # scheduler is invoked by the dispatcher directly
 )
 
@@ -332,6 +326,8 @@ channels.send("task:completed", {
 
 Handlers bind processes to channels:
 
+Handlers are not a separate message bus and they are not stale in the channel system. A channel is the durable message stream; a handler is the subscription that tells CogOS which daemon should wake up for that stream. In image config, `handlers=["task:completed"]` means "subscribe this process to the `task:completed` channel."
+
 ```python
 # In image init
 add_process(
@@ -343,7 +339,7 @@ add_process(
 )
 ```
 
-When a message is sent to the `task:completed` channel, the scheduler's `match_channel_messages()` creates a delivery for this handler and marks the process RUNNABLE.
+When a message is sent to the `task:completed` channel, `scheduler.match_messages()` creates a delivery for this handler and marks the process RUNNABLE.
 
 ### Channel Message Payload in Process Context
 
@@ -379,7 +375,7 @@ The scheduler is a daemon process (`scheduler`) that runs every minute. It uses 
 
 ### Tick Sequence
 
-1. **match_channel_messages()** -- find undelivered channel messages, match to handlers, create deliveries, wake WAITING processes
+1. **scheduler.match_messages()** -- find undelivered channel messages, match to handlers, create deliveries, wake WAITING processes
 2. **unblock_processes()** -- check BLOCKED processes, move to RUNNABLE if resources freed
 3. **select_processes(slots=3)** -- softmax sample from RUNNABLE by effective priority
 4. **dispatch_process(process_id)** -- create Run, transition to RUNNING, invoke runner
@@ -531,7 +527,7 @@ cogent local cogos image boot cogent-v1 --clean
 | Processes | Process list with status, mode, capabilities, handlers |
 | Files | File browser with version history and include tree |
 | Capabilities | Capability list with method introspection |
-| Handlers | Channel handler list with fire counts |
+| Handlers | Channel subscription list showing which processes wake on which channels |
 | Runs | Run history with cost, duration, scope logs |
 | Channels | Channel list with message log and causal tree view |
 | Cron | Cron rules with toggle switches |

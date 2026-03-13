@@ -456,7 +456,13 @@ class Repository:
         return response.get("numberOfRecordsUpdated", 0) == 1
 
     def match_handlers(self, event_type: str) -> list[Handler]:
-        """Legacy stub — returns empty list since event_pattern column is dropped."""
+        """Legacy event-era compatibility stub.
+
+        The active runtime binds handlers to channels, not event patterns, so
+        old event-pattern matching no longer exists. Keep this method as a
+        no-op for older callers that still import it.
+        """
+        # Legacy API: channel-based code should call match_handlers_by_channel().
         return []
 
     def match_handlers_by_channel(self, channel_id: UUID) -> list[Handler]:

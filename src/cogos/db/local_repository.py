@@ -486,7 +486,13 @@ class LocalRepository:
             return False
 
     def match_handlers(self, event_type: str) -> list[Handler]:
-        """Legacy stub -- returns empty list since event_pattern matching is removed."""
+        """Legacy event-era compatibility stub.
+
+        The active runtime binds handlers to channels, not event patterns, so
+        old event-pattern matching no longer exists. Keep this method as a
+        no-op for older callers that still import it.
+        """
+        # Legacy API: channel-based code should call match_handlers_by_channel().
         return []
 
     # ── Process Capabilities ────────────────────────────────
