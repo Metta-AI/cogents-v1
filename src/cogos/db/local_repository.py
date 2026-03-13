@@ -705,6 +705,16 @@ class LocalRepository:
     def has_pending_deliveries(self, process_id: UUID) -> bool:
         return bool(self.get_pending_deliveries(process_id))
 
+    def get_latest_delivery_time(self, handler_id: UUID):
+        self._maybe_reload()
+        times = [
+            self._channel_messages[d.message].created_at
+            for d in self._deliveries.values()
+            if d.handler == handler_id and d.message in self._channel_messages
+            and self._channel_messages[d.message].created_at
+        ]
+        return max(times) if times else None
+
     def mark_delivered(self, delivery_id: UUID, run_id: UUID) -> bool:
         with self._writing():
             delivery = self._deliveries.get(delivery_id)
@@ -910,11 +920,14 @@ class LocalRepository:
 
             return msg.id
 
-    def list_channel_messages(self, channel_id: UUID | None = None, *, limit: int = 100) -> list[ChannelMessage]:
+    def list_channel_messages(self, channel_id: UUID | None = None, *, limit: int = 100, since=None) -> list[ChannelMessage]:
         self._maybe_reload()
         msgs = list(self._channel_messages.values())
         if channel_id is not None:
             msgs = [m for m in msgs if m.channel == channel_id]
+        if since:
+            msgs = [m for m in msgs if m.created_at and m.created_at > since]
+        if channel_id is not None:
             msgs.sort(key=lambda m: m.created_at or datetime.min)
         else:
             msgs.sort(key=lambda m: m.created_at or datetime.min, reverse=True)

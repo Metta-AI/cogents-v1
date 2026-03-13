@@ -908,4 +908,15 @@ BUILTIN_CAPABILITIES: list[dict] = [
         ),
         "schema": {},
     },
+    {
+        "name": "alerts",
+        "description": "Emit system alerts (warnings, errors) to the dashboard.",
+        "handler": "cogos.capabilities.alerts.AlertsCapability",
+        "instructions": (
+            "alerts lets you emit alerts visible in the dashboard.\n"
+            "- alerts.warning(alert_type, message, **metadata) — emit a warning\n"
+            "- alerts.error(alert_type, message, **metadata) — emit a critical error\n"
+        ),
+        "schema": {},
+    },
 ]

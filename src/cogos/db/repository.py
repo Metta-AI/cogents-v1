@@ -1091,6 +1091,22 @@ class Repository:
             "updated_at": str(self._ts(row, "updated_at")) if self._ts(row, "updated_at") else "",
         }
 
+    def create_alert(self, severity: str, alert_type: str, source: str, message: str, metadata: dict | None = None) -> None:
+        """Insert into the shared alerts table (algedonic channel)."""
+        from uuid import uuid4
+        self._execute(
+            """INSERT INTO alerts (id, severity, alert_type, source, message, metadata)
+               VALUES (:id, :severity, :alert_type, :source, :message, :metadata::jsonb)""",
+            [
+                self._param("id", uuid4()),
+                self._param("severity", severity),
+                self._param("alert_type", alert_type),
+                self._param("source", source),
+                self._param("message", message),
+                self._param("metadata", metadata or {}),
+            ],
+        )
+
     # ═══════════════════════════════════════════════════════════
     # SCHEMAS
     # ═══════════════════════════════════════════════════════════
@@ -1264,17 +1280,39 @@ class Repository:
 
         return msg_id
 
+    def get_latest_delivery_time(self, handler_id: UUID):
+        """Return the created_at of the most recent message delivered to this handler."""
+        row = self._first_row(self._execute(
+            """SELECT MAX(cm.created_at) AS latest
+               FROM cogos_delivery d
+               JOIN cogos_channel_message cm ON d.message = cm.id
+               WHERE d.handler = :handler""",
+            [self._param("handler", handler_id)],
+        ))
+        return self._ts(row, "latest") if row and row.get("latest") else None
+
     def list_channel_messages(
-        self, channel_id: UUID | None = None, *, limit: int = 100,
+        self, channel_id: UUID | None = None, *, limit: int = 100, since=None,
     ) -> list[ChannelMessage]:
         if channel_id is not None:
-            response = self._execute(
-                """SELECT * FROM cogos_channel_message
-                   WHERE channel = :channel
-                   ORDER BY created_at ASC
-                   LIMIT :limit""",
-                [self._param("channel", channel_id), self._param("limit", limit)],
-            )
+            if since:
+                response = self._execute(
+                    """SELECT * FROM cogos_channel_message
+                       WHERE channel = :channel AND created_at > :since
+                       ORDER BY created_at ASC
+                       LIMIT :limit""",
+                    [self._param("channel", channel_id),
+                     self._param("since", since.isoformat()),
+                     self._param("limit", limit)],
+                )
+            else:
+                response = self._execute(
+                    """SELECT * FROM cogos_channel_message
+                       WHERE channel = :channel
+                       ORDER BY created_at ASC
+                       LIMIT :limit""",
+                    [self._param("channel", channel_id), self._param("limit", limit)],
+                )
         else:
             response = self._execute(
                 """SELECT * FROM cogos_channel_message

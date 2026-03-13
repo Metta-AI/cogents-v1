@@ -94,7 +94,8 @@ class SchedulerCapability(Capability):
 
         created = []
         for handler in channel_handlers:
-            msgs = self.repo.list_channel_messages(handler.channel, limit=200)
+            since = self.repo.get_latest_delivery_time(handler.id)
+            msgs = self.repo.list_channel_messages(handler.channel, limit=200, since=since)
             for msg in msgs:
                 delivery = Delivery(message=msg.id, handler=handler.id)
                 delivery_id, inserted = self.repo.create_delivery(delivery)

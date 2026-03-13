@@ -51,6 +51,9 @@ def handler(event: dict, context) -> dict:
     except Exception:
         pass
 
+    # 0. Recover stuck daemons — if RUNNING but no active run, reset to WAITING
+    _recover_stuck_daemons(repo)
+
     # 1. Generate virtual system tick events (not written to event log)
     _apply_system_ticks(repo)
 
@@ -89,6 +92,30 @@ def handler(event: dict, context) -> dict:
         logger.info("Dispatcher: %s dispatched", dispatched)
 
     return {"statusCode": 200, "dispatched": dispatched}
+
+
+def _recover_stuck_daemons(repo) -> None:
+    """Reset daemon processes stuck in RUNNING with no active run."""
+    from cogos.db.models import ProcessMode, ProcessStatus, RunStatus
+
+    running = repo.list_processes(status=ProcessStatus.RUNNING)
+    for proc in running:
+        if proc.mode != ProcessMode.DAEMON:
+            continue
+        runs = repo.list_runs(process_id=proc.id, limit=1)
+        if not runs or runs[0].status != RunStatus.RUNNING:
+            repo.update_process_status(proc.id, ProcessStatus.WAITING)
+            logger.info("Recovered stuck daemon %s: running -> waiting", proc.name)
+            try:
+                repo.create_alert(
+                    severity="warning",
+                    alert_type="scheduler:stuck_daemon",
+                    source="dispatcher",
+                    message=f"Recovered stuck daemon '{proc.name}': was running with no active run, reset to waiting",
+                    metadata={"process_id": str(proc.id), "process_name": proc.name},
+                )
+            except Exception:
+                logger.debug("Could not create alert for stuck daemon %s", proc.name)
 
 
 def _apply_system_ticks(repo, *, now: datetime | None = None) -> None:

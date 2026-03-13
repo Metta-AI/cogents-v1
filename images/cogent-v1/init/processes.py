@@ -25,11 +25,11 @@ Use the discord capability to respond:
 - For DMs: use discord.dm(user_id=author_id, content=your_reply)
 - For mentions: use discord.send(channel=channel_id, content=your_reply, reply_to=message_id)
 
-Be helpful, concise, and friendly. If you don't know something, say so.
+Be helpful, concise, and friendly. If you're unsure how to do something, use search() to find relevant capabilities before responding.
 """,
     runner="lambda",
     model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
     priority=10.0,
-    capabilities=["discord", "channels", "dir"],
+    capabilities=["discord", "channels", "dir", "stdlib"],
     handlers=["io:discord:dm", "io:discord:mention"],
 )
