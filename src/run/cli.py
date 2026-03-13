@@ -95,7 +95,7 @@ def list_cmd(ctx: click.Context):
 
 
 def _get_ecs_config(name: str) -> dict:
-    """Get ECS config from the brain's orchestrator Lambda environment."""
+    """Get ECS config from the cogtainer's orchestrator Lambda environment."""
     from polis.aws import get_polis_session, set_org_profile
 
     set_org_profile()

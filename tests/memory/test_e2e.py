@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from brain.db.local_repository import LocalRepository
-from brain.db.models import Memory, MemoryVersion
+from cogtainer.db.local_repository import LocalRepository
+from cogtainer.db.models import Memory, MemoryVersion
 from memory.errors import MemoryReadOnlyError
 from memory.store import MemoryStore
 
@@ -299,7 +299,7 @@ class TestResolveKeys:
 
 class TestContextEngineIntegration:
     def test_build_system_prompt_with_versioned_memories(self, store):
-        from brain.db.models import Program
+        from cogtainer.db.models import Program
         from memory.context_engine import ContextEngine
 
         # Create program content as a memory with includes
@@ -477,49 +477,49 @@ class TestCLI:
 
 # ── 9. Memory loader integration ─────────────────────────────────
 
-
-class TestMemoryLoader:
-    def test_load_markdown_with_frontmatter(self, tmp_path):
-        from mind.memory_loader import load_memories_from_dir
-
-        mem_dir = tmp_path / "memories"
-        mem_dir.mkdir()
-        (mem_dir / "greeting.md").write_text(
-            "---\nsource: polis\n---\nHello, world!"
-        )
-        (mem_dir / "custom.md").write_text(
-            "---\nsource: user:dave\n---\nCustom content"
-        )
-
-        loaded = load_memories_from_dir(mem_dir)
-        assert len(loaded) == 2
-
-        by_name = {m.name: m for m in loaded}
-        assert by_name["greeting"].source == "polis"
-        assert by_name["greeting"].content == "Hello, world!"
-        assert by_name["custom"].source == "user:dave"
-        assert by_name["custom"].content == "Custom content"
-
-    def test_loaded_memories_sync_to_store(self, store, tmp_path):
-        """Full flow: load from disk → sync to store."""
-        from mind.memory_loader import load_memories_from_dir
-
-        mem_dir = tmp_path / "mem"
-        mem_dir.mkdir()
-        (mem_dir / "init.md").write_text("Base personality")
-        sub = mem_dir / "tools"
-        sub.mkdir()
-        (sub / "init.md").write_text("Tool instructions")
-
-        loaded = load_memories_from_dir(mem_dir)
-
-        # Sync to store (mimicking polis sync)
-        for lm in loaded:
-            name = "/" + lm.name
-            existing = store.get(name)
-            if existing is None:
-                store.create(name, lm.content, source=lm.source, read_only=True)
-
-        assert store.get("/init") is not None
-        assert store.get("/tools/init") is not None
-        assert store.get("/init").versions[1].read_only is True
+# TODO: mind module removed; re-enable when cogos equivalent exists
+# class TestMemoryLoader:
+#     def test_load_markdown_with_frontmatter(self, tmp_path):
+#         from mind.memory_loader import load_memories_from_dir
+#
+#         mem_dir = tmp_path / "memories"
+#         mem_dir.mkdir()
+#         (mem_dir / "greeting.md").write_text(
+#             "---\nsource: polis\n---\nHello, world!"
+#         )
+#         (mem_dir / "custom.md").write_text(
+#             "---\nsource: user:dave\n---\nCustom content"
+#         )
+#
+#         loaded = load_memories_from_dir(mem_dir)
+#         assert len(loaded) == 2
+#
+#         by_name = {m.name: m for m in loaded}
+#         assert by_name["greeting"].source == "polis"
+#         assert by_name["greeting"].content == "Hello, world!"
+#         assert by_name["custom"].source == "user:dave"
+#         assert by_name["custom"].content == "Custom content"
+#
+#     def test_loaded_memories_sync_to_store(self, store, tmp_path):
+#         """Full flow: load from disk → sync to store."""
+#         from mind.memory_loader import load_memories_from_dir
+#
+#         mem_dir = tmp_path / "mem"
+#         mem_dir.mkdir()
+#         (mem_dir / "init.md").write_text("Base personality")
+#         sub = mem_dir / "tools"
+#         sub.mkdir()
+#         (sub / "init.md").write_text("Tool instructions")
+#
+#         loaded = load_memories_from_dir(mem_dir)
+#
+#         # Sync to store (mimicking polis sync)
+#         for lm in loaded:
+#             name = "/" + lm.name
+#             existing = store.get(name)
+#             if existing is None:
+#                 store.create(name, lm.content, source=lm.source, read_only=True)
+#
+#         assert store.get("/init") is not None
+#         assert store.get("/tools/init") is not None
+#         assert store.get("/init").versions[1].read_only is True

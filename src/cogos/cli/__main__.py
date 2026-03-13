@@ -35,7 +35,7 @@ def _ensure_db_env(cogent_name: str) -> None:
     from polis.aws import get_polis_session, set_org_profile
 
     safe_name = cogent_name.replace(".", "-")
-    stack_name = f"cogent-{safe_name}-brain"
+    stack_name = f"cogent-{safe_name}-cogtainer"
 
     try:
         set_org_profile()
@@ -137,15 +137,15 @@ def image():
 
 
 def _run_migrations(repo) -> None:
-    """Run brain schema migrations (via Data API) and CogOS SQL file migrations."""
-    # 1. Brain-level versioned migrations (events, memory, programs, etc.)
+    """Run cogtainer schema migrations (via Data API) and CogOS SQL file migrations."""
+    # 1. Cogtainer-level versioned migrations (events, memory, programs, etc.)
     if os.environ.get("USE_LOCAL_DB") != "1":
         try:
             from cogos.db.migrations import apply_schema
             version = apply_schema()
-            click.echo(f"Brain schema at version {version}.")
+            click.echo(f"Cogtainer schema at version {version}.")
         except Exception as e:
-            click.echo(f"Warning: brain migrations failed: {e}")
+            click.echo(f"Warning: cogtainer migrations failed: {e}")
 
     # 2. CogOS SQL file migrations (cogos_* tables)
     from cogos.db.migrations import apply_cogos_sql_migrations

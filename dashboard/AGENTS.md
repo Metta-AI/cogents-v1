@@ -6,7 +6,7 @@ Operational UI for each cogent. Runs as a single Docker container serving both t
 
 - **Backend**: FastAPI (Python), serves `/api/cogents/{name}/*` and `/ws/cogents/{name}`
 - **Frontend**: Next.js static export, served by FastAPI when `DASHBOARD_STATIC_DIR` is set
-- **Database**: RDS Data API (same Aurora cluster as the brain)
+- **Database**: RDS Data API (same Aurora cluster as the cogtainer)
 - **Hosting**: ECS Fargate in the polis account (`cogent-polis` cluster), behind ALB with HTTPS
 - **Domain**: `{safe_name}.softmax-cogents.com` (managed by polis)
 
@@ -18,7 +18,7 @@ cogent dr.beta dashboard deploy    # Delegates to: polis dashboard deploy dr.bet
 
 This runs `polis dashboard deploy` which:
 1. Reads cogent identity from polis secrets (cert ARN, domain)
-2. Reads brain stack outputs (DB ARNs)
+2. Reads cogtainer stack outputs (DB ARNs)
 3. CDK deploys the dashboard stack (ALB, ECS service, task definition)
 4. Updates Route53 DNS to point at the ALB
 
@@ -80,4 +80,4 @@ src/polis/cli.py                        # polis dashboard deploy/destroy
 
 The dashboard **requires** RDS Data API credentials (`DB_CLUSTER_ARN`, `DB_SECRET_ARN`, `DB_NAME`). If these are missing, the app will fail to start rather than silently returning empty data.
 
-For local development without AWS access, set `USE_LOCAL_DB=1` to use the LocalRepository which persists to `~/.cogent/local/data.json`. Populate it with `cogent <name> mind update`.
+For local development without AWS access, set `USE_LOCAL_DB=1` to use the LocalRepository which persists to `~/.cogent/local/data.json`. Populate it with `cogent <name> cogos image boot cogent-v1`.

@@ -9,7 +9,7 @@ import click
 
 def _get_store():
     """Lazy import to avoid heavy imports at CLI load time."""
-    from brain.db.repository import Repository
+    from cogtainer.db.repository import Repository
     from memory.store import MemoryStore
 
     repo = Repository.create()
@@ -227,7 +227,7 @@ def put_cmd(path: str, prefix: str, source: str, force: bool):
                 click.echo(f"  ~ {mem_name} (v{result.version})")
                 updated += 1
         else:
-            from brain.db.models import Memory, MemoryVersion
+            from cogtainer.db.models import Memory, MemoryVersion
 
             result = store.upsert(mem_name, content, source=source)
             if result is None:

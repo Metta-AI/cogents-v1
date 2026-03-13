@@ -32,11 +32,11 @@ The CLI should:
 
 ## Concrete Plan
 
-1. Backfill `cogent_name` tags onto existing brain stacks.
+1. Backfill `cogent_name` tags onto existing cogtainer stacks.
 2. Make the watcher require or prefer the `cogent_name` stack tag.
 3. Change watcher writes to update the canonical `cogent_name` row instead of
    emitting a separate runtime identity.
-4. Run a one-time cleanup for old `*-brain` / duplicate status rows in
+4. Run a one-time cleanup for old `*-cogtainer` / duplicate status rows in
    `cogent-status`.
 5. Delete the normalization layer in `src/polis/status.py`.
 6. Move any remaining stack-naming helper into a small naming module if still

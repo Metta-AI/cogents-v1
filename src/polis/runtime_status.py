@@ -18,7 +18,7 @@ _SERVICE_COMPONENTS = ("dashboard", "discord")
 def load_status_manifest(stack: dict[str, Any]) -> dict[str, Any]:
     """Load and normalize the stack's status manifest.
 
-    The manifest is the stable contract between the brain stack and the
+    The manifest is the stable contract between the cogtainer stack and the
     watcher. Older stacks may not have the output yet, so we preserve a small
     fallback that still requires explicit identity from tags or outputs.
     """

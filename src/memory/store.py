@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from brain.db.models import Memory, MemoryVersion
+from cogtainer.db.models import Memory, MemoryVersion
 from memory.errors import MemoryReadOnlyError
 
 logger = logging.getLogger(__name__)

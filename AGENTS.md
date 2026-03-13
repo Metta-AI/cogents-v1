@@ -7,8 +7,8 @@ Built on the Viable System Model. Each cogent is an autonomous agent with its ow
 ```
 src/
   body/         # Agent runtime (ECS task)
-  brain/        # LLM reasoning engine
-  mind/         # Agent personality and goals
+  cogtainer/    # Persistent state, DB, infrastructure (firmware)
+  cogos/        # Execution engine (operating system)
   memory/       # Persistent memory (PostgreSQL)
   channels/     # External integrations (Discord, GitHub, Asana)
   cli/          # Main cogent CLI
@@ -149,7 +149,7 @@ The backend serves REST API under `/api/cogents/{name}/`:
 
 ### Database Connection
 
-Both the dashboard and `mind` CLI require RDS Data API credentials (`DB_CLUSTER_ARN`, `DB_SECRET_ARN`, `DB_NAME`). Set `USE_LOCAL_DB=1` to use LocalRepository (JSON file at `~/.cogent/local/data.json`) for local dev without AWS.
+Both the dashboard and `cogos` CLI require RDS Data API credentials (`DB_CLUSTER_ARN`, `DB_SECRET_ARN`, `DB_NAME`). Set `USE_LOCAL_DB=1` to use LocalRepository (JSON file at `~/.cogent/local/data.json`) for local dev without AWS.
 
 ## Development
 

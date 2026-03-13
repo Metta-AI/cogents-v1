@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from brain.db.models import Memory, MemoryVersion, Program
+from cogtainer.db.models import Memory, MemoryVersion, Program
 from memory.context_engine import CHARS_PER_TOKEN, ContextEngine
 
 

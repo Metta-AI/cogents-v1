@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import dataclass
 
-from brain.db.models import Program
+from cogtainer.db.models import Program
 from memory.store import MemoryStore
 
 logger = logging.getLogger(__name__)

@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from brain.db.models import Memory, MemoryVersion
+from cogtainer.db.models import Memory, MemoryVersion
 from memory.errors import MemoryReadOnlyError
 from memory.store import MemoryStore
 

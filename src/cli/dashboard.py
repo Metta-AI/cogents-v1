@@ -102,7 +102,7 @@ def _ensure_db_env(
         return env
 
     safe_name = name.replace(".", "-")
-    stack_name = f"cogent-{safe_name}-brain"
+    stack_name = f"cogent-{safe_name}-cogtainer"
     resolved_profile = resolve_org_profile(profile) if assume_polis else profile
     try:
         if assume_polis:
@@ -268,7 +268,7 @@ def serve(
 @click.pass_context
 def deploy(ctx: click.Context, docker: bool, skip_health: bool):
     """Deploy the dashboard (build frontend, push to S3/ECR, restart ECS)."""
-    from brain.update_cli import update_dashboard
+    from cogtainer.update_cli import update_dashboard
 
     ctx.invoke(update_dashboard, docker=docker, skip_health=skip_health)
 
@@ -280,7 +280,7 @@ def create_pat(ctx: click.Context, force: bool):
     """Generate a Personal Access Token for API access (bypasses OAuth).
 
     The PAT is stored in polis secrets and used as an ALB bypass rule.
-    After creating, run 'brain update stack' to apply the ALB rule.
+    After creating, run 'cogtainer update stack' to apply the ALB rule.
     """
     from cli import get_cogent_name
     from polis.aws import get_polis_session, set_org_profile
@@ -318,7 +318,7 @@ def create_pat(ctx: click.Context, force: bool):
     click.echo(f"Saved locally to: {kf}")
     click.echo()
     click.echo("To activate the PAT as an ALB bypass rule, run:")
-    click.echo(f"  cogent {name} brain update stack")
+    click.echo(f"  cogent {name} cogtainer update stack")
     click.echo()
     click.echo("Usage:")
     click.echo(f"  curl -H 'X-Api-Key: {key}' https://{name.replace('.', '-')}.softmax-cogents.com/api/...")

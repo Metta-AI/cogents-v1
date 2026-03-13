@@ -40,7 +40,6 @@ dev = [
 
 [project.scripts]
 cogent = "cli.__main__:entry"
-mind = "mind.cli:mind"
 polis = "polis.cli:polis"
 discord-bridge = "channels.discord.bridge:main"
 
@@ -50,11 +49,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 sources = ["src"]
-packages = ["src/cli", "src/body", "src/brain", "src/mind", "src/memory", "src/run", "src/channels", "src/channels/discord", "src/channels/github", "src/channels/asana", "src/polis", "src/dashboard", "src/cogos", "src/cogos/io", "src/cogos/io/email", "src/cogos/io/discord"]
+packages = ["src/cli", "src/body", "src/cogtainer", "src/memory", "src/run", "src/channels", "src/channels/discord", "src/channels/github", "src/channels/asana", "src/polis", "src/dashboard", "src/cogos", "src/cogos/io", "src/cogos/io/email", "src/cogos/io/discord"]
 
 [tool.pyright]
 pythonVersion = "3.12"
-include = ["src/body", "src/brain", "src/cli", "src/mind", "src/memory", "src/polis", "src/dashboard", "tests"]
+include = ["src/body", "src/cogtainer", "src/cli", "src/memory", "src/polis", "src/dashboard", "tests"]
 exclude = [".venv", "dist", "node_modules"]
 typeCheckingMode = "basic"
 reportMissingImports = true

@@ -160,7 +160,7 @@ def test_resolve_runtime_status_uses_live_component_images():
     snapshot = resolve_runtime_status(
         ecs_client=ecs_client,
         cloudwatch_client=cloudwatch_client,
-        stack_name="cogent-dr-gamma-brain",
+        stack_name="cogent-dr-gamma-cogtainer",
         stack_status="UPDATE_COMPLETE",
         manifest=manifest,
         existing={"certificate_arn": "arn:aws:acm:us-east-1:123456789012:certificate/abc"},

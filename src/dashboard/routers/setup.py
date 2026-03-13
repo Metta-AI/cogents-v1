@@ -130,7 +130,7 @@ def _build_discord_setup(name: str) -> ChannelSetup:
         cogos_step = SetupStep(
             key="cogos-defaults",
             title="Load CogOS defaults",
-            description="Fresh brain bring-up needs the default CogOS image so the Discord capability and handlers exist.",
+            description="Fresh cogtainer bring-up needs the default CogOS image so the Discord capability and handlers exist.",
             status=SetupStatus.READY,
             detail="Discord capability, DM handler, and mention handler are loaded.",
         )
@@ -141,7 +141,7 @@ def _build_discord_setup(name: str) -> ChannelSetup:
         cogos_step = SetupStep(
             key="cogos-defaults",
             title="Load CogOS defaults",
-            description="Fresh brain bring-up needs the default CogOS image so the Discord capability and handlers exist.",
+            description="Fresh cogtainer bring-up needs the default CogOS image so the Discord capability and handlers exist.",
             status=SetupStatus.NEEDS_ACTION,
             detail=detail,
             action=SetupAction(
@@ -245,8 +245,8 @@ def _build_discord_setup(name: str) -> ChannelSetup:
             status=SetupStatus.NEEDS_ACTION,
             detail=f"{service_name} does not exist yet.",
             action=SetupAction(
-                label="Deploy brain stack",
-                command=f"uv run cogent {name} brain update stack",
+                label="Deploy cogtainer stack",
+                command=f"uv run cogent {name} cogtainer update stack",
             ),
         )
     elif service_status["bridge_service_exists"] is True:

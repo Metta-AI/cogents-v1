@@ -1,8 +1,8 @@
-"""Tests for the brain database schema (canonical source of truth)."""
+"""Tests for the cogtainer database schema (canonical source of truth)."""
 
 import pathlib
 
-SCHEMA_PATH = pathlib.Path(__file__).resolve().parents[2] / "src" / "brain" / "db" / "schema.sql"
+SCHEMA_PATH = pathlib.Path(__file__).resolve().parents[2] / "src" / "cogtainer" / "db" / "schema.sql"
 
 EXPECTED_TABLES = [
     "conversations",

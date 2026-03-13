@@ -30,13 +30,13 @@ def _resolve_db(cogent_name: str) -> tuple[str, str, str]:
     """Resolve a cogent's DB connection from its CloudFormation stack outputs.
 
     The cogent_name from email local part uses hyphens (e.g. 'dr-alpha').
-    Stack names follow: cogent-{hyphenated-name}-brain.
+    Stack names follow: cogent-{hyphenated-name}-cogtainer.
     """
     if cogent_name in _db_cache:
         return _db_cache[cogent_name]
 
     safe_name = cogent_name.replace(".", "-")
-    stack_name = f"cogent-{safe_name}-brain"
+    stack_name = f"cogent-{safe_name}-cogtainer"
     resp = _cfn.describe_stacks(StackName=stack_name)
     outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
 

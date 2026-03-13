@@ -1,5 +1,5 @@
 """Tests for Memory and MemoryVersion models."""
-from brain.db.models import Memory, MemoryVersion
+from cogtainer.db.models import Memory, MemoryVersion
 
 
 class TestMemoryVersion:

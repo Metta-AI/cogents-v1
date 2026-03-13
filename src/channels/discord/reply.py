@@ -1,4 +1,4 @@
-"""SQS reply queue helpers for sending Discord messages from the brain/executor.
+"""SQS reply queue helpers for sending Discord messages from the cogtainer/executor.
 
 Usage:
     await queue_reply(channel="123", content="Hello!", cogent_name="alpha")

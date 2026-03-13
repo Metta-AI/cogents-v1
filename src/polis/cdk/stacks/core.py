@@ -359,7 +359,7 @@ class PolisStack(cdk.Stack):
                 resources=[self.status_table.table_arn],
             )
         )
-        # RDS Data API + CloudFormation (for CLI mind/brain commands)
+        # RDS Data API + CloudFormation (for CLI cogtainer commands)
         self.admin_role.add_to_policy(
             iam.PolicyStatement(
                 actions=[
