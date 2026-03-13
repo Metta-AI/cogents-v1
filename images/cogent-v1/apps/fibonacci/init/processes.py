@@ -9,7 +9,7 @@ add_channel("fibonacci:poke", channel_type="named")
 add_process(
     "fibonacci",
     mode="daemon",
-    content="@{apps/fibonacci/prompts/fibonacci.md}",
+    content="@{apps/fibonacci/fibonacci.md}",
     runner="lambda",
     priority=1.0,
     capabilities=["dir"],

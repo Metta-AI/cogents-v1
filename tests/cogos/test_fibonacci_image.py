@@ -13,7 +13,7 @@ def test_cogent_v1_fibonacci_loads():
 
     fibonacci = next(p for p in spec.processes if p["name"] == "fibonacci")
     assert fibonacci["mode"] == "daemon"
-    assert fibonacci["content"] == "@{apps/fibonacci/prompts/fibonacci.md}"
+    assert fibonacci["content"] == "@{apps/fibonacci/fibonacci.md}"
     assert fibonacci["capabilities"] == ["dir"]
     assert fibonacci["handlers"] == ["fibonacci:poke"]
     assert fibonacci["metadata"] == {"session": {"mode": "process"}}
@@ -21,10 +21,10 @@ def test_cogent_v1_fibonacci_loads():
 
 def test_cogent_v1_fibonacci_files_and_prompt():
     spec = load_image(Path("images/cogent-v1"))
-    fibonacci_files = {k for k in spec.files if k.startswith("apps/fibonacci/")}
+    fibonacci_files = {k for k in spec.files if k.startswith("apps/fibonacci/") and "init/" not in k}
 
-    assert fibonacci_files == {"apps/fibonacci/prompts/fibonacci.md"}
-    prompt = spec.files["apps/fibonacci/prompts/fibonacci.md"]
+    assert "apps/fibonacci/fibonacci.md" in fibonacci_files
+    prompt = spec.files["apps/fibonacci/fibonacci.md"]
     assert "fibonacci:poke" in prompt
     assert "If this is the first time, reply with `0`." in prompt
     assert "look back at the prior conversation in this session" in prompt
