@@ -1311,7 +1311,7 @@ class Repository:
             if since:
                 response = self._execute(
                     """SELECT * FROM cogos_channel_message
-                       WHERE channel = :channel AND created_at > :since
+                       WHERE channel = :channel AND created_at > :since::timestamptz
                        ORDER BY created_at ASC
                        LIMIT :limit""",
                     [self._param("channel", channel_id),
