@@ -908,4 +908,50 @@ BUILTIN_CAPABILITIES: list[dict] = [
         ),
         "schema": {},
     },
+    {
+        "name": "coglet",
+        "description": "MettaGrid game interaction — receive observations, send actions, manage game state.",
+        "handler": "cogos.capabilities.coglet.CogletCapability",
+        "instructions": (
+            "coglet provides game interaction for MettaGrid coglets.\n"
+            "- coglet.get_observation() — get current parsed observations {agent_id: [(row, col, feature, value), ...]}\n"
+            "- coglet.get_game_rules() — get game rules (features, actions, tags, dimensions)\n"
+            "- coglet.get_episode_info() — get episode metadata (episode_id, agent_ids, step_count)\n"
+            "- coglet.get_policy_state() — get persistent state dict across steps\n"
+            "- coglet.send_actions(actions) — send {agent_id: action_name} to game server\n"
+            "- coglet.log_step(data) — append step data to episode log\n"
+            "- coglet.request_policy_reload() — signal policy.py should be reloaded\n"
+        ),
+        "schema": {
+            "get_observation": {
+                "input": {"type": "object", "properties": {}},
+                "output": {
+                    "type": "object",
+                    "description": "Dict of {agent_id: [(row, col, feature_name, value), ...]}",
+                },
+            },
+            "send_actions": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "actions": {"type": "object", "description": "Dict of {agent_id: action_name}"},
+                    },
+                    "required": ["actions"],
+                },
+                "output": {"type": "null"},
+            },
+            "get_game_rules": {
+                "input": {"type": "object", "properties": {}},
+                "output": {"type": "object", "description": "Game rules dict"},
+            },
+            "log_step": {
+                "input": {
+                    "type": "object",
+                    "properties": {"step_data": {"type": "object"}},
+                    "required": ["step_data"],
+                },
+                "output": {"type": "null"},
+            },
+        },
+    },
 ]
