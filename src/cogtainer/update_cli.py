@@ -174,6 +174,7 @@ def update_lambda(ctx: click.Context, profile: str | None):
         f"cogent-{safe_name}-orchestrator",
         f"cogent-{safe_name}-executor",
         f"cogent-{safe_name}-dispatcher",
+        f"cogent-{safe_name}-ingress",
     ]
 
     for fn_name in lambda_functions:
