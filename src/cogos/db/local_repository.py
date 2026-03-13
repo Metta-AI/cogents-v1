@@ -683,6 +683,25 @@ class LocalRepository:
         deliveries.sort(key=lambda d: d.created_at or datetime.min)
         return deliveries
 
+    def list_deliveries(
+        self,
+        *,
+        message_id: UUID | None = None,
+        handler_id: UUID | None = None,
+        run_id: UUID | None = None,
+        limit: int = 500,
+    ) -> list[Delivery]:
+        self._maybe_reload()
+        deliveries = list(self._deliveries.values())
+        if message_id is not None:
+            deliveries = [delivery for delivery in deliveries if delivery.message == message_id]
+        if handler_id is not None:
+            deliveries = [delivery for delivery in deliveries if delivery.handler == handler_id]
+        if run_id is not None:
+            deliveries = [delivery for delivery in deliveries if delivery.run == run_id]
+        deliveries.sort(key=lambda d: d.created_at or datetime.min, reverse=True)
+        return deliveries[:limit]
+
     def has_pending_deliveries(self, process_id: UUID) -> bool:
         return bool(self.get_pending_deliveries(process_id))
 
@@ -891,10 +910,14 @@ class LocalRepository:
 
             return msg.id
 
-    def list_channel_messages(self, channel_id: UUID, *, limit: int = 100) -> list[ChannelMessage]:
+    def list_channel_messages(self, channel_id: UUID | None = None, *, limit: int = 100) -> list[ChannelMessage]:
         self._maybe_reload()
-        msgs = [m for m in self._channel_messages.values() if m.channel == channel_id]
-        msgs.sort(key=lambda m: m.created_at or datetime.min)
+        msgs = list(self._channel_messages.values())
+        if channel_id is not None:
+            msgs = [m for m in msgs if m.channel == channel_id]
+            msgs.sort(key=lambda m: m.created_at or datetime.min)
+        else:
+            msgs.sort(key=lambda m: m.created_at or datetime.min, reverse=True)
         return msgs[:limit]
 
     # ── Handler by Channel ───────────────────────────────────

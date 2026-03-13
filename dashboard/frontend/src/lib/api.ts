@@ -1,5 +1,4 @@
 import type {
-  DashboardEvent,
   CronItem,
   TimeRange,
   CogosStatus,
@@ -16,6 +15,7 @@ import type {
   Resource,
   Alert,
   SetupResponse,
+  MessageTrace,
 } from "./types";
 
 function getApiKey(): string | null {
@@ -35,26 +35,16 @@ async function fetchJSON<T>(path: string): Promise<T> {
   return resp.json();
 }
 
-// ── Events ──────────────────────────────────────────────────────────────────
+// ── Message Traces ──────────────────────────────────────────────────────────
 
-export async function getEvents(
+export async function getMessageTraces(
   name: string,
   range: TimeRange = "1h",
-): Promise<DashboardEvent[]> {
-  const r = await fetchJSON<{ events: DashboardEvent[] }>(
-    `/api/cogents/${name}/events?range=${range}`,
+): Promise<MessageTrace[]> {
+  const r = await fetchJSON<{ traces: MessageTrace[] }>(
+    `/api/cogents/${name}/message-traces?range=${range}`,
   );
-  return r.events;
-}
-
-export async function getEventTree(
-  name: string,
-  eventId: number | string,
-): Promise<DashboardEvent[]> {
-  const r = await fetchJSON<{ events: DashboardEvent[] }>(
-    `/api/cogents/${name}/events/${eventId}/tree`,
-  );
-  return r.events;
+  return r.traces;
 }
 
 // ── Cron ────────────────────────────────────────────────────────────────────

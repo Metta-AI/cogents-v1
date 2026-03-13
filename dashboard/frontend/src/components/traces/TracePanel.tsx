@@ -1,0 +1,277 @@
+"use client";
+
+import { useMemo, useState } from "react";
+
+import { Badge } from "@/components/shared/Badge";
+import { JsonViewer } from "@/components/shared/JsonViewer";
+import { buildCogentRunLogsUrl } from "@/lib/cloudwatch";
+import { fmtCost, fmtMs, fmtNum, fmtTimestamp } from "@/lib/format";
+import type { MessageTrace, TraceDelivery, TraceMessage } from "@/lib/types";
+
+interface TracePanelProps {
+  traces: MessageTrace[];
+  cogentName: string;
+}
+
+type BadgeVariant = "success" | "warning" | "error" | "info" | "neutral" | "accent";
+
+const DELIVERY_STATUS_VARIANT: Record<string, BadgeVariant> = {
+  pending: "warning",
+  queued: "info",
+  delivered: "success",
+  skipped: "neutral",
+};
+
+const RUN_STATUS_VARIANT: Record<string, BadgeVariant> = {
+  running: "accent",
+  completed: "success",
+  failed: "error",
+  timeout: "warning",
+  suspended: "neutral",
+};
+
+function shortId(value: string | null | undefined): string {
+  if (!value) return "--";
+  return value.length > 12 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value;
+}
+
+function payloadPreview(payload: Record<string, unknown>): string {
+  const entries = Object.entries(payload);
+  if (entries.length === 0) return "{}";
+
+  return entries
+    .slice(0, 3)
+    .map(([key, value]) => {
+      if (typeof value === "string") return `${key}=${value}`;
+      if (typeof value === "number" || typeof value === "boolean") return `${key}=${String(value)}`;
+      return `${key}=${JSON.stringify(value)}`;
+    })
+    .join(" · ");
+}
+
+function emittedCount(deliveries: TraceDelivery[]): number {
+  return deliveries.reduce((count, delivery) => count + delivery.emitted_messages.length, 0);
+}
+
+function TraceMessageCard({ message }: { message: TraceMessage }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+        <Badge variant="info">{message.channel_name}</Badge>
+        <span>message {shortId(message.id)}</span>
+        <span>sender {message.sender_process_name ?? message.sender_process ?? "external"}</span>
+        <span>{fmtTimestamp(message.created_at)}</span>
+      </div>
+      <div className="text-[12px] text-[var(--text-secondary)] font-mono">
+        {payloadPreview(message.payload)}
+      </div>
+      <JsonViewer data={message.payload} />
+    </div>
+  );
+}
+
+export function TracePanel({ traces, cogentName }: TracePanelProps) {
+  const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(new Set());
+
+  const summary = useMemo(() => {
+    return traces.reduce(
+      (acc, trace) => {
+        acc.deliveries += trace.deliveries.length;
+        acc.runs += trace.deliveries.filter((delivery) => delivery.run).length;
+        acc.emitted += emittedCount(trace.deliveries);
+        return acc;
+      },
+      { deliveries: 0, runs: 0, emitted: 0 },
+    );
+  }, [traces]);
+
+  const toggleExpanded = (messageId: string) => {
+    setExpandedMessageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+          Message Trace
+          <span className="ml-2 text-[var(--text-muted)] font-normal">({traces.length})</span>
+        </h2>
+        <div className="flex gap-1.5">
+          <Badge variant="info">{summary.deliveries} deliveries</Badge>
+          <Badge variant="accent">{summary.runs} runs</Badge>
+          <Badge variant="success">{summary.emitted} emitted</Badge>
+        </div>
+      </div>
+
+      {traces.length === 0 && (
+        <div className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-8 text-center text-[12px] text-[var(--text-muted)]">
+          No channel message traces in this time window.
+        </div>
+      )}
+
+      {traces.map((trace) => {
+        const { message, deliveries } = trace;
+        const isExpanded = expandedMessageIds.has(message.id);
+        const targetNames = Array.from(
+          new Set(deliveries.map((delivery) => delivery.process_name ?? delivery.process_id ?? "unknown")),
+        );
+
+        return (
+          <div
+            key={message.id}
+            className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] overflow-hidden"
+          >
+            <button
+              type="button"
+              className="w-full border-0 bg-transparent px-4 py-3 text-left cursor-pointer"
+              onClick={() => toggleExpanded(message.id)}
+            >
+              <div className="flex flex-wrap items-start gap-3">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="info">{message.channel_name}</Badge>
+                    <span className="text-[11px] text-[var(--text-muted)] font-mono">{shortId(message.id)}</span>
+                    <span className="text-[11px] text-[var(--text-muted)]">
+                      {message.sender_process_name ?? message.sender_process ?? "external sender"}
+                    </span>
+                  </div>
+                  <div className="text-[12px] text-[var(--text-secondary)] font-mono truncate">
+                    {payloadPreview(message.payload)}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {targetNames.map((target) => (
+                      <Badge key={target} variant="neutral">{target}</Badge>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-1 text-[11px] text-[var(--text-muted)]">
+                  <span>{deliveries.length} delivery{deliveries.length === 1 ? "" : "ies"}</span>
+                  <span>{deliveries.filter((delivery) => delivery.run).length} run{deliveries.filter((delivery) => delivery.run).length === 1 ? "" : "s"}</span>
+                  <span>{emittedCount(deliveries)} emitted</span>
+                  <span>{fmtTimestamp(message.created_at)}</span>
+                </div>
+              </div>
+            </button>
+
+            {isExpanded && (
+              <div className="border-t border-[var(--border)] bg-[var(--bg-deep)] px-4 py-4 space-y-4">
+                <TraceMessageCard message={message} />
+
+                {deliveries.length === 0 ? (
+                  <div className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-3 text-[12px] text-[var(--text-muted)]">
+                    No deliveries were created for this message.
+                  </div>
+                ) : (
+                  deliveries.map((delivery) => {
+                    const run = delivery.run;
+                    return (
+                      <div
+                        key={delivery.id}
+                        className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3 space-y-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={DELIVERY_STATUS_VARIANT[delivery.status] || "neutral"}>
+                              {delivery.status}
+                            </Badge>
+                            <span className="text-[12px] text-[var(--text-primary)] font-medium">
+                              {delivery.process_name ?? delivery.process_id ?? "Unknown process"}
+                            </span>
+                            <span className="text-[11px] text-[var(--text-muted)] font-mono">
+                              handler {shortId(delivery.handler_id)}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-[var(--text-muted)]">
+                            {fmtTimestamp(delivery.created_at)}
+                          </span>
+                        </div>
+
+                        {run ? (
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+                                <Badge variant={RUN_STATUS_VARIANT[run.status] || "neutral"}>
+                                  {run.status}
+                                </Badge>
+                                <span className="font-mono">run {shortId(run.id)}</span>
+                                <span>{run.process_name ?? run.process}</span>
+                              </div>
+                              <a
+                                href={buildCogentRunLogsUrl(cogentName, run.id, run.created_at, run.runner)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[12px] text-[var(--accent)] hover:underline"
+                              >
+                                CloudWatch logs
+                              </a>
+                            </div>
+
+                            <div className="grid gap-2 text-[11px] text-[var(--text-muted)] md:grid-cols-4">
+                              <span>created {fmtTimestamp(run.created_at)}</span>
+                              <span>duration {fmtMs(run.duration_ms)}</span>
+                              <span>tokens {fmtNum(run.tokens_in)} in / {fmtNum(run.tokens_out)} out</span>
+                              <span>cost {fmtCost(run.cost_usd)}</span>
+                            </div>
+
+                            {run.error && (
+                              <div className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-200 font-mono">
+                                {run.error}
+                              </div>
+                            )}
+
+                            {run.result && (
+                              <div className="space-y-2">
+                                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Run Result</div>
+                                <JsonViewer data={run.result} />
+                              </div>
+                            )}
+
+                            {delivery.emitted_messages.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
+                                  Emitted Messages ({delivery.emitted_messages.length})
+                                </div>
+                                {delivery.emitted_messages.map((emitted) => (
+                                  <div
+                                    key={emitted.id}
+                                    className="rounded-md border border-[var(--border)] bg-[var(--bg-deep)] px-3 py-3 space-y-2"
+                                  >
+                                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+                                      <Badge variant="accent">{emitted.channel_name}</Badge>
+                                      <span className="font-mono">{shortId(emitted.id)}</span>
+                                      <span>{fmtTimestamp(emitted.created_at)}</span>
+                                    </div>
+                                    <div className="text-[12px] text-[var(--text-secondary)] font-mono">
+                                      {payloadPreview(emitted.payload)}
+                                    </div>
+                                    <JsonViewer data={emitted.payload} />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-[12px] text-[var(--text-muted)]">
+                            No run has been dispatched for this delivery yet.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}

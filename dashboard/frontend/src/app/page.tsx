@@ -10,7 +10,7 @@ import { FilesPanel } from "@/components/files/FilesPanel";
 import { CapabilitiesPanel } from "@/components/capabilities/CapabilitiesPanel";
 import { HandlersPanel } from "@/components/handlers/HandlersPanel";
 import { RunsPanel } from "@/components/runs/RunsPanel";
-import { EventsPanel } from "@/components/events/EventsPanel";
+import { TracePanel } from "@/components/traces/TracePanel";
 import { ResourcesPanel } from "@/components/resources/ResourcesPanel";
 import { AlertsPanel } from "@/components/alerts/AlertsPanel";
 import { CronPanel } from "@/components/cron/CronPanel";
@@ -19,6 +19,7 @@ import { SetupPanel } from "@/components/setup/SetupPanel";
 function getTabFromHash(): TabId {
   if (typeof window === "undefined") return "overview";
   const hash = window.location.hash.replace("#", "");
+  if (hash === "events") return "trace";
   return VALID_TABS.has(hash as TabId) ? (hash as TabId) : "overview";
 }
 
@@ -129,8 +130,8 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
         {activeTab === "runs" && (
           <RunsPanel runs={data.runs} cogentName={cogentName} />
         )}
-        {activeTab === "events" && (
-          <EventsPanel events={data.events} cogentName={cogentName} triggers={data.triggers} timeRange={timeRange} onTabChange={onTabChange as (tab: string) => void} eventTypes={data.eventTypes} onRefresh={refresh} />
+        {activeTab === "trace" && (
+          <TracePanel traces={data.traces} cogentName={cogentName} />
         )}
         {activeTab === "cron" && (
           <CronPanel crons={data.crons} cogentName={cogentName} onRefresh={refresh} />

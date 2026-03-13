@@ -23,7 +23,7 @@ def test_all_rest_endpoints_registered():
         ("GET", "/api/cogents/test/status?range=1h"),
         ("GET", "/api/cogents/test/programs"),
         ("GET", "/api/cogents/test/sessions"),
-        ("GET", "/api/cogents/test/events?range=1h"),
+        ("GET", "/api/cogents/test/message-traces?range=1h"),
         ("GET", "/api/cogents/test/triggers"),
         ("GET", "/api/cogents/test/memory"),
         ("GET", "/api/cogents/test/tasks"),
