@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import logging
-from datetime import datetime, timedelta, timezone
+import json
+from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
-import boto3
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from cogos.db.models import Run
+from cogos.files.store import FileStore
 from dashboard.db import get_repo
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["cogos-runs"])
 
@@ -92,71 +91,169 @@ def _utc(dt: datetime | None) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
-def _executor_log_group(name: str) -> str:
-    safe_name = name.replace(".", "-")
-    return f"/aws/lambda/cogent-{safe_name}-executor"
+def _format_session_log_entry(step: dict) -> str:
+    labels = [str(step.get("type", "step"))]
+    turn_number = step.get("turn_number")
+    if isinstance(turn_number, int):
+        labels.append(f"turn={turn_number}")
+    stop_reason = step.get("stop_reason") or step.get("final_stop_reason")
+    if isinstance(stop_reason, str) and stop_reason:
+        labels.append(f"stop={stop_reason}")
+    header = " | ".join(labels)
+    return f"{header}\n{json.dumps(step, indent=2, sort_keys=True)}"
 
 
-def _log_window(run: Run) -> tuple[int, int]:
-    now = datetime.now(timezone.utc)
-    created_at = _utc(run.created_at) or now
-    completed_at = _utc(run.completed_at)
-    start = created_at - timedelta(minutes=2)
-    end_candidates = [now, created_at + timedelta(minutes=15)]
-    if completed_at is not None:
-        end_candidates.append(completed_at + timedelta(minutes=2))
-    end = max(end_candidates)
-    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+def _artifact_timestamp(payload: Any, fallback: datetime | None) -> str:
+    if isinstance(payload, dict):
+        for field in ("created_at", "finalized_at", "updated_at"):
+            value = payload.get(field)
+            if isinstance(value, str) and value:
+                return value
+    return _iso(fallback) or ""
 
 
-def _find_run_seed_events(logs, log_group: str, run_id: str, start_ms: int, end_ms: int) -> list[dict]:
+def _artifact_message(kind: str, key: str, payload: Any) -> str:
+    if kind == "step" and isinstance(payload, dict):
+        return f"{_format_session_log_entry(payload)}\nkey={key}"
+
+    labels = [kind]
+    if isinstance(payload, dict):
+        status = payload.get("status")
+        if isinstance(status, str) and status:
+            labels.append(f"status={status}")
+        stop_reason = payload.get("stop_reason") or payload.get("final_stop_reason")
+        if isinstance(stop_reason, str) and stop_reason:
+            labels.append(f"stop={stop_reason}")
+        last_completed_step = payload.get("last_completed_step")
+        if isinstance(last_completed_step, int):
+            labels.append(f"last_step={last_completed_step}")
+        resumable = payload.get("resumable")
+        if isinstance(resumable, bool):
+            labels.append("resumable" if resumable else "not_resumable")
+        latest_run_id = payload.get("latest_run_id")
+        if isinstance(latest_run_id, str) and latest_run_id:
+            labels.append(f"latest_run={latest_run_id}")
+        return f"{' | '.join(labels)}\nkey={key}\n{json.dumps(payload, indent=2, sort_keys=True)}"
+
+    return f"{kind}\nkey={key}\n{payload}"
+
+
+def _read_artifact_content(
+    store: FileStore,
+    key: str,
+    *,
+    as_of: datetime | None = None,
+) -> tuple[str | None, datetime | None]:
+    if as_of is None:
+        raw = store.get_content(key)
+        file_model = store.get(key)
+        return raw, _utc(file_model.updated_at) if file_model else None
+
+    history = store.history(key)
+    if not history:
+        raw = store.get_content(key)
+        file_model = store.get(key)
+        return raw, _utc(file_model.updated_at) if file_model else None
+
+    selected = None
+    for version in history:
+        created_at = _utc(version.created_at)
+        if created_at is None or created_at <= as_of:
+            selected = version
+            continue
+        break
+    if selected is None:
+        selected = history[0]
+    return selected.content, _utc(selected.created_at)
+
+
+def _build_artifact_entry(
+    store: FileStore,
+    key: str,
+    *,
+    kind: str,
+    as_of: datetime | None = None,
+) -> RunLogEntry | None:
+    raw, artifact_dt = _read_artifact_content(store, key, as_of=as_of)
+    if raw is None:
+        return None
     try:
-        seed = logs.filter_log_events(
-            logGroupName=log_group,
-            startTime=start_ms,
-            endTime=end_ms,
-            filterPattern=run_id,
-            limit=20,
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        payload = raw
+    return RunLogEntry(
+        timestamp=_artifact_timestamp(payload, artifact_dt),
+        message=_artifact_message(kind, key, payload),
+        log_stream=key.rsplit("/", 1)[-1],
+    )
+
+
+def _session_log_preview(repo, run: Run, limit: int) -> RunLogsResponse | None:
+    if not isinstance(run.snapshot, dict):
+        return None
+
+    final_key = run.snapshot.get("final_key")
+    if not isinstance(final_key, str) or not final_key:
+        return None
+
+    store = FileStore(repo)
+    final_raw = store.get_content(final_key)
+    if final_raw is None:
+        return None
+
+    try:
+        final_payload = json.loads(final_raw)
+    except json.JSONDecodeError:
+        return RunLogsResponse(
+            log_group="CogOS session artifacts",
+            entries=[],
+            error="Session artifact metadata is invalid JSON.",
         )
-        events = seed.get("events", [])
-        if events:
-            return events
-    except logs.exceptions.ResourceNotFoundException:
-        raise
-    except Exception as exc:
-        logger.debug("CloudWatch seed filter fell back to scan for run %s: %s", run_id, exc)
 
-    # CloudWatch filter patterns are less reliable for UUID-like strings than
-    # the Logs Insights query behind the CW link, so fall back to scanning a
-    # bounded slice of the run window and matching in Python.
-    matched: list[dict] = []
-    next_token: str | None = None
-    scanned = 0
-    max_scan = 500
+    trigger_key = final_payload.get("trigger_key")
+    steps_key = final_payload.get("steps_key")
+    checkpoint_key = final_payload.get("checkpoint_key") or run.snapshot.get("checkpoint_key")
+    manifest_key = final_payload.get("manifest_key") or run.snapshot.get("manifest_key")
+    if not isinstance(steps_key, str) or not steps_key:
+        return RunLogsResponse(
+            log_group="CogOS session artifacts",
+            entries=[],
+            error="Session artifact metadata is missing steps.",
+        )
 
-    while scanned < max_scan:
-        kwargs = {
-            "logGroupName": log_group,
-            "startTime": start_ms,
-            "endTime": end_ms,
-            "limit": min(100, max_scan - scanned),
-        }
-        if next_token:
-            kwargs["nextToken"] = next_token
+    as_of = _utc(run.completed_at) or _utc(run.created_at)
+    entries: list[RunLogEntry] = []
 
-        page = logs.filter_log_events(**kwargs)
-        events = page.get("events", [])
-        scanned += len(events)
-        matched.extend(event for event in events if run_id in event.get("message", ""))
-        if matched:
-            break
+    if isinstance(trigger_key, str) and trigger_key:
+        trigger_entry = _build_artifact_entry(store, trigger_key, kind="trigger")
+        if trigger_entry is not None:
+            entries.append(trigger_entry)
 
-        candidate = page.get("nextToken")
-        if not candidate or candidate == next_token:
-            break
-        next_token = candidate
+    step_files = store.list_files(prefix=steps_key, limit=max(limit * 5, 200))
+    for artifact in step_files:
+        entry = _build_artifact_entry(store, artifact.key, kind="step")
+        if entry is not None:
+            entries.append(entry)
 
-    return matched
+    final_entry = _build_artifact_entry(store, final_key, kind="final")
+    if final_entry is not None:
+        entries.append(final_entry)
+
+    if isinstance(checkpoint_key, str) and checkpoint_key:
+        checkpoint_entry = _build_artifact_entry(store, checkpoint_key, kind="checkpoint", as_of=as_of)
+        if checkpoint_entry is not None:
+            entries.append(checkpoint_entry)
+
+    if isinstance(manifest_key, str) and manifest_key:
+        manifest_entry = _build_artifact_entry(store, manifest_key, kind="manifest", as_of=as_of)
+        if manifest_entry is not None:
+            entries.append(manifest_entry)
+
+    return RunLogsResponse(
+        log_group="CogOS session artifacts",
+        log_stream=final_key.rsplit("/", 1)[0],
+        entries=entries[-limit:],
+    )
 
 
 def _summary(
@@ -242,56 +339,9 @@ def get_run_logs(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    log_group = _executor_log_group(name)
-    start_ms, end_ms = _log_window(run)
-    logs = boto3.client("logs", region_name="us-east-1")
+    session_preview = _session_log_preview(repo, run, limit)
+    if session_preview is not None:
+        return session_preview
 
-    try:
-        seed_events = _find_run_seed_events(logs, log_group, run_id, start_ms, end_ms)
-    except logs.exceptions.ResourceNotFoundException:
-        return RunLogsResponse(log_group=log_group, entries=[])
-    except Exception as exc:
-        logger.warning("Failed to locate CloudWatch logs for run %s: %s", run_id, exc)
-        return RunLogsResponse(
-            log_group=log_group,
-            entries=[],
-            error="CloudWatch log preview is unavailable from this environment.",
-        )
-
-    stream_name = next(
-        (event.get("logStreamName") for event in seed_events if event.get("logStreamName")),
-        None,
-    )
-    if not stream_name:
-        return RunLogsResponse(log_group=log_group, entries=[])
-
-    try:
-        stream_events = logs.filter_log_events(
-            logGroupName=log_group,
-            logStreamNames=[stream_name],
-            startTime=start_ms,
-            endTime=end_ms,
-            limit=limit,
-        )
-    except Exception as exc:
-        logger.warning("Failed to fetch CloudWatch log preview for run %s: %s", run_id, exc)
-        return RunLogsResponse(
-            log_group=log_group,
-            log_stream=stream_name,
-            entries=[],
-            error="CloudWatch log preview is unavailable from this environment.",
-        )
-
-    entries = [
-        RunLogEntry(
-            timestamp=datetime.fromtimestamp(event["timestamp"] / 1000, tz=timezone.utc).isoformat(),
-            message=event["message"].rstrip(),
-            log_stream=event["logStreamName"],
-        )
-        for event in sorted(
-            stream_events.get("events", []),
-            key=lambda event: (event["timestamp"], event.get("eventId", "")),
-        )
-    ]
-
-    return RunLogsResponse(log_group=log_group, log_stream=stream_name, entries=entries[:limit])
+    _ = name
+    return RunLogsResponse(log_group="CogOS session artifacts", entries=[])
