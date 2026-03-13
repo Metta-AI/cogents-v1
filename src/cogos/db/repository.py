@@ -731,6 +731,13 @@ class Repository:
             )
         return [self._file_from_row(r) for r in self._rows_to_dicts(response)]
 
+    def update_file_includes(self, file_id: UUID, includes: list[str]) -> bool:
+        response = self._execute(
+            "UPDATE cogos_file SET includes = :includes::jsonb, updated_at = now() WHERE id = :id",
+            [self._param("id", file_id), self._param("includes", includes)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
     def delete_file(self, file_id: UUID) -> bool:
         response = self._execute(
             "DELETE FROM cogos_file WHERE id = :id",

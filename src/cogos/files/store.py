@@ -45,6 +45,7 @@ class FileStore:
         *,
         source: str = "cogent",
         read_only: bool = False,
+        includes: list[str] | None = None,
     ) -> FileVersion | None:
         """Add a new version if content changed. Returns None if unchanged or not found."""
         f = self._repo.get_file_by_key(key)
@@ -66,6 +67,8 @@ class FileStore:
             is_active=True,
         )
         self._repo.insert_file_version(fv)
+        if includes is not None:
+            self._repo.update_file_includes(f.id, includes)
         return fv
 
     def upsert(
@@ -81,7 +84,13 @@ class FileStore:
         f = self._repo.get_file_by_key(key)
         if f is None:
             return self.create(key, content, source=source, read_only=read_only, includes=includes)
-        return self.new_version(key, content, source=source, read_only=read_only)
+        return self.new_version(key, content, source=source, read_only=read_only, includes=includes)
+
+    def update_includes(self, key: str, includes: list[str]) -> bool:
+        f = self._repo.get_file_by_key(key)
+        if f is None:
+            return False
+        return self._repo.update_file_includes(f.id, includes)
 
     def get(self, key: str) -> File | None:
         return self._repo.get_file_by_key(key)

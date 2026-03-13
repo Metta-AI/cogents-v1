@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from cogos.db.models import File, FileVersion
+from cogos.files.references import extract_file_references, merge_file_references
 from cogos.files.store import FileStore
 from dashboard.db import get_repo
 
@@ -71,6 +72,18 @@ def _store() -> FileStore:
     return FileStore(get_repo())
 
 
+def _sync_file_includes(
+    store: FileStore,
+    file: File,
+    *,
+    content: str,
+    explicit_includes: list[str] | None = None,
+) -> list[str]:
+    includes = merge_file_references(content, explicit_includes, exclude_key=file.key)
+    store.update_includes(file.key, includes)
+    return includes
+
+
 def _file_out(f: File) -> FileOut:
     return FileOut(
         id=str(f.id),
@@ -124,12 +137,13 @@ def get_file(name: str, key: str) -> FileDetail:
 @router.post("/files", response_model=FileOut)
 def create_file(name: str, body: FileCreate) -> FileOut:
     store = _store()
+    includes = merge_file_references(body.content, body.includes, exclude_key=body.key)
     f = store.create(
         key=body.key,
         content=body.content,
         source=body.source,
         read_only=body.read_only,
-        includes=body.includes,
+        includes=includes,
     )
     return _file_out(f)
 
@@ -137,7 +151,11 @@ def create_file(name: str, body: FileCreate) -> FileOut:
 @router.put("/files/{key:path}", response_model=FileVersionOut)
 def update_file(name: str, key: str, body: FileUpdate) -> FileVersionOut:
     store = _store()
-    fv = store.new_version(key, body.content, source=body.source, read_only=body.read_only)
+    file = store.get(key)
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found or content unchanged")
+    includes = extract_file_references(body.content, exclude_key=file.key)
+    fv = store.new_version(key, body.content, source=body.source, read_only=body.read_only, includes=includes)
     if fv is None:
         raise HTTPException(status_code=404, detail="File not found or content unchanged")
     return _version_out(fv)
@@ -146,19 +164,23 @@ def update_file(name: str, key: str, body: FileUpdate) -> FileVersionOut:
 @router.post("/files/{key:path}/versions/{version}/activate")
 def activate_file_version(name: str, key: str, version: int) -> dict:
     repo = get_repo()
+    store = FileStore(repo)
     f = repo.get_file_by_key(key)
     if not f:
         raise HTTPException(status_code=404, detail="File not found")
     versions = repo.list_file_versions(f.id)
-    if not any(v.version == version for v in versions):
+    target_version = next((v for v in versions if v.version == version), None)
+    if not target_version:
         raise HTTPException(status_code=404, detail="Version not found")
     repo.set_active_file_version(f.id, version)
+    _sync_file_includes(store, f, content=target_version.content)
     return {"activated": True, "key": key, "version": version}
 
 
 @router.put("/files/{key:path}/versions/{version}/content")
 def update_file_version_content(name: str, key: str, version: int, body: VersionContentUpdate) -> FileVersionOut:
     repo = get_repo()
+    store = FileStore(repo)
     f = repo.get_file_by_key(key)
     if not f:
         raise HTTPException(status_code=404, detail="File not found")
@@ -168,17 +190,28 @@ def update_file_version_content(name: str, key: str, version: int, body: Version
     fv = next((v for v in versions if v.version == version), None)
     if not fv:
         raise HTTPException(status_code=404, detail="Version not found")
+    if fv.is_active:
+        _sync_file_includes(store, f, content=body.content)
     return _version_out(fv)
 
 
 @router.delete("/files/{key:path}/versions/{version}")
 def delete_file_version(name: str, key: str, version: int) -> dict:
     repo = get_repo()
+    store = FileStore(repo)
     f = repo.get_file_by_key(key)
     if not f:
         raise HTTPException(status_code=404, detail="File not found")
+    versions = repo.list_file_versions(f.id)
+    deleted_version = next((v for v in versions if v.version == version), None)
+    if not deleted_version:
+        raise HTTPException(status_code=404, detail="Version not found")
     if not repo.delete_file_version(f.id, version):
         raise HTTPException(status_code=404, detail="Version not found")
+    if deleted_version.is_active:
+        active_version = repo.get_active_file_version(f.id)
+        active_content = active_version.content if active_version else ""
+        _sync_file_includes(store, f, content=active_content)
     return {"deleted": True, "key": key, "version": version}
 
 

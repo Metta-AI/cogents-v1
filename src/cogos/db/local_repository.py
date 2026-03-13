@@ -564,6 +564,15 @@ class LocalRepository:
         files.sort(key=lambda f: f.key)
         return files[:limit]
 
+    def update_file_includes(self, file_id: UUID, includes: list[str]) -> bool:
+        with self._writing():
+            file = self._files.get(file_id)
+            if not file:
+                return False
+            file.includes = includes
+            file.updated_at = datetime.utcnow()
+            return True
+
     def delete_file(self, file_id: UUID) -> bool:
         with self._writing():
             if file_id in self._files:
