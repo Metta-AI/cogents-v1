@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json as _json
 from uuid import UUID
 
 from fastapi import APIRouter, Query
@@ -35,13 +36,16 @@ class AlertCreate(BaseModel):
 
 
 def _fmt(row: dict) -> AlertItem:
+    meta = row.get("metadata")
+    if isinstance(meta, str):
+        meta = _json.loads(meta)
     return AlertItem(
         id=str(row.get("id", "")),
         severity=row.get("severity", ""),
         alert_type=row.get("alert_type", ""),
         source=row.get("source", ""),
         message=row.get("message", ""),
-        metadata=row.get("metadata"),
+        metadata=meta,
         resolved_at=str(row["resolved_at"]) if row.get("resolved_at") else None,
         created_at=str(row["created_at"]) if row.get("created_at") else None,
     )
