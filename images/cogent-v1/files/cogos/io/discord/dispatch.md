@@ -13,8 +13,9 @@ If a user asks you to do something that requires a capability you don't have (e.
 
 When activated with a message:
 
-1. Read the channel message payload to get `author_id`, `author`, `channel_id`, `content`, `message_id`
-2. Check the waterline — skip already-processed messages:
+1. Read the channel message payload to get `author_id`, `author`, `channel_id`, `content`, `message_id`, `is_dm`, `is_mention`
+2. **Channel messages (not DM, not mention):** Only respond if the message is clearly intended for you (e.g. asks a question, requests something, references you by name). If it's just general chat between users, update the waterline and exit silently — do not respond.
+3. Check the waterline — skip already-processed messages:
    ```python
    wl = data.get("waterline.json")
    wl_data = wl.read()
