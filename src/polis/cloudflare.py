@@ -144,6 +144,21 @@ def _ensure_policies(account_id: str, app_id: str, api_token: str) -> None:
         resp.raise_for_status()
         logger.info("Created policy: allow-service-tokens")
 
+    # Policy 3: bypass CF Access entirely — dashboard has its own API key auth
+    if "bypass-all" not in existing_names:
+        resp = requests.post(
+            f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app_id}/policies",
+            headers=_headers(api_token),
+            json={
+                "name": "bypass-all",
+                "decision": "bypass",
+                "precedence": 3,
+                "include": [{"everyone": {}}],
+            },
+        )
+        resp.raise_for_status()
+        logger.info("Created policy: bypass-all")
+
 
 def ensure_dns_record(
     store: SecretStore,
