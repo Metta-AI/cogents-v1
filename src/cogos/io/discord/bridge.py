@@ -347,7 +347,10 @@ class DiscordBridge:
 
         reference = None
         if reply_to:
-            reference = discord.MessageReference(message_id=int(reply_to), channel_id=target.id)
+            try:
+                reference = discord.MessageReference(message_id=int(reply_to), channel_id=target.id)
+            except (ValueError, TypeError):
+                logger.warning("Invalid reply_to %r, sending without reference", reply_to)
 
         discord_files = await self._download_files(file_specs)
 
