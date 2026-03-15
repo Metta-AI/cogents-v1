@@ -63,9 +63,13 @@ def run_and_complete(
     5. Return the *run* object in both cases.
     """
     if execute_fn is None:
-        from cogos.executor.handler import execute_process
+        from cogos.db.models.process import ContentType
+        from cogos.executor.handler import execute_process, execute_python
 
-        execute_fn = execute_process
+        if process.content_type == ContentType.PYTHON:
+            execute_fn = execute_python
+        else:
+            execute_fn = execute_process
 
     repo.mark_run_deliveries_delivered(run.id)
 

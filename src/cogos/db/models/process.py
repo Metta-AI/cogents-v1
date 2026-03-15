@@ -25,11 +25,17 @@ class ProcessMode(str, enum.Enum):
     ONE_SHOT = "one_shot"
 
 
+class ContentType(str, enum.Enum):
+    LLM = "llm"
+    PYTHON = "python"
+
+
 class Process(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     name: str
     mode: ProcessMode = ProcessMode.ONE_SHOT
     content: str = ""
+    content_type: ContentType = ContentType.LLM
     priority: float = 0.0
     resources: list[UUID] = Field(default_factory=list)  # FK -> Resource
     runner: str = "lambda"  # "lambda" | "ecs"

@@ -10,7 +10,7 @@ from cogos.db.models.cron import Cron
 from cogos.db.models.delivery import Delivery, DeliveryStatus
 from cogos.db.models.file import File, FileVersion
 from cogos.db.models.handler import Handler
-from cogos.db.models.process import Process, ProcessMode, ProcessStatus
+from cogos.db.models.process import ContentType, Process, ProcessMode, ProcessStatus
 from cogos.db.models.process_capability import ProcessCapability
 from cogos.db.models.resource import Resource, ResourceType, ResourceUsage
 from cogos.db.models.run import Run, RunStatus
@@ -26,6 +26,7 @@ __all__ = [
     "ChannelType",
     "BudgetPeriod",
     "Capability",
+    "ContentType",
     "Conversation",
     "ConversationStatus",
     "Cron",

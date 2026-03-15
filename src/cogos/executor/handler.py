@@ -17,7 +17,7 @@ import boto3
 from botocore.config import Config as BotoConfig
 
 from cogos.db.factory import create_repository
-from cogos.db.models import Process, ProcessStatus, Run, RunStatus
+from cogos.db.models import ContentType, Process, ProcessStatus, Run, RunStatus
 from cogos.db.models.channel_message import ChannelMessage
 from cogos.db.repository import Repository
 from cogos.executor.session_store import SessionStore, build_prompt_fingerprint
@@ -158,9 +158,12 @@ def handler(event: dict, context: Any = None) -> dict:
     repo.mark_run_deliveries_delivered(run.id)
     logger.info(f"Starting run {run_id} for process {process.name}")
 
+    # Choose executor based on content_type
+    exec_fn = execute_python if process.content_type == ContentType.PYTHON else execute_process
+
     start_time = time.time()
     try:
-        run = execute_process(process, event, run, config, repo)
+        run = exec_fn(process, event, run, config, repo)
         run.status = RunStatus.COMPLETED
         duration_ms = int((time.time() - start_time) * 1000)
 
@@ -574,6 +577,58 @@ def execute_process(
             checkpoint_key=checkpoint_key,
         )
         raise
+
+
+def execute_python(
+    process: Process,
+    event_data: dict,
+    run: Run,
+    config: ExecutorConfig,
+    repo: Repository,
+    *,
+    bedrock_client: Any | None = None,
+) -> Run:
+    """Execute process content as Python code directly — no LLM involved.
+
+    The process ``content`` field is treated as a Python script and executed
+    via SandboxExecutor.  The trigger payload is injected as a ``payload``
+    variable so the script can access it.  Capability proxies are set up
+    identically to the LLM path.
+
+    ``bedrock_client`` is accepted (and ignored) so the function signature
+    stays compatible with ``execute_process`` for use in ``run_and_complete``.
+    """
+    code = process.content or ""
+    if not code.strip():
+        raise ValueError("Process content is empty — nothing to execute")
+
+    vt = VariableTable()
+    _setup_capability_proxies(vt, process, repo, run_id=run.id)
+
+    # Inject trigger payload so scripts can read it
+    payload = event_data.get("payload") or {}
+    vt.set("payload", payload)
+    vt.set("event", event_data)
+
+    sandbox = SandboxExecutor(vt)
+    output = sandbox.execute(code)
+
+    # Populate run fields (no tokens — no LLM call)
+    run.tokens_in = 0
+    run.tokens_out = 0
+    run.scope_log = sandbox.scope_log
+    run.result = {"output": output}
+    run.snapshot = {
+        "resumed": False,
+        "resumed_from_run_id": None,
+        "resume_skipped_reason": None,
+        "checkpoint_key": None,
+        "manifest_key": None,
+        "final_key": None,
+        "content_type": "python",
+    }
+
+    return run
 
 
 def _sanitize_tool_use_message(

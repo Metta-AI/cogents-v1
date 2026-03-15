@@ -21,6 +21,7 @@ from cogos.db.models import (
     Channel,
     ChannelMessage,
     ChannelType,
+    ContentType,
     Conversation,
     ConversationStatus,
     Cron,
@@ -181,18 +182,19 @@ class Repository:
     def upsert_process(self, p: Process) -> UUID:
         response = self._execute(
             """INSERT INTO cogos_process
-                   (id, name, mode, content, priority, resources, runner,
+                   (id, name, mode, content, content_type, priority, resources, runner,
                     status, runnable_since, parent_process, preemptible,
                     model, model_constraints, return_schema,
                     idle_timeout_ms, max_duration_ms, max_retries, retry_count, retry_backoff_ms,
                     clear_context, metadata)
-               VALUES (:id, :name, :mode, :content, :priority, :resources::jsonb, :runner,
+               VALUES (:id, :name, :mode, :content, :content_type, :priority, :resources::jsonb, :runner,
                        :status, :runnable_since, :parent_process, :preemptible,
                        :model, :model_constraints::jsonb, :return_schema::jsonb,
                        :idle_timeout_ms, :max_duration_ms, :max_retries, :retry_count, :retry_backoff_ms,
                        :clear_context, :metadata::jsonb)
                ON CONFLICT (name) DO UPDATE SET
                    mode = EXCLUDED.mode, content = EXCLUDED.content,
+                   content_type = EXCLUDED.content_type,
                    resources = EXCLUDED.resources, runner = EXCLUDED.runner,
                    preemptible = EXCLUDED.preemptible, model = EXCLUDED.model,
                    model_constraints = EXCLUDED.model_constraints,
@@ -210,6 +212,7 @@ class Repository:
                 self._param("name", p.name),
                 self._param("mode", p.mode.value),
                 self._param("content", p.content),
+                self._param("content_type", p.content_type.value),
                 self._param("priority", p.priority),
                 self._param("resources", [str(r) for r in p.resources]),
                 self._param("runner", p.runner),
@@ -303,6 +306,7 @@ class Repository:
             name=row["name"],
             mode=ProcessMode(row["mode"]),
             content=row.get("content", ""),
+            content_type=ContentType(row["content_type"]) if row.get("content_type") else ContentType.LLM,
             priority=row.get("priority", 0.0),
             resources=resources,
             runner=row.get("runner", "lambda"),
