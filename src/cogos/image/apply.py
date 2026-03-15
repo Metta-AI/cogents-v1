@@ -121,6 +121,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
             mode=mode,
             content=proc_dict.get("content", ""),
             runner=proc_dict.get("runner", "lambda"),
+            executor=proc_dict.get("executor", "llm"),
             model=proc_dict.get("model"),
             priority=float(proc_dict.get("priority", 0.0)),
             status=ProcessStatus.WAITING if mode == ProcessMode.DAEMON else ProcessStatus.RUNNABLE,
