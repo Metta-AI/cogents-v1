@@ -17,6 +17,16 @@ class ImageSpec:
     channels: list[dict] = field(default_factory=list)
 
 
+def image_file_prefixes(image_dir: Path) -> list[str]:
+    """Return the top-level directory prefixes that an image owns as file keys."""
+    _STRUCTURAL_DIRS = {"init"}
+    prefixes: list[str] = []
+    for child in sorted(image_dir.iterdir()):
+        if child.is_dir() and child.name not in _STRUCTURAL_DIRS:
+            prefixes.append(child.name + "/")
+    return prefixes
+
+
 def load_image(image_dir: Path) -> ImageSpec:
     """Load an image from a directory by exec'ing init/*.py and walking files/."""
     spec = ImageSpec()

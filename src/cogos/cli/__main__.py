@@ -889,14 +889,15 @@ def wipe(yes: bool):
 @cogos.command()
 @click.option("--image", "-i", default="cogent-v1", help="Image name to load (default: cogent-v1)")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@click.option("--full", is_flag=True, help="Wipe ALL data including runtime files (data/, logs/, etc.)")
 @click.pass_context
-def reload(ctx: click.Context, image: str, yes: bool):
-    """Wipe all tables and reload from an image."""
-    if not yes:
-        click.confirm(f"This will DELETE ALL data and reload from '{image}'. Continue?", abort=True)
+def reload(ctx: click.Context, image: str, yes: bool, full: bool):
+    """Reload config and image-owned files, preserving runtime data (data/, logs/, etc.).
 
+    Use --full to wipe everything including runtime data.
+    """
     from cogos.image.apply import apply_image
-    from cogos.image.spec import load_image
+    from cogos.image.spec import image_file_prefixes, load_image
 
     repo_root = Path(__file__).resolve().parents[3]
     image_dir = repo_root / "images" / image
@@ -904,20 +905,67 @@ def reload(ctx: click.Context, image: str, yes: bool):
         click.echo(f"Image not found: {image_dir}")
         return
 
+    if not yes:
+        if full:
+            click.confirm(f"This will DELETE ALL data and reload from '{image}'. Continue?", abort=True)
+        else:
+            click.confirm(f"This will reload config from '{image}', preserving runtime data. Continue?", abort=True)
+
     repo = _repo()
 
     _run_migrations(repo)
 
-    # Wipe
-    if hasattr(repo, "clear_all"):
-        repo.clear_all()
+    if full:
+        # Full wipe — original behaviour
+        if hasattr(repo, "clear_all"):
+            repo.clear_all()
+        else:
+            for table in _ALL_TABLES:
+                try:
+                    repo.execute(f"DELETE FROM {table}")
+                except Exception:
+                    pass
+        click.echo("All tables cleared.")
     else:
-        for table in _ALL_TABLES:
-            try:
-                repo.execute(f"DELETE FROM {table}")
-            except Exception:
-                pass
-    click.echo("Tables cleared.")
+        # Selective wipe — clear config tables, delete only image-owned files
+        _CONFIG_TABLES = [
+            "cogos_handler", "cogos_process_capability",
+            "cogos_cron", "cogos_resource",
+            "cogos_process", "cogos_capability",
+        ]
+        if hasattr(repo, "clear_config"):
+            repo.clear_config()
+        else:
+            for table in _CONFIG_TABLES:
+                try:
+                    repo.execute(f"DELETE FROM {table}")
+                except Exception:
+                    pass
+        click.echo("Config tables cleared.")
+
+        # Delete only files owned by the image
+        prefixes = image_file_prefixes(image_dir)
+        if prefixes:
+            if hasattr(repo, "delete_files_by_prefixes"):
+                deleted = repo.delete_files_by_prefixes(prefixes)
+                click.echo(f"Deleted {deleted} image-owned files (prefixes: {', '.join(prefixes)})")
+            else:
+                # SQL fallback: delete files matching image prefixes
+                for prefix in prefixes:
+                    try:
+                        repo.execute(
+                            "DELETE fv FROM cogos_file_version fv "
+                            "JOIN cogos_file f ON fv.file_id = f.id "
+                            "WHERE f.key LIKE :prefix",
+                            {"prefix": prefix + "%"},
+                        )
+                        repo.execute(
+                            "DELETE FROM cogos_file WHERE key LIKE :prefix",
+                            {"prefix": prefix + "%"},
+                        )
+                    except Exception:
+                        pass
+                click.echo(f"Deleted image-owned files (prefixes: {', '.join(prefixes)})")
 
     # Load image
     spec = load_image(image_dir)

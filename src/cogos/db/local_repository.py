@@ -272,7 +272,7 @@ class LocalRepository:
         return migrated
 
     @contextmanager
-    def _writing(self):
+    def _writing(self, *, force: bool = False):
         outermost = self._write_depth == 0
         if outermost:
             self._maybe_reload()
@@ -284,7 +284,10 @@ class LocalRepository:
         finally:
             self._write_depth -= 1
             if outermost and committed:
-                self._save()
+                if force:
+                    self._force_save()
+                else:
+                    self._save()
 
     def _maybe_reload(self) -> None:
         if self._write_depth > 0:
@@ -327,6 +330,20 @@ class LocalRepository:
             finally:
                 fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
+    def _force_save(self) -> None:
+        """Save in-memory state directly, overwriting disk without merging."""
+        current_data = self._serialize_state()
+        self._lock_file.touch(exist_ok=True)
+        with self._lock_file.open("a+") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                tmp_file = self._data_dir / f".{self._file.name}.{os.getpid()}.tmp"
+                tmp_file.write_text(json.dumps(current_data, indent=2, default=_json_serial))
+                tmp_file.replace(self._file)
+                self._file_mtime = self._file.stat().st_mtime
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
     # ── Raw query stubs (used by cogos_events router) ────────
 
     def query(self, sql: str, params: dict[str, Any] | None = None) -> list[dict]:
@@ -337,8 +354,34 @@ class LocalRepository:
 
     def clear_all(self) -> None:
         """Wipe all in-memory data and persist the empty state."""
-        with self._writing():
+        with self._writing(force=True):
             self._reset_state()
+
+    def clear_config(self) -> None:
+        """Clear structural/config data only, preserving files, runs, deliveries, and messages."""
+        with self._writing(force=True):
+            self._processes.clear()
+            self._capabilities.clear()
+            self._handlers.clear()
+            self._process_capabilities.clear()
+            self._resources.clear()
+            self._cron_rules.clear()
+            self._schemas.clear()
+            self._channels.clear()
+
+    def delete_files_by_prefixes(self, prefixes: list[str]) -> int:
+        """Delete all files whose key starts with any of the given prefixes. Returns count deleted."""
+        count = 0
+        with self._writing(force=True):
+            to_delete = [
+                fid for fid, f in self._files.items()
+                if any(f.key.startswith(p) for p in prefixes)
+            ]
+            for fid in to_delete:
+                del self._files[fid]
+                self._file_versions.pop(fid, None)
+                count += 1
+        return count
 
     @staticmethod
     def _json_field(row: dict, key: str, default: Any = None) -> Any:
@@ -609,7 +652,7 @@ class LocalRepository:
             return True
 
     def delete_file(self, file_id: UUID) -> bool:
-        with self._writing():
+        with self._writing(force=True):
             if file_id in self._files:
                 del self._files[file_id]
                 self._file_versions.pop(file_id, None)
@@ -643,7 +686,7 @@ class LocalRepository:
                 fv.is_active = fv.version == version
 
     def delete_file_version(self, file_id: UUID, version: int) -> bool:
-        with self._writing():
+        with self._writing(force=True):
             versions = self._file_versions.get(file_id, [])
             before = len(versions)
             self._file_versions[file_id] = [v for v in versions if v.version != version]
