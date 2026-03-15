@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import type { CogosCapability, CapabilityProcess } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
 import { HierarchyPanel, findNode, getAllItems, buildTree } from "@/components/shared/HierarchyPanel";
+import { ResizableBottomPanel } from "@/components/shared/ResizableBottomPanel";
 import { updateCapability, getCapabilityProcesses } from "@/lib/api";
 
 interface Props {
@@ -370,18 +371,7 @@ export function CapabilitiesPanel({ capabilities, cogentName, onRefresh }: Props
 
       {/* Detail panel — fixed bottom frame */}
       {selectedCap && (
-        <div
-          className="fixed flex flex-col border-t overflow-y-auto"
-          style={{
-            left: "var(--sidebar-w)",
-            right: 0,
-            bottom: 0,
-            height: "40vh",
-            borderColor: "var(--border)",
-            background: "var(--bg-deep)",
-            zIndex: 20,
-          }}
-        >
+        <ResizableBottomPanel className="overflow-y-auto">
           <div className="p-4">
             <CapabilityDetail
               cap={selectedCap}
@@ -390,7 +380,7 @@ export function CapabilitiesPanel({ capabilities, cogentName, onRefresh }: Props
               onClose={() => setSelectedId(null)}
             />
           </div>
-        </div>
+        </ResizableBottomPanel>
       )}
     </div>
   );

@@ -4,6 +4,7 @@ import { useState, useMemo, useCallback, useEffect, useDeferredValue } from "rea
 import type { CogosFile, CogosFileVersion } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
 import { HierarchyPanel, findNode, getAllItems, buildTree } from "@/components/shared/HierarchyPanel";
+import { ResizableBottomPanel } from "@/components/shared/ResizableBottomPanel";
 import { FileReferenceTextarea } from "@/components/shared/FileReferenceTextarea";
 import { fmtTimestamp } from "@/lib/format";
 import {
@@ -772,18 +773,7 @@ export function FilesPanel({ files, cogentName, onRefresh }: FilesPanelProps) {
 
       {/* Version panel — fixed bottom frame */}
       {activeSelectedFile && (
-        <div
-          className="fixed flex flex-col border-t"
-          style={{
-            left: "var(--sidebar-w)",
-            right: 0,
-            bottom: 0,
-            height: "40vh",
-            borderColor: "var(--border)",
-            background: "var(--bg-deep)",
-            zIndex: 20,
-          }}
-        >
+        <ResizableBottomPanel>
           <VersionPanel
             file={activeSelectedFile}
             fileSuggestions={fileSuggestions}
@@ -792,7 +782,7 @@ export function FilesPanel({ files, cogentName, onRefresh }: FilesPanelProps) {
             onRefresh={onRefresh}
             onClose={() => setSelectedFile(null)}
           />
-        </div>
+        </ResizableBottomPanel>
       )}
     </div>
   );
