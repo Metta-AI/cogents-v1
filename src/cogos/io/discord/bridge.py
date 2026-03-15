@@ -212,6 +212,7 @@ class DiscordBridge:
                 # Inbound Discord messages come from external users, not CogOS processes.
                 sender_process=None,
                 payload=payload,
+                idempotency_key=f"discord:{message.id}",
             ))
             logger.info("Wrote %s from %s to channel %s", message_type, message.author, channel_name)
 

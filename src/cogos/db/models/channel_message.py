@@ -13,4 +13,5 @@ class ChannelMessage(BaseModel):
     channel: UUID  # FK -> Channel.id
     sender_process: UUID | None = None  # FK -> Process.id
     payload: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str | None = None
     created_at: datetime | None = None

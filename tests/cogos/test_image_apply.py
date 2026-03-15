@@ -180,6 +180,87 @@ def test_spawn_with_scoped_config(tmp_path):
     assert pcs[0].config == {"prefix": "/readonly/", "ops": ["list", "read"]}
 
 
+def test_apply_disables_stale_processes(tmp_path):
+    """Processes from previous images that are no longer in the spec should be disabled."""
+    repo = LocalRepository(str(tmp_path))
+    spec = _make_spec()
+    apply_image(spec, repo)
+
+    # Manually add a "stale" process (no parent, simulating a previous image boot)
+    from cogos.db.models import Process, ProcessMode, ProcessStatus
+    stale = Process(name="old-daemon", mode=ProcessMode.DAEMON, content="old",
+                    status=ProcessStatus.WAITING, runner="lambda")
+    repo.upsert_process(stale)
+    assert repo.get_process_by_name("old-daemon").status == ProcessStatus.WAITING
+
+    # Re-apply the image — stale process should be disabled
+    counts = apply_image(spec, repo)
+    assert counts["stale_disabled"] == 1
+    assert repo.get_process_by_name("old-daemon").status == ProcessStatus.DISABLED
+
+
+def test_apply_preserves_spawned_children(tmp_path):
+    """Spawned child processes (with parent) should NOT be disabled by image boot."""
+    repo = LocalRepository(str(tmp_path))
+    spec = _make_spec()
+    apply_image(spec, repo)
+
+    parent = repo.list_processes()[0]
+
+    from cogos.db.models import Process, ProcessMode, ProcessStatus
+    child = Process(name="spawned-child", mode=ProcessMode.ONE_SHOT, content="work",
+                    status=ProcessStatus.RUNNABLE, runner="lambda",
+                    parent_process=parent.id)
+    repo.upsert_process(child)
+
+    # Re-apply — spawned child should be preserved
+    counts = apply_image(spec, repo)
+    assert counts["stale_disabled"] == 0
+    assert repo.get_process_by_name("spawned-child").status == ProcessStatus.RUNNABLE
+
+
+def test_channel_message_idempotency(tmp_path):
+    """Duplicate channel messages with the same idempotency key should be ignored."""
+    from cogos.db.models import Channel, ChannelMessage, ChannelType
+
+    repo = LocalRepository(str(tmp_path))
+    ch = Channel(name="test-channel", channel_type=ChannelType.NAMED)
+    repo.upsert_channel(ch)
+    ch = repo.get_channel_by_name("test-channel")
+
+    # First message
+    msg1 = ChannelMessage(channel=ch.id, payload={"content": "hello"},
+                          idempotency_key="discord:123")
+    id1 = repo.append_channel_message(msg1)
+
+    # Duplicate
+    msg2 = ChannelMessage(channel=ch.id, payload={"content": "hello"},
+                          idempotency_key="discord:123")
+    id2 = repo.append_channel_message(msg2)
+
+    assert id1 == id2
+    msgs = repo.list_channel_messages(ch.id)
+    assert len(msgs) == 1
+
+
+def test_channel_message_without_idempotency_key(tmp_path):
+    """Messages without idempotency key should not be deduplicated."""
+    from cogos.db.models import Channel, ChannelMessage, ChannelType
+
+    repo = LocalRepository(str(tmp_path))
+    ch = Channel(name="test-channel", channel_type=ChannelType.NAMED)
+    repo.upsert_channel(ch)
+    ch = repo.get_channel_by_name("test-channel")
+
+    msg1 = ChannelMessage(channel=ch.id, payload={"content": "hello"})
+    msg2 = ChannelMessage(channel=ch.id, payload={"content": "hello"})
+    repo.append_channel_message(msg1)
+    repo.append_channel_message(msg2)
+
+    msgs = repo.list_channel_messages(ch.id)
+    assert len(msgs) == 2
+
+
 def test_spawn_multiple_grants_same_capability(tmp_path):
     """A process can have multiple named grants of the same capability."""
     from uuid import UUID

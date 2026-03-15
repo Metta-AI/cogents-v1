@@ -1277,20 +1277,48 @@ class Repository:
     # ═══════════════════════════════════════════════════════════
 
     def append_channel_message(self, msg: ChannelMessage) -> UUID:
-        response = self._execute(
-            """INSERT INTO cogos_channel_message (id, channel, sender_process, payload)
-               VALUES (:id, :channel, :sender_process, :payload::jsonb)
-               RETURNING id, created_at""",
-            [
-                self._param("id", msg.id),
-                self._param("channel", msg.channel),
-                self._param("sender_process", msg.sender_process),
-                self._param("payload", msg.payload),
-            ],
-        )
-        row = self._first_row(response)
-        if not row:
-            raise RuntimeError("Failed to append channel message")
+        if msg.idempotency_key:
+            response = self._execute(
+                """INSERT INTO cogos_channel_message (id, channel, sender_process, payload, idempotency_key)
+                   VALUES (:id, :channel, :sender_process, :payload::jsonb, :idempotency_key)
+                   ON CONFLICT (channel, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+                   RETURNING id, created_at""",
+                [
+                    self._param("id", msg.id),
+                    self._param("channel", msg.channel),
+                    self._param("sender_process", msg.sender_process),
+                    self._param("payload", msg.payload),
+                    self._param("idempotency_key", msg.idempotency_key),
+                ],
+            )
+            row = self._first_row(response)
+            if not row:
+                # Duplicate — fetch the existing message ID
+                existing = self._first_row(self._execute(
+                    """SELECT id, created_at FROM cogos_channel_message
+                       WHERE channel = :channel AND idempotency_key = :key""",
+                    [self._param("channel", msg.channel),
+                     self._param("key", msg.idempotency_key)],
+                ))
+                if existing:
+                    logger.info("Duplicate channel message (idempotency_key=%s), skipping", msg.idempotency_key)
+                    return UUID(existing["id"])  # skip delivery creation for duplicates
+                raise RuntimeError("Failed to append channel message")
+        else:
+            response = self._execute(
+                """INSERT INTO cogos_channel_message (id, channel, sender_process, payload)
+                   VALUES (:id, :channel, :sender_process, :payload::jsonb)
+                   RETURNING id, created_at""",
+                [
+                    self._param("id", msg.id),
+                    self._param("channel", msg.channel),
+                    self._param("sender_process", msg.sender_process),
+                    self._param("payload", msg.payload),
+                ],
+            )
+            row = self._first_row(response)
+            if not row:
+                raise RuntimeError("Failed to append channel message")
 
         msg.created_at = self._ts(row, "created_at")
         msg_id = UUID(row["id"])

@@ -162,6 +162,22 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
 
         counts["processes"] += 1
 
+    # 8. Disable stale top-level processes not in this image
+    image_process_names = {p["name"] for p in spec.processes}
+    all_procs = repo.list_processes(limit=500)
+    stale_count = 0
+    for proc in all_procs:
+        if proc.name in image_process_names:
+            continue
+        if proc.parent_process is not None:
+            continue  # spawned child — not managed by image boot
+        if proc.status in (ProcessStatus.DISABLED, ProcessStatus.COMPLETED):
+            continue
+        logger.info("Disabling stale process %s (not in image)", proc.name)
+        repo.update_process_status(proc.id, ProcessStatus.DISABLED)
+        stale_count += 1
+    counts["stale_disabled"] = stale_count
+
     # Record image boot timestamp
     if hasattr(repo, "set_meta"):
         repo.set_meta("image:booted_at")

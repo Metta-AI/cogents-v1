@@ -996,6 +996,14 @@ class LocalRepository:
         with self._writing():
             if msg.created_at is None:
                 msg.created_at = datetime.utcnow()
+
+            # Idempotency check
+            if msg.idempotency_key:
+                for existing in self._channel_messages.values():
+                    if (existing.channel == msg.channel
+                            and existing.idempotency_key == msg.idempotency_key):
+                        return existing.id
+
             self._channel_messages[msg.id] = msg
 
             # Auto-create deliveries for handlers bound to this channel
