@@ -1,0 +1,1 @@
+ALTER TABLE cogos_process ADD COLUMN IF NOT EXISTS executor TEXT NOT NULL DEFAULT 'llm';
