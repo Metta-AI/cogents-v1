@@ -181,12 +181,12 @@ class Repository:
     def upsert_process(self, p: Process) -> UUID:
         response = self._execute(
             """INSERT INTO cogos_process
-                   (id, name, mode, content, priority, resources, runner,
+                   (id, name, mode, content, priority, resources, runner, executor,
                     status, runnable_since, parent_process, preemptible,
                     model, model_constraints, return_schema,
                     idle_timeout_ms, max_duration_ms, max_retries, retry_count, retry_backoff_ms,
                     clear_context, metadata)
-               VALUES (:id, :name, :mode, :content, :priority, :resources::jsonb, :runner,
+               VALUES (:id, :name, :mode, :content, :priority, :resources::jsonb, :runner, :executor,
                        :status, :runnable_since, :parent_process, :preemptible,
                        :model, :model_constraints::jsonb, :return_schema::jsonb,
                        :idle_timeout_ms, :max_duration_ms, :max_retries, :retry_count, :retry_backoff_ms,
@@ -194,6 +194,7 @@ class Repository:
                ON CONFLICT (name) DO UPDATE SET
                    mode = EXCLUDED.mode, content = EXCLUDED.content,
                    resources = EXCLUDED.resources, runner = EXCLUDED.runner,
+                   executor = EXCLUDED.executor,
                    preemptible = EXCLUDED.preemptible, model = EXCLUDED.model,
                    model_constraints = EXCLUDED.model_constraints,
                    return_schema = EXCLUDED.return_schema,
@@ -213,6 +214,7 @@ class Repository:
                 self._param("priority", p.priority),
                 self._param("resources", [str(r) for r in p.resources]),
                 self._param("runner", p.runner),
+                self._param("executor", p.executor),
                 self._param("status", p.status.value),
                 self._param("runnable_since", p.runnable_since),
                 self._param("parent_process", p.parent_process),
@@ -306,6 +308,7 @@ class Repository:
             priority=row.get("priority", 0.0),
             resources=resources,
             runner=row.get("runner", "lambda"),
+            executor=row.get("executor", "llm"),
             status=ProcessStatus(row["status"]),
             runnable_since=self._ts(row, "runnable_since"),
             parent_process=UUID(row["parent_process"]) if row.get("parent_process") else None,
