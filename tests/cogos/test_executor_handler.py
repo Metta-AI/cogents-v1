@@ -615,3 +615,62 @@ def test_python_executor_runs_code_directly(monkeypatch, tmp_path):
     assert result_run.result == "hello from python"
     assert result_run.tokens_in == 0
     assert result_run.tokens_out == 0
+
+
+def test_python_executor_receives_event_payload(monkeypatch, tmp_path):
+    """Python executor can access the triggering event via `event` variable."""
+    repo = _repo(tmp_path)
+    process = Process(
+        name="py-event",
+        mode=ProcessMode.ONE_SHOT,
+        executor="python",
+        content="print(event.get('payload', {}).get('msg', 'none'))",
+        status=ProcessStatus.RUNNING,
+    )
+    repo.upsert_process(process)
+    run = _make_run(repo, process)
+    config = executor_handler.ExecutorConfig()
+
+    result_run = executor_handler.execute_process(
+        process,
+        {"process_id": str(process.id), "payload": {"msg": "hi"}},
+        run, config, repo,
+    )
+
+    assert result_run.result == "hi"
+
+
+def test_python_executor_resolves_file_refs(monkeypatch, tmp_path):
+    """Python executor resolves @{...} refs in content before executing."""
+    repo = _repo(tmp_path)
+    file_store = FileStore(repo)
+    file_store.upsert("apps/greet/config.txt", "world", source="image")
+
+    process = Process(
+        name="py-ref",
+        mode=ProcessMode.ONE_SHOT,
+        executor="python",
+        content='data = """\n@{apps/greet/config.txt}\n"""\nprint(data.splitlines()[-1])',
+        status=ProcessStatus.RUNNING,
+    )
+    repo.upsert_process(process)
+    dir_cap = Capability(name="dir")
+    repo.upsert_capability(dir_cap)
+    repo.create_process_capability(
+        ProcessCapability(
+            process=process.id,
+            capability=dir_cap.id,
+            name="read_all",
+            config={"ops": ["read"]},
+        ),
+    )
+    run = _make_run(repo, process)
+    config = executor_handler.ExecutorConfig()
+
+    result_run = executor_handler.execute_process(
+        process,
+        {"process_id": str(process.id)},
+        run, config, repo,
+    )
+
+    assert result_run.result == "world"
