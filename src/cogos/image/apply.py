@@ -331,6 +331,12 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
         stale_count += 1
     counts["stale_disabled"] = stale_count
 
+    # 11. Ensure io channels exist
+    for io_name in ("io:stdin", "io:stdout", "io:stderr"):
+        if repo.get_channel_by_name(io_name) is None:
+            repo.upsert_channel(Channel(name=io_name, channel_type=ChannelType.NAMED))
+            counts["channels"] += 1
+
     # Record image boot timestamp
     if hasattr(repo, "set_meta"):
         repo.set_meta("image:booted_at")

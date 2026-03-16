@@ -8,19 +8,19 @@ _STDIN_CHANNEL = "io:stdin"
 _STDOUT_CHANNEL = "io:stdout"
 
 
-def _ensure_io_channels(repo) -> tuple[Channel, Channel]:
-    """Create stdin/stdout channels if they don't exist."""
-    stdin_ch = repo.get_channel_by_name(_STDIN_CHANNEL)
-    if not stdin_ch:
-        stdin_ch = Channel(name=_STDIN_CHANNEL, channel_type=ChannelType.NAMED)
-        repo.upsert_channel(stdin_ch)
+_STDERR_CHANNEL = "io:stderr"
 
-    stdout_ch = repo.get_channel_by_name(_STDOUT_CHANNEL)
-    if not stdout_ch:
-        stdout_ch = Channel(name=_STDOUT_CHANNEL, channel_type=ChannelType.NAMED)
-        repo.upsert_channel(stdout_ch)
 
-    return stdin_ch, stdout_ch
+def _ensure_io_channels(repo) -> tuple[Channel, Channel, Channel]:
+    """Create stdin/stdout/stderr channels if they don't exist."""
+    channels = []
+    for name in (_STDIN_CHANNEL, _STDOUT_CHANNEL, _STDERR_CHANNEL):
+        ch = repo.get_channel_by_name(name)
+        if not ch:
+            ch = Channel(name=name, channel_type=ChannelType.NAMED)
+            repo.upsert_channel(ch)
+        channels.append(ch)
+    return channels[0], channels[1], channels[2]
 
 
 class CogentShell:
@@ -40,13 +40,16 @@ class CogentShell:
         repo = create_repository()
         state = ShellState(cogent_name=self.cogent_name, repo=repo, cwd="")
 
-        # Set up stdin/stdout channels
-        stdin_ch, stdout_ch = _ensure_io_channels(repo)
+        # Set up stdin/stdout/stderr channels
+        stdin_ch, stdout_ch, stderr_ch = _ensure_io_channels(repo)
         state.stdin_channel = stdin_ch
         state.stdout_channel = stdout_ch
-        # Track last-seen stdout message so we can drain new ones
+        state.stderr_channel = stderr_ch
+        # Track last-seen messages so we can drain new ones
         stdout_msgs = repo.list_channel_messages(stdout_ch.id, limit=1)
         state.stdout_cursor = stdout_msgs[-1].created_at if stdout_msgs else None
+        stderr_msgs = repo.list_channel_messages(stderr_ch.id, limit=1)
+        state.stderr_cursor = stderr_msgs[-1].created_at if stderr_msgs else None
 
         try:
             import boto3
@@ -84,20 +87,26 @@ class CogentShell:
             enable_history_search=True,
         )
 
-        def _drain_stdout():
-            """Print any new messages on io:stdout since last check."""
-            msgs = repo.list_channel_messages(
-                stdout_ch.id, limit=50, since=state.stdout_cursor,
-            )
-            for m in msgs:
-                payload = m.payload
-                if isinstance(payload, dict):
-                    text = payload.get("text", payload.get("data", ""))
-                else:
-                    text = str(payload)
-                if text:
-                    print(text)
-                state.stdout_cursor = m.created_at
+        def _drain_io():
+            """Print any new messages on io:stdout and io:stderr since last check."""
+            for ch, cursor_attr, prefix, color in [
+                (stdout_ch, "stdout_cursor", "", ""),
+                (stderr_ch, "stderr_cursor", "", "\033[31m"),
+            ]:
+                cursor = getattr(state, cursor_attr)
+                msgs = repo.list_channel_messages(ch.id, limit=50, since=cursor)
+                for m in msgs:
+                    payload = m.payload
+                    if isinstance(payload, dict):
+                        text = payload.get("text", payload.get("data", ""))
+                    else:
+                        text = str(payload)
+                    if text:
+                        if color:
+                            print(f"{color}{text}\033[0m")
+                        else:
+                            print(text)
+                    setattr(state, cursor_attr, m.created_at)
 
         def _publish_stdin(line: str):
             """Publish a user command to io:stdin."""
@@ -111,7 +120,7 @@ class CogentShell:
 
         while True:
             # Drain stdout before prompting (catches async process output)
-            _drain_stdout()
+            _drain_io()
 
             try:
                 cwd_display = "/" + state.cwd.rstrip("/") if state.cwd else "/"
@@ -132,4 +141,4 @@ class CogentShell:
                 print(output)
 
             # Drain stdout after command (catches output from llm/process runs)
-            _drain_stdout()
+            _drain_io()

@@ -40,8 +40,12 @@ def _print_assistant_turn(turn_num: int, output_message: dict, verbose: bool) ->
 
     if text_parts:
         text = "\n".join(text_parts)
-        if verbose or not tool_uses:
-            print(text)
+        if verbose:
+            for line in text.splitlines():
+                print(f"{_RED}stderr{_RESET} {line}")
+        elif not tool_uses:
+            for line in text.splitlines():
+                print(f"{_RED}stderr{_RESET} {line}")
 
     if verbose:
         for tu in tool_uses:
@@ -73,8 +77,9 @@ def _print_tool_results(tool_results: list[dict], tool_names: list[str], verbose
         if not result_text:
             continue
         if tool_name == "run_code" and result_text.strip():
-            # Always show run_code stdout — it's program output
-            print(result_text)
+            # run_code stdout — always show, prefixed
+            for line in result_text.splitlines():
+                print(f"{_GREEN}stdout{_RESET} {line}")
         elif verbose:
             if len(result_text) > 500:
                 result_text = result_text[:500] + "..."
