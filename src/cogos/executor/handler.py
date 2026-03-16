@@ -13,8 +13,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-import boto3
-from botocore.config import Config as BotoConfig
+
 
 from cogos.db.factory import create_repository
 from cogos.db.models import Process, ProcessStatus, Run, RunStatus
@@ -393,11 +392,8 @@ def execute_process(
     if process.executor == "python":
         return _execute_python_process(process, event_data, run, config, repo, trace_id=trace_id)
 
-    bedrock = bedrock_client or boto3.client(
-        "bedrock-runtime",
-        region_name=config.region,
-        config=BotoConfig(retries={"max_attempts": 12, "mode": "adaptive"}),
-    )
+    from cogos.executor.llm_client import LLMClient
+    llm = LLMClient(bedrock_client=bedrock_client, region=config.region)
 
     # Build system prompt using the shared ContextEngine
     from cogos.files.context_engine import ContextEngine
@@ -498,7 +494,7 @@ def execute_process(
             }
 
             bedrock_started = time.monotonic()
-            response = bedrock.converse(**kwargs)
+            response = llm.converse(**kwargs)
             bedrock_latency_ms = int((time.monotonic() - bedrock_started) * 1000)
             turns_executed += 1
             bedrock_total_ms += bedrock_latency_ms

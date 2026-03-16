@@ -152,7 +152,10 @@ class ComputeConstruct(Construct):
         executor_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue"],
-                resources=[f"arn:aws:secretsmanager:*:*:secret:cogent/{config.cogent_name}/*"],
+                resources=[
+                    f"arn:aws:secretsmanager:*:*:secret:cogent/{config.cogent_name}/*",
+                    "arn:aws:secretsmanager:*:*:secret:cogent/polis/*",
+                ],
             )
         )
         executor_role.add_to_policy(
@@ -324,6 +327,17 @@ class ComputeConstruct(Construct):
                     "bedrock:InvokeModelWithResponseStream",
                 ],
                 resources=["*"],
+            )
+        )
+
+        # Secrets Manager access for cogent and polis secrets
+        task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=[
+                    f"arn:aws:secretsmanager:*:*:secret:cogent/{config.cogent_name}/*",
+                    "arn:aws:secretsmanager:*:*:secret:cogent/polis/*",
+                ],
             )
         )
 
