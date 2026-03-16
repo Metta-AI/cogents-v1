@@ -63,7 +63,7 @@ def _print_assistant_turn(turn_num: int, output_message: dict, verbose: bool) ->
 
 
 def _print_tool_results(tool_results: list[dict], tool_names: list[str], verbose: bool) -> None:
-    """Print tool result output. Always shows run_code stdout; verbose shows all."""
+    """Print tool result output. Always shows run_code stdout."""
     for tr_block, tool_name in zip(tool_results, tool_names):
         tr = tr_block.get("toolResult", {})
         result_text = ""
@@ -72,13 +72,13 @@ def _print_tool_results(tool_results: list[dict], tool_names: list[str], verbose
                 result_text = c["text"]
         if not result_text:
             continue
-        if verbose:
+        if tool_name == "run_code" and result_text.strip():
+            # Always show run_code stdout — it's program output
+            print(result_text)
+        elif verbose:
             if len(result_text) > 500:
                 result_text = result_text[:500] + "..."
             print(f"  {_DIM}← {result_text}{_RESET}")
-        elif tool_name == "run_code" and result_text.strip():
-            # Always show run_code stdout — it's program output
-            print(result_text)
 
 
 def _execute_prompt(state: ShellState, content: str, *, verbose: bool = False) -> str:
@@ -240,22 +240,18 @@ def _execute_prompt(state: ShellState, content: str, *, verbose: bool = False) -
         return run
 
     config = get_config()
-
-    if verbose:
-        run_obj = run_and_complete(
-            process, {}, run_obj, config, state.repo,
-            execute_fn=_verbose_executor,
-            bedrock_client=state.bedrock_client,
-        )
-    else:
-        # Use default executor, then extract text from session
-        run_obj = run_and_complete(
-            process, {}, run_obj, config, state.repo,
-            execute_fn=_verbose_executor,  # reuse to capture final_text
-            bedrock_client=state.bedrock_client,
-        )
+    run_obj = run_and_complete(
+        process, {}, run_obj, config, state.repo,
+        execute_fn=_verbose_executor,
+        bedrock_client=state.bedrock_client,
+    )
 
     state.repo.update_process_status(process.id, ProcessStatus.COMPLETED)
+
+    # Re-read run to get duration_ms set by complete_run
+    completed_run = state.repo.get_run(run_obj.id)
+    if completed_run:
+        run_obj = completed_run
 
     lines = []
     if not verbose:
