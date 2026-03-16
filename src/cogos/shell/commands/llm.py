@@ -76,7 +76,7 @@ def _print_tool_results(tool_results: list[dict], tool_names: list[str], verbose
                 result_text = c["text"]
         if not result_text:
             continue
-        if tool_name == "run_code" and result_text.strip():
+        if tool_name == "run_code" and result_text.strip() and result_text.strip() != "(no output)":
             # run_code stdout — always show, prefixed
             for line in result_text.splitlines():
                 print(f"{_GREEN}stdout{_RESET} {line}")
@@ -274,6 +274,12 @@ def _execute_prompt(state: ShellState, content: str, *, verbose: bool = False) -
 
     state.repo.update_process_status(process.id, ProcessStatus.COMPLETED)
 
+    # Clean up temp shell process
+    try:
+        state.repo.delete_process(process.id)
+    except Exception:
+        pass  # best-effort cleanup
+
     # Re-read run to get duration_ms set by complete_run
     completed_run = state.repo.get_run(run_obj.id)
     if completed_run:
@@ -391,6 +397,104 @@ def register(reg: CommandRegistry) -> None:
             return _HELP
 
         return _execute_prompt(state, content, verbose=verbose)
+
+    @reg.register("exec", help="Launch a process from a file: exec <path> [--name <name>] [--tty]")
+    def exec_cmd(state: ShellState, args: list[str]) -> str:
+        if not args:
+            return "Usage: exec <path> [--name <name>] [--tty] [--attach]"
+
+        file_path = None
+        name = None
+        tty = True  # default tty for shell-launched processes
+        do_attach = True  # default attach to see output
+        prompt_args = []
+
+        i = 0
+        while i < len(args):
+            if args[i] == "--name" and i + 1 < len(args):
+                name = args[i + 1]
+                i += 2
+            elif args[i] == "--no-tty":
+                tty = False
+                i += 1
+            elif args[i] == "--no-attach":
+                do_attach = False
+                i += 1
+            elif file_path is None:
+                file_path = args[i]
+                i += 1
+            else:
+                prompt_args.append(args[i])
+                i += 1
+
+        if not file_path:
+            return "Usage: exec <path>"
+
+        key = _resolve_path(state, file_path)
+        fs = FileStore(state.repo)
+        content = fs.get_content(key)
+        if content is None:
+            return f"File not found: {file_path}"
+
+        if prompt_args:
+            content = content + "\n\n" + " ".join(prompt_args)
+
+        if not name:
+            name = key.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+        # Prepend shell system prompt
+        full_content = "@{cogos/includes/shell.md}\n\n" + content
+
+        proc = Process(
+            name=name,
+            mode=ProcessMode.ONE_SHOT,
+            content=full_content,
+            runner="local",
+            status=ProcessStatus.RUNNABLE,
+            tty=tty,
+        )
+        pid = state.repo.upsert_process(proc)
+
+        # Bind all enabled capabilities
+        from cogos.db.models import ProcessCapability
+        for cap in state.repo.list_capabilities(enabled_only=True):
+            state.repo.create_process_capability(
+                ProcessCapability(process=pid, capability=cap.id, name=cap.name)
+            )
+
+        # Create stdio channels
+        from cogos.db.models import Channel, ChannelType
+        for stream in ("stdin", "stdout", "stderr"):
+            state.repo.upsert_channel(Channel(
+                name=f"process:{name}:{stream}",
+                owner_process=pid,
+                channel_type=ChannelType.NAMED,
+            ))
+
+        # Run the process
+        run_obj = Run(process=proc.id, status=RunStatus.RUNNING)
+        state.repo.create_run(run_obj)
+        state.repo.update_process_status(proc.id, ProcessStatus.RUNNING)
+
+        config = get_config()
+        run_obj = run_and_complete(
+            proc, {}, run_obj, config, state.repo,
+            bedrock_client=state.bedrock_client,
+        )
+
+        state.repo.update_process_status(proc.id, ProcessStatus.COMPLETED)
+        completed_run = state.repo.get_run(run_obj.id)
+        if completed_run:
+            run_obj = completed_run
+
+        lines = [f"Process {name} completed"]
+        lines.append(
+            f"{_DIM}tokens: {run_obj.tokens_in or 0} in, {run_obj.tokens_out or 0} out"
+            f" ({run_obj.duration_ms or 0}ms){_RESET}"
+        )
+        if run_obj.status == RunStatus.FAILED:
+            lines.append(f"{_RED}Error: {run_obj.error}{_RESET}")
+        return "\n".join(lines)
 
     @reg.register("source", aliases=["."], help="Execute a file as an LLM prompt")
     def source(state: ShellState, args: list[str]) -> str:
