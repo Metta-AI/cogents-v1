@@ -868,6 +868,7 @@ def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Reposit
 
         # Determine namespace — use grant name from ProcessCapability
         ns = pc.name or (cap_model.name.split("/")[0] if "/" in cap_model.name else cap_model.name)
+        logger.info("Injecting capability %s as '%s' (handler=%s)", cap_model.name, ns, cap_model.handler)
 
         # Load the handler class
         handler_path = cap_model.handler
