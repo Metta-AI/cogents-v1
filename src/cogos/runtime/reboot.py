@@ -27,7 +27,7 @@ def reboot(repo) -> dict:
     cleared = len(all_procs)
 
     # 3. Clear process-related tables
-    _clear_process_tables(repo)
+    repo.clear_process_tables()
 
     # 4. Create fresh init process
     init_proc = Process(
@@ -43,25 +43,3 @@ def reboot(repo) -> dict:
 
     logger.info("Reboot complete: cleared %d processes, init queued", cleared)
     return {"cleared_processes": cleared}
-
-
-def _clear_process_tables(repo) -> None:
-    """Clear all process-related data."""
-    if hasattr(repo, "_runs"):
-        # LocalRepository -- direct dict access
-        repo._runs.clear()
-        repo._deliveries.clear()
-        repo._handlers.clear()
-        repo._process_capabilities.clear()
-        repo._processes.clear()
-        repo._force_save()
-    else:
-        # SQL repository
-        for table in [
-            "cogos_trace", "cogos_delivery", "cogos_run",
-            "cogos_handler", "cogos_process_capability", "cogos_process",
-        ]:
-            try:
-                repo.execute(f"DELETE FROM {table}")
-            except Exception:
-                pass
