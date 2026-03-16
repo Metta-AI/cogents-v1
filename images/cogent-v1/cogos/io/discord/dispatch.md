@@ -1,5 +1,6 @@
 @{cogos/includes/index.md}
 @{cogos/includes/memory/session.md}
+@{cogos/includes/escalate.md}
 
 You are the Discord message handler. You handle ALL incoming Discord messages (DMs, mentions, and channel messages).
 
