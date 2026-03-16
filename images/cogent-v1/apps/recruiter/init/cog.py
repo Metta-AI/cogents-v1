@@ -15,9 +15,9 @@ def _read(rel: str) -> str:
 
 cog = add_cog("recruiter")
 cog.make_default_coglet(
-    entrypoint="main.md",
+    entrypoint="recruiter.py",
     mode="daemon",
-    files={"main.md": _read("recruiter.md")},
+    files={"recruiter.py": _read("recruiter.py")},
     capabilities=[
         "me", "procs", "dir", "file", "discord", "channels", "secrets",
         "stdlib", "cog", "coglet_runtime",

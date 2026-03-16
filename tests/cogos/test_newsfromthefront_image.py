@@ -26,7 +26,7 @@ def test_cogent_v1_newsfromthefront_default_coglet_is_daemon():
     cog = next(c for c in spec.cogs if c["name"] == "newsfromthefront")
     default = cog["default_coglet"]
     assert default["mode"] == "daemon"
-    assert default["entrypoint"] == "main.md"
+    assert default["entrypoint"] == "newsfromthefront.py"
     cap_names = [c if isinstance(c, str) else c["name"] for c in default["capabilities"]]
     assert "cog" in cap_names
     assert "coglet_runtime" in cap_names
@@ -54,7 +54,7 @@ def test_cogent_v1_newsfromthefront_prompt_files_exist():
     spec = load_image(Path("images/cogent-v1"))
 
     expected_files = [
-        "apps/newsfromthefront/newsfromthefront.md",
+        "apps/newsfromthefront/newsfromthefront.py",
         "apps/newsfromthefront/researcher.md",
         "apps/newsfromthefront/analyst.md",
         "apps/newsfromthefront/test.md",
@@ -88,7 +88,7 @@ def test_cogent_v1_newsfromthefront_cog_apply(tmp_path):
     # Default coglet should exist
     coglet_meta = load_coglet_meta(store, "newsfromthefront", "newsfromthefront")
     assert coglet_meta is not None
-    assert coglet_meta.entrypoint == "main.md"
+    assert coglet_meta.entrypoint == "newsfromthefront.py"
     assert coglet_meta.mode == "daemon"
 
     # Process should be registered

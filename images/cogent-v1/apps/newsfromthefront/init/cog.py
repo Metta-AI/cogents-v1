@@ -15,9 +15,9 @@ def _read(rel: str) -> str:
 
 cog = add_cog("newsfromthefront")
 cog.make_default_coglet(
-    entrypoint="main.md",
+    entrypoint="newsfromthefront.py",
     mode="daemon",
-    files={"main.md": _read("newsfromthefront.md")},
+    files={"newsfromthefront.py": _read("newsfromthefront.py")},
     capabilities=[
         "me", "procs", "dir", "file", "channels", "discord",
         "web_search", "secrets", "stdlib", "cog", "coglet_runtime",

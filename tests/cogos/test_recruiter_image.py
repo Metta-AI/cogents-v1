@@ -98,7 +98,7 @@ def test_cogent_v1_recruiter_loads():
     default = cog["default_coglet"]
     assert default is not None
     assert default["mode"] == "daemon"
-    assert default["entrypoint"] == "main.md"
+    assert default["entrypoint"] == "recruiter.py"
     cap_names = [c if isinstance(c, str) else c["name"] for c in default["capabilities"]]
     assert "procs" in cap_names
     assert "discord" in cap_names
@@ -123,20 +123,20 @@ def test_cogent_v1_recruiter_files():
     prompt_files = {k for k in recruiter_files if k.endswith((".md", ".json")) and "sourcer/" not in k and "init/" not in k}
     # recruiter.md, discover.md, evolve.md, present.md, profile.md,
     # criteria.md, diagnosis.md, evolution.md, strategy.md, design.md
-    assert "apps/recruiter/recruiter.md" in prompt_files
+    assert "apps/recruiter/recruiter.py" in recruiter_files
     assert "apps/recruiter/discover.md" in prompt_files
 
 
 def test_cogent_v1_recruiter_prompt_refs_are_explicit():
-    """Recruiter prompt references config files via file.read() at runtime."""
+    """Recruiter orchestrator references config and worker files via file.read()."""
     spec = load_image(Path("images/cogent-v1"))
 
-    prompt = spec.files["apps/recruiter/recruiter.md"]
+    orchestrator = spec.files["apps/recruiter/recruiter.py"]
     # The orchestrator uses file.read() to load config into coglets at runtime
-    assert 'file.read("apps/recruiter/criteria.md")' in prompt
-    assert 'file.read("apps/recruiter/strategy.md")' in prompt
+    assert 'file.read("apps/recruiter/criteria.md")' in orchestrator
+    assert 'file.read("apps/recruiter/strategy.md")' in orchestrator
     # Child prompt files are still referenced via file.read()
-    assert 'file.read("apps/recruiter/discover.md")' in prompt
+    assert 'file.read("apps/recruiter/discover.md")' in orchestrator
 
 
 def test_cogent_v1_recruiter_channel():
