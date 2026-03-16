@@ -41,6 +41,7 @@ from cogos.db.models import (
     Schema,
     Trace,
 )
+from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
 
 logger = logging.getLogger(__name__)
 
@@ -1442,3 +1443,147 @@ class Repository:
             )
             for r in self._rows_to_dicts(response)
         ]
+
+    # ═══════════════════════════════════════════════════════════
+    # DISCORD METADATA
+    # ═══════════════════════════════════════════════════════════
+
+    def upsert_discord_guild(self, guild: DiscordGuild) -> None:
+        self._execute(
+            """INSERT INTO cogos_discord_guild
+                   (guild_id, cogent_name, name, icon_url, member_count, synced_at)
+               VALUES (:guild_id, :cogent_name, :name, :icon_url, :member_count, NOW())
+               ON CONFLICT (guild_id) DO UPDATE SET
+                   cogent_name = EXCLUDED.cogent_name,
+                   name = EXCLUDED.name,
+                   icon_url = EXCLUDED.icon_url,
+                   member_count = EXCLUDED.member_count,
+                   synced_at = NOW()""",
+            [
+                self._param("guild_id", guild.guild_id),
+                self._param("cogent_name", guild.cogent_name),
+                self._param("name", guild.name),
+                self._param("icon_url", guild.icon_url),
+                self._param("member_count", guild.member_count),
+            ],
+        )
+
+    def get_discord_guild(self, guild_id: str) -> DiscordGuild | None:
+        row = self._first_row(self._execute(
+            "SELECT * FROM cogos_discord_guild WHERE guild_id = :guild_id",
+            [self._param("guild_id", guild_id)],
+        ))
+        if not row:
+            return None
+        return DiscordGuild(
+            guild_id=row["guild_id"],
+            cogent_name=row["cogent_name"],
+            name=row["name"],
+            icon_url=row.get("icon_url"),
+            member_count=row.get("member_count"),
+            synced_at=self._ts(row, "synced_at"),
+        )
+
+    def list_discord_guilds(self, cogent_name: str | None = None) -> list[DiscordGuild]:
+        if cogent_name:
+            response = self._execute(
+                "SELECT * FROM cogos_discord_guild WHERE cogent_name = :cogent_name ORDER BY name",
+                [self._param("cogent_name", cogent_name)],
+            )
+        else:
+            response = self._execute(
+                "SELECT * FROM cogos_discord_guild ORDER BY name",
+            )
+        return [
+            DiscordGuild(
+                guild_id=r["guild_id"],
+                cogent_name=r["cogent_name"],
+                name=r["name"],
+                icon_url=r.get("icon_url"),
+                member_count=r.get("member_count"),
+                synced_at=self._ts(r, "synced_at"),
+            )
+            for r in self._rows_to_dicts(response)
+        ]
+
+    def delete_discord_guild(self, guild_id: str) -> None:
+        self._execute(
+            "DELETE FROM cogos_discord_channel WHERE guild_id = :guild_id",
+            [self._param("guild_id", guild_id)],
+        )
+        self._execute(
+            "DELETE FROM cogos_discord_guild WHERE guild_id = :guild_id",
+            [self._param("guild_id", guild_id)],
+        )
+
+    def upsert_discord_channel(self, channel: DiscordChannel) -> None:
+        self._execute(
+            """INSERT INTO cogos_discord_channel
+                   (channel_id, guild_id, name, topic, category, channel_type, position, synced_at)
+               VALUES (:channel_id, :guild_id, :name, :topic, :category, :channel_type, :position, NOW())
+               ON CONFLICT (channel_id) DO UPDATE SET
+                   guild_id = EXCLUDED.guild_id,
+                   name = EXCLUDED.name,
+                   topic = EXCLUDED.topic,
+                   category = EXCLUDED.category,
+                   channel_type = EXCLUDED.channel_type,
+                   position = EXCLUDED.position,
+                   synced_at = NOW()""",
+            [
+                self._param("channel_id", channel.channel_id),
+                self._param("guild_id", channel.guild_id),
+                self._param("name", channel.name),
+                self._param("topic", channel.topic),
+                self._param("category", channel.category),
+                self._param("channel_type", channel.channel_type),
+                self._param("position", channel.position),
+            ],
+        )
+
+    def get_discord_channel(self, channel_id: str) -> DiscordChannel | None:
+        row = self._first_row(self._execute(
+            "SELECT * FROM cogos_discord_channel WHERE channel_id = :channel_id",
+            [self._param("channel_id", channel_id)],
+        ))
+        if not row:
+            return None
+        return DiscordChannel(
+            channel_id=row["channel_id"],
+            guild_id=row["guild_id"],
+            name=row["name"],
+            topic=row.get("topic"),
+            category=row.get("category"),
+            channel_type=row["channel_type"],
+            position=row.get("position", 0),
+            synced_at=self._ts(row, "synced_at"),
+        )
+
+    def list_discord_channels(self, guild_id: str | None = None) -> list[DiscordChannel]:
+        if guild_id:
+            response = self._execute(
+                "SELECT * FROM cogos_discord_channel WHERE guild_id = :guild_id ORDER BY position",
+                [self._param("guild_id", guild_id)],
+            )
+        else:
+            response = self._execute(
+                "SELECT * FROM cogos_discord_channel ORDER BY position",
+            )
+        return [
+            DiscordChannel(
+                channel_id=r["channel_id"],
+                guild_id=r["guild_id"],
+                name=r["name"],
+                topic=r.get("topic"),
+                category=r.get("category"),
+                channel_type=r["channel_type"],
+                position=r.get("position", 0),
+                synced_at=self._ts(r, "synced_at"),
+            )
+            for r in self._rows_to_dicts(response)
+        ]
+
+    def delete_discord_channel(self, channel_id: str) -> None:
+        self._execute(
+            "DELETE FROM cogos_discord_channel WHERE channel_id = :channel_id",
+            [self._param("channel_id", channel_id)],
+        )

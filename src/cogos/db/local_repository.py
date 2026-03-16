@@ -31,6 +31,7 @@ from cogos.db.models import (
     RunStatus,
     Schema,
 )
+from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,8 @@ class LocalRepository:
         self._schemas: dict[UUID, Schema] = {}
         self._channels: dict[UUID, Channel] = {}
         self._channel_messages: dict[UUID, ChannelMessage] = {}
+        self._discord_guilds: dict[str, DiscordGuild] = {}
+        self._discord_channels: dict[str, DiscordChannel] = {}
         self._meta: dict[str, dict[str, str]] = {}
 
         self._load()
@@ -92,6 +95,8 @@ class LocalRepository:
         self._schemas.clear()
         self._channels.clear()
         self._channel_messages.clear()
+        self._discord_guilds.clear()
+        self._discord_channels.clear()
         self._meta.clear()
 
     def _read_persisted_data(self) -> dict[str, Any]:
@@ -122,6 +127,8 @@ class LocalRepository:
             "schemas": [s.model_dump(mode="json") for s in self._schemas.values()],
             "channels": [ch.model_dump(mode="json") for ch in self._channels.values()],
             "channel_messages": [m.model_dump(mode="json") for m in self._channel_messages.values()],
+            "discord_guilds": [g.model_dump(mode="json") for g in self._discord_guilds.values()],
+            "discord_channels": [ch.model_dump(mode="json") for ch in self._discord_channels.values()],
             "meta": self._meta,
         }
 
@@ -183,6 +190,8 @@ class LocalRepository:
             "schemas": (("id",), ("name",)),
             "channels": (("id",), ("name",)),
             "channel_messages": (("id",), None),
+            "discord_guilds": (("guild_id",), None),
+            "discord_channels": (("channel_id",), None),
         }
 
         merged = {}
@@ -240,6 +249,12 @@ class LocalRepository:
         for cm in data.get("channel_messages", []):
             message = ChannelMessage(**cm)
             self._channel_messages[message.id] = message
+        for g in data.get("discord_guilds", []):
+            guild = DiscordGuild(**g)
+            self._discord_guilds[guild.guild_id] = guild
+        for dch in data.get("discord_channels", []):
+            dchannel = DiscordChannel(**dch)
+            self._discord_channels[dchannel.channel_id] = dchannel
         self._meta.update(data.get("meta", {}))
 
     def _migrate_legacy_process_prompt(self, raw: dict[str, Any]) -> dict[str, Any]:
@@ -1054,3 +1069,48 @@ class LocalRepository:
     def match_handlers_by_channel(self, channel_id: UUID) -> list[Handler]:
         self._maybe_reload()
         return [h for h in self._handlers.values() if h.channel == channel_id and h.enabled]
+
+    # ── Discord Metadata ────────────────────────────────────
+
+    def upsert_discord_guild(self, guild: DiscordGuild) -> None:
+        from datetime import timezone
+        guild.synced_at = datetime.now(timezone.utc)
+        self._discord_guilds[guild.guild_id] = guild
+        self._save()
+
+    def get_discord_guild(self, guild_id: str) -> DiscordGuild | None:
+        self._maybe_reload()
+        return self._discord_guilds.get(guild_id)
+
+    def list_discord_guilds(self, cogent_name: str | None = None) -> list[DiscordGuild]:
+        self._maybe_reload()
+        guilds = list(self._discord_guilds.values())
+        if cogent_name:
+            guilds = [g for g in guilds if g.cogent_name == cogent_name]
+        return guilds
+
+    def delete_discord_guild(self, guild_id: str) -> None:
+        with self._writing(force=True):
+            self._discord_guilds.pop(guild_id, None)
+            self._discord_channels = {k: v for k, v in self._discord_channels.items() if v.guild_id != guild_id}
+
+    def upsert_discord_channel(self, channel: DiscordChannel) -> None:
+        from datetime import timezone
+        channel.synced_at = datetime.now(timezone.utc)
+        self._discord_channels[channel.channel_id] = channel
+        self._save()
+
+    def get_discord_channel(self, channel_id: str) -> DiscordChannel | None:
+        self._maybe_reload()
+        return self._discord_channels.get(channel_id)
+
+    def list_discord_channels(self, guild_id: str | None = None) -> list[DiscordChannel]:
+        self._maybe_reload()
+        channels = list(self._discord_channels.values())
+        if guild_id:
+            channels = [ch for ch in channels if ch.guild_id == guild_id]
+        return sorted(channels, key=lambda ch: ch.position)
+
+    def delete_discord_channel(self, channel_id: str) -> None:
+        with self._writing(force=True):
+            self._discord_channels.pop(channel_id, None)
