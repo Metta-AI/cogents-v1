@@ -976,4 +976,49 @@ BUILTIN_CAPABILITIES: list[dict] = [
         ),
         "schema": {},
     },
+    {
+        "name": "image",
+        "description": "Manipulate, compose, analyze, and generate images. All operations are blob-key oriented.",
+        "handler": "cogos.capabilities.image.ImageCapability",
+        "instructions": (
+            "Use image to work with images. All ops take/return blob keys.\n"
+            "Manipulation:\n"
+            "- image.resize(key, width?, height?) — resize (auto-aspect if one dim omitted)\n"
+            "- image.crop(key, left, top, right, bottom) — crop region\n"
+            "- image.rotate(key, degrees) — rotate\n"
+            "- image.convert(key, format) — convert format (PNG, JPEG, WEBP)\n"
+            "- image.thumbnail(key, max_size) — fit within box\n"
+            "Compositing:\n"
+            "- image.overlay_text(key, text, position?, font_size?, color?) — add text\n"
+            "- image.watermark(key, watermark_key, position?, opacity?) — add watermark\n"
+            "- image.combine(keys, layout?) — stitch images (horizontal/vertical/grid)\n"
+            "Analysis (Gemini Vision):\n"
+            "- image.describe(key, prompt?) — describe/caption image\n"
+            "- image.analyze(key, prompt) — answer questions about image\n"
+            "- image.extract_text(key) — OCR\n"
+            "Generation (Gemini):\n"
+            "- image.generate(prompt, size?, style?) — text-to-image\n"
+            "- image.edit(key, prompt) — edit image with prompt\n"
+            "- image.variations(key, count?) — generate variations\n"
+            "Pipeline: generate → resize → overlay_text → send via discord"
+        ),
+        "schema": {
+            "scope": {
+                "properties": {
+                    "ops": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": [
+                                "resize", "crop", "rotate", "convert", "thumbnail",
+                                "overlay_text", "watermark", "combine",
+                                "describe", "analyze", "extract_text",
+                                "generate", "edit", "variations",
+                            ],
+                        },
+                    },
+                },
+            },
+        },
+    },
 ]
