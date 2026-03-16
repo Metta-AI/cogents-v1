@@ -190,15 +190,29 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
                     except Exception:
                         pass
 
+        runtime_fields = {
+            "entrypoint": coglet_dict.get("entrypoint"),
+            "process_executor": coglet_dict.get("process_executor", "llm"),
+            "model": coglet_dict.get("model"),
+            "capabilities": coglet_dict.get("capabilities") or [],
+            "mode": coglet_dict.get("mode", "one_shot"),
+            "idle_timeout_ms": coglet_dict.get("idle_timeout_ms"),
+        }
+
         if existing_id:
             meta = _load_meta(fs, existing_id)
             write_file_tree(fs, existing_id, "main", files)
             meta.test_command = test_command
             meta.executor = executor
             meta.timeout_seconds = timeout_seconds
+            for k, v in runtime_fields.items():
+                setattr(meta, k, v)
             _save_meta(fs, meta)
         else:
-            meta = CogletMeta(name=name, test_command=test_command, executor=executor, timeout_seconds=timeout_seconds)
+            meta = CogletMeta(
+                name=name, test_command=test_command, executor=executor,
+                timeout_seconds=timeout_seconds, **runtime_fields,
+            )
             write_file_tree(fs, meta.id, "main", files)
             _save_meta(fs, meta)
 

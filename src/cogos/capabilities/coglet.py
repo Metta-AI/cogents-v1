@@ -124,6 +124,7 @@ class CogletCapability(Capability):
         "get_status",
         "run_tests",
         "get_log",
+        "run",
     }
 
     def _coglet_id(self) -> str:
@@ -395,6 +396,51 @@ class CogletCapability(Capability):
         coglet_id = self._coglet_id()
         store = FileStore(self.repo)
         return _read_log(store, coglet_id)
+
+    def run(
+        self,
+        procs,
+        capability_overrides: dict | None = None,
+        subscribe: str | None = None,
+    ):
+        """Run this coglet as a CogOS process. Returns ProcessHandle or CogletError."""
+        self._check("run")
+        coglet_id = self._coglet_id()
+        store = FileStore(self.repo)
+
+        meta = _load_meta(store, coglet_id)
+        if meta is None:
+            return CogletError(error=f"Coglet '{coglet_id}' not found")
+
+        if not meta.entrypoint:
+            return CogletError(error=f"Coglet '{meta.name}' has no entrypoint (data-only coglet)")
+
+        # Read entrypoint content
+        main_files = read_file_tree(store, coglet_id, "main")
+        content = main_files.get(meta.entrypoint)
+        if content is None:
+            return CogletError(error=f"Entrypoint '{meta.entrypoint}' not found in coglet '{meta.name}'")
+
+        # Merge capabilities: meta defaults + overrides
+        spawn_caps = {}
+        for cap_entry in meta.capabilities:
+            if isinstance(cap_entry, dict):
+                alias = cap_entry.get("alias", cap_entry["name"])
+                spawn_caps[alias] = None
+            else:
+                spawn_caps[cap_entry] = None
+        if capability_overrides:
+            spawn_caps.update(capability_overrides)
+
+        return procs.spawn(
+            name=meta.name,
+            content=content,
+            mode=meta.mode,
+            model=meta.model,
+            capabilities=spawn_caps,
+            subscribe=subscribe,
+            idle_timeout_ms=meta.idle_timeout_ms,
+        )
 
     def __repr__(self) -> str:
         return "<CogletCapability propose_patch() merge_patch() discard_patch() read_file() list_files() list_patches() get_status() run_tests() get_log()>"

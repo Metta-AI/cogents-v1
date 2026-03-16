@@ -52,6 +52,13 @@ class CogletMeta(BaseModel):
     version: int = 0
     created_at: str = Field(default_factory=_now_iso)
     patches: dict[str, PatchInfo] = Field(default_factory=dict)
+    # Runtime execution fields
+    entrypoint: str | None = None
+    process_executor: str = "llm"
+    model: str | None = None
+    capabilities: list = Field(default_factory=list)
+    mode: str = "one_shot"
+    idle_timeout_ms: int | None = None
 
 
 # ---------------------------------------------------------------------------

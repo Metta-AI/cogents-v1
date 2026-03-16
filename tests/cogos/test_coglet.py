@@ -896,3 +896,163 @@ class TestCogletE2E:
         meta = _load_meta(fs, coglet_list[0].coglet_id)
         assert meta.test_command == "python -c 'print(1)'"
         assert meta.timeout_seconds == 45
+
+
+# ---------------------------------------------------------------------------
+# Runtime fields and run() tests
+# ---------------------------------------------------------------------------
+
+
+class TestCogletMetaRuntimeFields:
+    def test_coglet_meta_runtime_fields(self):
+        """Verify new runtime fields work when set explicitly."""
+        m = CogletMeta(
+            name="runner",
+            test_command="pytest",
+            entrypoint="main.py",
+            process_executor="llm",
+            model="claude-3",
+            capabilities=[{"name": "procs", "alias": "procs"}],
+            mode="daemon",
+            idle_timeout_ms=5000,
+        )
+        assert m.entrypoint == "main.py"
+        assert m.process_executor == "llm"
+        assert m.model == "claude-3"
+        assert m.capabilities == [{"name": "procs", "alias": "procs"}]
+        assert m.mode == "daemon"
+        assert m.idle_timeout_ms == 5000
+
+    def test_coglet_meta_runtime_defaults(self):
+        """Verify defaults for data-only coglets (no entrypoint)."""
+        m = CogletMeta(name="data-only", test_command="true")
+        assert m.entrypoint is None
+        assert m.process_executor == "llm"
+        assert m.model is None
+        assert m.capabilities == []
+        assert m.mode == "one_shot"
+        assert m.idle_timeout_ms is None
+
+
+class TestApplyImageCogletRuntimeFields:
+    def test_apply_image_coglet_preserves_runtime_fields(self, tmp_path):
+        """Create coglet via image spec, verify meta has runtime fields."""
+        from cogos.image.spec import ImageSpec
+        from cogos.image.apply import apply_image
+
+        repo = LocalRepository(str(tmp_path))
+        spec = ImageSpec(coglets=[{
+            "name": "mybot",
+            "test_command": "true",
+            "files": {"main.py": "print('hi')"},
+            "entrypoint": "main.py",
+            "process_executor": "llm",
+            "model": "claude-3",
+            "capabilities": [{"name": "procs", "alias": "procs"}],
+            "mode": "daemon",
+            "idle_timeout_ms": 10000,
+        }])
+        counts = apply_image(spec, repo)
+        assert counts["coglets"] == 1
+
+        # Load the meta and verify runtime fields
+        fs = FileStore(repo)
+        coglets_cap = CogletFactoryCapability(repo, uuid4())
+        coglet_list = coglets_cap.list()
+        assert len(coglet_list) == 1
+        meta = _load_meta(fs, coglet_list[0].coglet_id)
+        assert meta.entrypoint == "main.py"
+        assert meta.process_executor == "llm"
+        assert meta.model == "claude-3"
+        assert meta.capabilities == [{"name": "procs", "alias": "procs"}]
+        assert meta.mode == "daemon"
+        assert meta.idle_timeout_ms == 10000
+
+
+class TestCogletRun:
+    def _setup_executable_coglet(self, tmp_path):
+        """Create a repo with procs capability registered and an executable coglet."""
+        from cogos.image.spec import ImageSpec
+        from cogos.image.apply import apply_image
+
+        repo = LocalRepository(str(tmp_path))
+        # Register procs capability via image
+        spec = ImageSpec(capabilities=[
+            {"name": "procs", "handler": "cogos.capabilities.procs:ProcsCapability",
+             "description": "Process management", "instructions": "", "schema": None,
+             "iam_role_arn": None, "metadata": None},
+        ])
+        apply_image(spec, repo)
+
+        # Create a coglet with entrypoint
+        fs = FileStore(repo)
+        meta = CogletMeta(
+            name="my-bot",
+            test_command="true",
+            entrypoint="main.py",
+            process_executor="llm",
+            model="claude-3",
+            capabilities=["procs"],
+            mode="daemon",
+            idle_timeout_ms=5000,
+        )
+        from cogos.coglet import write_file_tree
+        write_file_tree(fs, meta.id, "main", {"main.py": "You are a bot."})
+        _save_meta(fs, meta)
+
+        return repo, meta.id
+
+    def test_coglet_run_returns_process_handle(self, tmp_path):
+        """Create executable coglet, call run(), verify ProcessHandle returned."""
+        from cogos.capabilities.procs import ProcsCapability
+        from cogos.capabilities.process_handle import ProcessHandle
+
+        repo, coglet_id = self._setup_executable_coglet(tmp_path)
+
+        # Create a parent process that holds the procs capability
+        from cogos.db.models import Process, ProcessMode, ProcessStatus, ProcessCapability as PCModel
+        parent = Process(
+            name="parent",
+            mode=ProcessMode.ONE_SHOT,
+            content="parent",
+            status=ProcessStatus.RUNNABLE,
+        )
+        parent_id = repo.upsert_process(parent)
+
+        # Bind procs capability to parent
+        procs_cap_db = repo.get_capability_by_name("procs")
+        pc = PCModel(process=parent_id, capability=procs_cap_db.id, name="procs")
+        repo.create_process_capability(pc)
+
+        # Create procs capability instance
+        procs = ProcsCapability(repo, parent_id)
+
+        # Create coglet capability scoped to our coglet
+        cap = CogletCapability(repo, parent_id)
+        scoped = cap.scope(coglet_id=coglet_id)
+
+        result = scoped.run(procs)
+        assert isinstance(result, ProcessHandle), f"Expected ProcessHandle, got {type(result)}: {result}"
+        assert result._process.name == "my-bot"
+        assert result._process.mode.value == "daemon"
+        assert result._process.model == "claude-3"
+
+    def test_coglet_run_fails_without_entrypoint(self, tmp_path):
+        """Data-only coglet returns error on run()."""
+        repo = LocalRepository(str(tmp_path))
+        fs = FileStore(repo)
+
+        # Create a data-only coglet (no entrypoint)
+        meta = CogletMeta(
+            name="data-only",
+            test_command="true",
+        )
+        from cogos.coglet import write_file_tree
+        write_file_tree(fs, meta.id, "main", {"data.txt": "some data"})
+        _save_meta(fs, meta)
+
+        cap = CogletCapability(repo, uuid4())
+        scoped = cap.scope(coglet_id=meta.id)
+        result = scoped.run(None)  # procs not needed since it should fail before spawn
+        assert isinstance(result, CogletError)
+        assert "no entrypoint" in result.error
