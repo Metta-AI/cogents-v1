@@ -7,7 +7,7 @@ from cli.dashboard import dashboard
 from cli.local_dev import apply_local_checkout_env
 
 # Known top-level commands — used to detect cogent name argument
-_COMMANDS = {"dashboard", "cogtainer", "memory", "run", "cogos", "status", "--help", "-h"}
+_COMMANDS = {"dashboard", "cogtainer", "memory", "run", "cogos", "status", "shell", "--help", "-h"}
 
 
 def _preprocess_argv() -> None:
@@ -71,6 +71,16 @@ def status(ctx: click.Context):
     ctx.invoke(cogtainer_status)
     click.echo()
     ctx.invoke(memory_status)
+
+
+@main.command("shell")
+@click.pass_context
+def shell_cmd(ctx: click.Context):
+    """Interactive CogOS shell."""
+    from cogos.shell import CogentShell
+
+    cogent_name = ctx.obj.get("cogent_id", "dr.alpha")
+    CogentShell(cogent_name).run()
 
 
 def entry():

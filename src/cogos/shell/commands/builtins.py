@@ -1,0 +1,36 @@
+"""Shell builtins — help, clear, exit."""
+
+from __future__ import annotations
+
+import os
+
+from cogos.shell.commands import CommandRegistry, ShellState
+
+
+def register(reg: CommandRegistry) -> None:
+
+    @reg.register("help", help="Show available commands")
+    def help_cmd(state: ShellState, args: list[str]) -> str:
+        if args:
+            name = args[0]
+            h = reg.get_help(name)
+            if h:
+                return f"{name}: {h}"
+            return f"No help for: {name}"
+        lines = ["Available commands:", ""]
+        for name in reg.command_names:
+            canonical = reg.get_canonical(name)
+            if canonical and canonical != name:
+                continue  # skip aliases
+            h = reg.get_help(name) or ""
+            lines.append(f"  {name:<16} {h}")
+        return "\n".join(lines)
+
+    @reg.register("clear", help="Clear screen")
+    def clear(state: ShellState, args: list[str]) -> str:
+        os.system("clear" if os.name != "nt" else "cls")
+        return ""
+
+    @reg.register("exit", aliases=["quit"], help="Exit the shell")
+    def exit_cmd(state: ShellState, args: list[str]) -> str | None:
+        return None
