@@ -31,6 +31,128 @@ def test_boot_cogent_v1(tmp_path):
     assert len(procs) >= 1
 
 
+def test_boot_cogs_e2e(tmp_path):
+    """Boot cogent-v1, verify both cogs create processes with correct wiring."""
+    repo_root = Path(__file__).resolve().parents[2]
+    image_dir = repo_root / "images" / "cogent-v1"
+
+    repo = LocalRepository(str(tmp_path / "db"))
+    spec = load_image(image_dir)
+    counts = apply_image(spec, repo)
+
+    assert counts["cogs"] == 2  # recruiter + newsfromthefront
+
+    # -- Verify both cog processes exist --
+    procs = repo.list_processes()
+    proc_map = {p.name: p for p in procs}
+    assert "recruiter" in proc_map, f"recruiter not in {list(proc_map)}"
+    assert "newsfromthefront" in proc_map, f"newsfromthefront not in {list(proc_map)}"
+
+    # -- Recruiter process: daemon, has cog + coglet_runtime capabilities --
+    rec = proc_map["recruiter"]
+    assert rec.mode.value == "daemon"
+    rec_caps = repo.list_process_capabilities(rec.id)
+    rec_cap_names = {pc.name for pc in rec_caps}
+    assert "cog" in rec_cap_names, f"recruiter missing cog cap; has {rec_cap_names}"
+    assert "coglet_runtime" in rec_cap_names
+    assert "procs" in rec_cap_names
+    assert "discord" in rec_cap_names
+
+    # cog capability should be scoped to "recruiter"
+    cog_pc = next(pc for pc in rec_caps if pc.name == "cog")
+    assert cog_pc.config == {"cog_name": "recruiter"}, f"cog config: {cog_pc.config}"
+
+    # recruiter should have handler for recruiter:feedback
+    rec_handlers = repo.list_handlers(process_id=rec.id)
+    rec_handler_channels = set()
+    for h in rec_handlers:
+        ch = repo.get_channel(h.channel)
+        if ch:
+            rec_handler_channels.add(ch.name)
+    assert "recruiter:feedback" in rec_handler_channels, f"handlers: {rec_handler_channels}"
+
+    # -- Newsfromthefront process: daemon, has cog + coglet_runtime --
+    nff = proc_map["newsfromthefront"]
+    assert nff.mode.value == "daemon"
+    nff_caps = repo.list_process_capabilities(nff.id)
+    nff_cap_names = {pc.name for pc in nff_caps}
+    assert "cog" in nff_cap_names
+    assert "coglet_runtime" in nff_cap_names
+    assert "web_search" in nff_cap_names
+
+    # cog capability should be scoped to "newsfromthefront"
+    nff_cog_pc = next(pc for pc in nff_caps if pc.name == "cog")
+    assert nff_cog_pc.config == {"cog_name": "newsfromthefront"}
+
+    # newsfromthefront should have handlers for all 4 channels
+    nff_handlers = repo.list_handlers(process_id=nff.id)
+    nff_handler_channels = set()
+    for h in nff_handlers:
+        ch = repo.get_channel(h.channel)
+        if ch:
+            nff_handler_channels.add(ch.name)
+    expected_nff_channels = {
+        "newsfromthefront:tick",
+        "newsfromthefront:findings-ready",
+        "newsfromthefront:discord-feedback",
+        "newsfromthefront:run-requested",
+    }
+    assert expected_nff_channels.issubset(nff_handler_channels), \
+        f"Missing: {expected_nff_channels - nff_handler_channels}"
+
+    # -- Verify cog storage has default coglets --
+    from cogos.cog import load_cog_meta, load_coglet_meta
+    from cogos.files.store import FileStore
+    fs = FileStore(repo)
+
+    for cog_name in ["recruiter", "newsfromthefront"]:
+        cog_meta = load_cog_meta(fs, cog_name)
+        assert cog_meta is not None, f"cog meta missing for {cog_name}"
+        coglet_meta = load_coglet_meta(fs, cog_name, cog_name)
+        assert coglet_meta is not None, f"default coglet missing for {cog_name}"
+        assert coglet_meta.entrypoint == "main.md"
+        assert coglet_meta.mode == "daemon"
+
+    # -- Verify runtime cog.make_coglet works --
+    from cogos.capabilities.cog import CogCapability
+    from uuid import uuid4
+
+    # Simulate the recruiter orchestrator creating a child coglet
+    cog_cap = CogCapability(repo, uuid4())
+    scoped = cog_cap.scope(cog_name="recruiter")
+    child = scoped.make_coglet("discover", entrypoint="main.md",
+                                files={"main.md": "# Discover\n\n## Steps\nDo things."})
+    assert child.cog_name == "recruiter"
+    assert child.name == "discover"
+    assert child.read_file("main.md") == "# Discover\n\n## Steps\nDo things."
+
+    # Verify the child coglet is in storage
+    child_meta = load_coglet_meta(fs, "recruiter", "discover")
+    assert child_meta is not None
+    assert child_meta.entrypoint == "main.md"
+
+    # -- Verify CogletRuntime can run a child coglet --
+    from cogos.capabilities.coglet_runtime import CogletRuntimeCapability, CogletRun
+    from cogos.capabilities.procs import ProcsCapability
+    from cogos.db.models import Process, ProcessMode, ProcessStatus, ProcessCapability
+
+    # Create a parent process to hold procs capability
+    parent = Process(name="test-parent", mode=ProcessMode.ONE_SHOT,
+                     content="test", status=ProcessStatus.RUNNABLE)
+    parent_id = repo.upsert_process(parent)
+    procs_cap_db = repo.get_capability_by_name("procs")
+    pc = ProcessCapability(process=parent_id, capability=procs_cap_db.id, name="procs")
+    repo.create_process_capability(pc)
+    procs_cap = ProcsCapability(repo, parent_id)
+
+    runtime = CogletRuntimeCapability(repo, parent_id)
+    run = runtime.run(child, procs_cap)
+    assert isinstance(run, CogletRun), f"Expected CogletRun, got {type(run)}: {run}"
+    handle = run.process()
+    assert handle._process.name == "recruiter/discover"
+    assert handle._process.mode.value == "one_shot"
+
+
 def test_boot_then_snapshot_round_trip(tmp_path):
     """Boot cogent-v1, snapshot, boot snapshot — should produce same state."""
     repo_root = Path(__file__).resolve().parents[2]
