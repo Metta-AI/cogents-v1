@@ -180,7 +180,7 @@ class Repository:
     _CONFIG_TABLES = [
         "cogos_trace", "cogos_delivery", "cogos_channel_message",
         "cogos_run", "cogos_handler", "cogos_process_capability",
-        "cogos_schema", "cron",
+        "cron",
     ]
 
     _CONFIG_TABLES_FINAL = ["cogos_process", "cogos_capability"]
