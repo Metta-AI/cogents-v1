@@ -171,9 +171,10 @@ class Repository:
     _ALL_TABLES = [
         "cogos_trace", "cogos_delivery", "cogos_channel_message",
         "cogos_run", "cogos_handler", "cogos_process_capability",
-        "cogos_schema", "cron", "alerts",
+        "alerts", "cron",
         "cogos_file_version", "cogos_file",
-        "cogos_channel", "cogos_process", "cogos_capability",
+        "cogos_channel", "cogos_schema",
+        "cogos_process", "cogos_capability",
     ]
 
     _CONFIG_TABLES = [
