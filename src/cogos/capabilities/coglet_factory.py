@@ -1,4 +1,4 @@
-"""CogletsCapability — CRUD factory for coglets."""
+"""CogletFactoryCapability — CRUD factory for coglets."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ def _save_meta(store: FileStore, meta: CogletMeta) -> None:
 # ── Capability ───────────────────────────────────────────────
 
 
-class CogletsCapability(Capability):
+class CogletFactoryCapability(Capability):
     """Factory for coglets: create, list, get, delete.
 
     Usage:
@@ -212,4 +212,4 @@ class CogletsCapability(Capability):
         return DeleteResult(deleted=True, coglet_id=coglet_id)
 
     def __repr__(self) -> str:
-        return "<CogletsCapability create() list() get() delete()>"
+        return "<CogletFactoryCapability create() list() get() delete()>"

@@ -166,7 +166,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
 
     # 8. Coglets
     from cogos.coglet import CogletMeta, write_file_tree
-    from cogos.capabilities.coglets import _load_meta, _save_meta
+    from cogos.capabilities.coglet_factory import _load_meta, _save_meta
     counts["coglets"] = 0
     for coglet_dict in spec.coglets:
         name = coglet_dict["name"]

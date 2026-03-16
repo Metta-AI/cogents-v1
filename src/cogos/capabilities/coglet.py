@@ -9,7 +9,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from cogos.capabilities.base import Capability
-from cogos.capabilities.coglets import CogletError, _load_meta, _save_meta
+from cogos.capabilities.coglet_factory import CogletError, _load_meta, _save_meta
 from cogos.coglet import (
     CogletMeta,
     LogEntry,

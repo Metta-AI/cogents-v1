@@ -18,10 +18,10 @@ from cogos.coglet import (
     run_tests,
     write_file_tree,
 )
-from cogos.capabilities.coglets import (
+from cogos.capabilities.coglet_factory import (
     CogletError,
     CogletInfo,
-    CogletsCapability,
+    CogletFactoryCapability,
     DeleteResult,
     _load_meta,
     _save_meta,
@@ -252,7 +252,7 @@ def _create_test_coglet(
 ):
     repo = LocalRepository(str(tmp_path))
     pid = uuid4()
-    cap = CogletsCapability(repo, pid)
+    cap = CogletFactoryCapability(repo, pid)
     if files is None:
         files = dict(_DEFAULT_FILES)
     result = cap.create(name="test-coglet", test_command=test_command, files=files)
@@ -261,11 +261,11 @@ def _create_test_coglet(
 
 
 # ---------------------------------------------------------------------------
-# CogletsCapability tests
+# CogletFactoryCapability tests
 # ---------------------------------------------------------------------------
 
 
-class TestCogletsCapabilityCreate:
+class TestCogletFactoryCapabilityCreate:
     def test_create_returns_coglet_info(self, tmp_path):
         repo, coglet_id = _create_test_coglet(tmp_path)
         assert coglet_id  # non-empty
@@ -281,7 +281,7 @@ class TestCogletsCapabilityCreate:
     def test_create_with_passing_tests(self, tmp_path):
         repo = LocalRepository(str(tmp_path))
         pid = uuid4()
-        cap = CogletsCapability(repo, pid)
+        cap = CogletFactoryCapability(repo, pid)
         result = cap.create(
             name="pass-coglet",
             test_command="python -c 'print(\"ok\")'",
@@ -294,7 +294,7 @@ class TestCogletsCapabilityCreate:
     def test_create_with_failing_tests(self, tmp_path):
         repo = LocalRepository(str(tmp_path))
         pid = uuid4()
-        cap = CogletsCapability(repo, pid)
+        cap = CogletFactoryCapability(repo, pid)
         result = cap.create(
             name="fail-coglet",
             test_command="python -c 'raise Exception(\"boom\")'",
@@ -313,11 +313,11 @@ class TestCogletsCapabilityCreate:
         assert meta.id == coglet_id
 
 
-class TestCogletsCapabilityList:
+class TestCogletFactoryCapabilityList:
     def test_list_returns_all(self, tmp_path):
         repo = LocalRepository(str(tmp_path))
         pid = uuid4()
-        cap = CogletsCapability(repo, pid)
+        cap = CogletFactoryCapability(repo, pid)
         cap.create(name="a", test_command="true", files={"a.py": "1"})
         cap.create(name="b", test_command="true", files={"b.py": "2"})
         result = cap.list()
@@ -328,15 +328,15 @@ class TestCogletsCapabilityList:
     def test_list_empty(self, tmp_path):
         repo = LocalRepository(str(tmp_path))
         pid = uuid4()
-        cap = CogletsCapability(repo, pid)
+        cap = CogletFactoryCapability(repo, pid)
         assert cap.list() == []
 
 
-class TestCogletsCapabilityGet:
+class TestCogletFactoryCapabilityGet:
     def test_get_existing(self, tmp_path):
         repo, coglet_id = _create_test_coglet(tmp_path)
         pid = uuid4()
-        cap = CogletsCapability(repo, pid)
+        cap = CogletFactoryCapability(repo, pid)
         result = cap.get(coglet_id)
         assert isinstance(result, CogletInfo)
         assert result.coglet_id == coglet_id
@@ -345,17 +345,17 @@ class TestCogletsCapabilityGet:
     def test_get_missing(self, tmp_path):
         repo = LocalRepository(str(tmp_path))
         pid = uuid4()
-        cap = CogletsCapability(repo, pid)
+        cap = CogletFactoryCapability(repo, pid)
         result = cap.get("nonexistent")
         assert isinstance(result, CogletError)
         assert "not found" in result.error
 
 
-class TestCogletsCapabilityDelete:
+class TestCogletFactoryCapabilityDelete:
     def test_delete_removes_files(self, tmp_path):
         repo, coglet_id = _create_test_coglet(tmp_path)
         pid = uuid4()
-        cap = CogletsCapability(repo, pid)
+        cap = CogletFactoryCapability(repo, pid)
         result = cap.delete(coglet_id)
         assert isinstance(result, DeleteResult)
         assert result.deleted is True
@@ -369,7 +369,7 @@ class TestCogletsCapabilityDelete:
     def test_delete_missing(self, tmp_path):
         repo = LocalRepository(str(tmp_path))
         pid = uuid4()
-        cap = CogletsCapability(repo, pid)
+        cap = CogletFactoryCapability(repo, pid)
         result = cap.delete("nonexistent")
         assert isinstance(result, CogletError)
 
@@ -692,7 +692,7 @@ class TestCapabilityRegistration:
             capabilities=[
                 {
                     "name": "coglets",
-                    "handler": "cogos.capabilities.coglets.CogletsCapability",
+                    "handler": "cogos.capabilities.coglet_factory.CogletFactoryCapability",
                     "description": "Coglet factory",
                     "instructions": "",
                     "schema": None,
@@ -792,7 +792,7 @@ class TestCogletE2E:
 
         # Find the coglet ID
         fs = FileStore(repo)
-        coglets_cap = CogletsCapability(repo, uuid4())
+        coglets_cap = CogletFactoryCapability(repo, uuid4())
         coglet_list = coglets_cap.list()
         assert len(coglet_list) == 1
         coglet_id = coglet_list[0].coglet_id
@@ -879,7 +879,7 @@ class TestCogletE2E:
         assert counts["coglets"] == 1
 
         # Should still have exactly one coglet
-        coglets_cap = CogletsCapability(repo, uuid4())
+        coglets_cap = CogletFactoryCapability(repo, uuid4())
         coglet_list = coglets_cap.list()
         assert len(coglet_list) == 1
         assert coglet_list[0].name == "mylib"
@@ -892,7 +892,7 @@ class TestCogletE2E:
         assert "extra.py" in main_files
 
         # Meta should be updated
-        from cogos.capabilities.coglets import _load_meta
+        from cogos.capabilities.coglet_factory import _load_meta
         meta = _load_meta(fs, coglet_list[0].coglet_id)
         assert meta.test_command == "python -c 'print(1)'"
         assert meta.timeout_seconds == 45
