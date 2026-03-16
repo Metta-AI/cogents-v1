@@ -32,25 +32,3 @@ add_channel("newsfromthefront:tick",             channel_type="named")
 add_channel("newsfromthefront:findings-ready",   schema="newsfromthefront_findings_ready")
 add_channel("newsfromthefront:discord-feedback", schema="newsfromthefront_discord_feedback")
 add_channel("newsfromthefront:run-requested",    schema="newsfromthefront_run_requested")
-
-# ── Root orchestrator ────────────────────────────────────────────────────────
-# Single daemon that spawns researcher, analyst, backfill, and test as children.
-
-add_process(
-    "newsfromthefront",
-    mode="daemon",
-    content="@{apps/newsfromthefront/newsfromthefront.md}",
-    runner="lambda",
-    priority=15.0,
-    capabilities=[
-        "me", "procs", "dir", "file", "channels", "discord",
-        "web_search", "secrets", "stdlib",
-        {"name": "dir", "alias": "data", "config": {"prefix": "data/newsfromthefront/"}},
-    ],
-    handlers=[
-        "newsfromthefront:tick",
-        "newsfromthefront:findings-ready",
-        "newsfromthefront:discord-feedback",
-        "newsfromthefront:run-requested",
-    ],
-)

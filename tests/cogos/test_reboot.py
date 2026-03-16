@@ -1,5 +1,7 @@
+from pathlib import Path
+
 from cogos.db.local_repository import LocalRepository
-from cogos.db.models import Process, ProcessMode, ProcessStatus
+from cogos.db.models import Channel, ChannelType, Process, ProcessMode, ProcessStatus
 from cogos.runtime.reboot import reboot
 
 
@@ -38,3 +40,49 @@ def test_reboot_with_no_existing_processes(tmp_path):
     procs = repo.list_processes()
     assert len(procs) == 1
     assert procs[0].name == "init"
+
+
+def test_image_declares_only_init_process(tmp_path):
+    from cogos.image.spec import load_image
+    from cogos.image.apply import apply_image
+
+    repo = LocalRepository(str(tmp_path))
+    image_dir = Path(__file__).resolve().parents[2] / "images" / "cogent-v1"
+    spec = load_image(image_dir)
+    apply_image(spec, repo)
+
+    procs = repo.list_processes()
+    top_level = [p for p in procs if p.parent_process is None]
+    assert len(top_level) == 1
+    assert top_level[0].name == "init"
+    assert top_level[0].executor == "python"
+    assert top_level[0].priority >= 100
+
+
+def test_spawn_with_multiple_subscribe(tmp_path):
+    """Verify spawn() accepts a list of subscribe channels."""
+    from cogos.capabilities.procs import ProcsCapability
+    from cogos.image.spec import ImageSpec
+    from cogos.image.apply import apply_image
+
+    repo = LocalRepository(str(tmp_path))
+    spec = ImageSpec(capabilities=[
+        {"name": "procs", "handler": "cogos.capabilities.procs:ProcsCapability",
+         "description": "", "instructions": "", "schema": None, "iam_role_arn": None, "metadata": None},
+    ])
+    apply_image(spec, repo)
+
+    # Create channels
+    for name in ["ch:a", "ch:b"]:
+        repo.upsert_channel(Channel(name=name, channel_type=ChannelType.NAMED))
+
+    parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE)
+    parent_id = repo.upsert_process(parent)
+    procs_cap = ProcsCapability(repo, parent_id)
+
+    result = procs_cap.spawn(name="multi-sub", content="test", subscribe=["ch:a", "ch:b"])
+    assert not hasattr(result, "error") or result.error is None
+
+    child = repo.get_process_by_name("multi-sub")
+    handlers = repo.list_handlers(process_id=child.id)
+    assert len(handlers) == 2

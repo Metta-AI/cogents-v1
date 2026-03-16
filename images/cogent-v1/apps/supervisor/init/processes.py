@@ -21,17 +21,3 @@ add_channel(
     schema="supervisor-help-request",
     channel_type="named",
 )
-
-add_process(
-    "supervisor",
-    mode="daemon",
-    content="@{apps/supervisor/supervisor.md}",
-    runner="lambda",
-    priority=8.0,
-    capabilities=[
-        "me", "procs", "dir", "file", "discord", "channels",
-        "secrets", "stdlib", "alerts", "email",
-        {"name": "dir", "alias": "data", "config": {"prefix": "data/supervisor/"}},
-    ],
-    handlers=["supervisor:help"],
-)

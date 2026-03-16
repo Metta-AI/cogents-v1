@@ -133,7 +133,7 @@ class ProcsCapability(Capability):
         model: str | None = None,
         capabilities: dict[str, "Capability | None"] | None = None,
         schema: dict | None = None,
-        subscribe: str | None = None,
+        subscribe: str | list[str] | None = None,
         mode: str = "one_shot",
         idle_timeout_ms: int | None = None,
         detached: bool = False,
@@ -250,14 +250,16 @@ class ProcsCapability(Capability):
         )
         self.repo.upsert_channel(recv_ch)
 
-        # Bind child to a channel handler if subscribe is set
+        # Bind child to channel handlers if subscribe is set
         if subscribe:
             from cogos.db.models import Handler
 
-            sub_ch = self.repo.get_channel_by_name(subscribe)
-            if sub_ch is None:
-                return ProcessError(error=f"Subscribe channel '{subscribe}' not found")
-            self.repo.create_handler(Handler(process=child_id, channel=sub_ch.id))
+            sub_list = [subscribe] if isinstance(subscribe, str) else subscribe
+            for sub_name in sub_list:
+                sub_ch = self.repo.get_channel_by_name(sub_name)
+                if sub_ch is None:
+                    return ProcessError(error=f"Subscribe channel '{sub_name}' not found")
+                self.repo.create_handler(Handler(process=child_id, channel=sub_ch.id))
 
         child = self.repo.get_process(child_id)
         return ProcessHandle(
