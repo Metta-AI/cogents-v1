@@ -867,6 +867,58 @@ BUILTIN_CAPABILITIES: list[dict] = [
         "schema": {},
     },
     {
+        "name": "blob",
+        "description": "Upload and download files via S3 for cross-capability sharing.",
+        "handler": "cogos.capabilities.blob.BlobCapability",
+        "instructions": (
+            "Use blob to share files between capabilities (discord, email, etc.).\n"
+            "- ref = blob.upload(data, filename, content_type?) — upload bytes, get BlobRef with key and URL\n"
+            "- content = blob.download(key) — download by key, get BlobContent with data\n"
+            "BlobRef.key is the durable identifier. BlobRef.url is a presigned URL (7 day expiry).\n"
+            "Blobs are stored in S3 and auto-deleted after 30 days."
+        ),
+        "schema": {
+            "scope": {
+                "properties": {
+                    "ops": {"type": "array", "items": {"type": "string", "enum": ["upload", "download"]}},
+                    "max_size_bytes": {"type": "integer", "description": "Maximum upload size in bytes"},
+                },
+            },
+            "upload": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "data": {"type": "string", "description": "Raw bytes to upload"},
+                        "filename": {"type": "string", "description": "Filename for the blob"},
+                        "content_type": {"type": "string", "description": "MIME type"},
+                    },
+                    "required": ["data", "filename"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string"}, "url": {"type": "string"},
+                        "filename": {"type": "string"}, "size": {"type": "integer"},
+                    },
+                },
+            },
+            "download": {
+                "input": {
+                    "type": "object",
+                    "properties": {"key": {"type": "string", "description": "Blob key from upload"}},
+                    "required": ["key"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "data": {"type": "string"}, "filename": {"type": "string"},
+                        "content_type": {"type": "string"},
+                    },
+                },
+            },
+        },
+    },
+    {
         "name": "coglet",
         "description": "Operate on a single coglet — propose patches, inspect files, merge changes.",
         "handler": "cogos.capabilities.coglet.CogletCapability",
