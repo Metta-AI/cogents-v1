@@ -34,5 +34,7 @@ class Run(BaseModel):
     result: dict[str, Any] | None = None  # validated against process.return_schema
     snapshot: dict[str, Any] | None = None  # conversation + scope for resume
     scope_log: list[dict[str, Any]] = Field(default_factory=list)
+    trace_id: UUID | None = None
+    parent_trace_id: UUID | None = None
     created_at: datetime | None = None
     completed_at: datetime | None = None

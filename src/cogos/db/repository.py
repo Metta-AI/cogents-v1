@@ -545,8 +545,8 @@ class Repository:
     def create_delivery(self, ed: Delivery) -> tuple[UUID, bool]:
         response = self._execute(
             """WITH inserted AS (
-                   INSERT INTO cogos_delivery (id, message, handler, status, run)
-                   VALUES (:id, :message, :handler, :status, :run)
+                   INSERT INTO cogos_delivery (id, message, handler, status, run, trace_id)
+                   VALUES (:id, :message, :handler, :status, :run, :trace_id)
                    ON CONFLICT (message, handler) DO NOTHING
                    RETURNING id, created_at, TRUE AS inserted
                )
@@ -563,6 +563,7 @@ class Repository:
                 self._param("handler", ed.handler),
                 self._param("status", ed.status.value),
                 self._param("run", ed.run),
+                self._param("trace_id", ed.trace_id),
             ],
         )
         row = self._first_row(response)
@@ -995,10 +996,12 @@ class Repository:
             """INSERT INTO cogos_run
                    (id, process, message, conversation, status,
                     tokens_in, tokens_out, cost_usd, duration_ms,
-                    error, model_version, result, snapshot, scope_log)
+                    error, model_version, result, snapshot, scope_log,
+                    trace_id, parent_trace_id)
                VALUES (:id, :process, :message, :conversation, :status,
                        :tokens_in, :tokens_out, :cost_usd::numeric, :duration_ms,
-                       :error, :model_version, :result::jsonb, :snapshot::jsonb, :scope_log::jsonb)
+                       :error, :model_version, :result::jsonb, :snapshot::jsonb, :scope_log::jsonb,
+                       :trace_id, :parent_trace_id)
                RETURNING id, created_at""",
             [
                 self._param("id", run.id),
@@ -1015,6 +1018,8 @@ class Repository:
                 self._param("result", run.result),
                 self._param("snapshot", run.snapshot),
                 self._param("scope_log", run.scope_log),
+                self._param("trace_id", run.trace_id),
+                self._param("parent_trace_id", run.parent_trace_id),
             ],
         )
         row = self._first_row(response)
@@ -1100,6 +1105,8 @@ class Repository:
             result=self._json_field(row, "result"),
             snapshot=self._json_field(row, "snapshot"),
             scope_log=self._json_field(row, "scope_log", []),
+            trace_id=UUID(row["trace_id"]) if row.get("trace_id") else None,
+            parent_trace_id=UUID(row["parent_trace_id"]) if row.get("parent_trace_id") else None,
             created_at=self._ts(row, "created_at"),
             completed_at=self._ts(row, "completed_at"),
         )
@@ -1111,6 +1118,7 @@ class Repository:
             handler=UUID(row["handler"]),
             status=DeliveryStatus(row["status"]),
             run=UUID(row["run"]) if row.get("run") else None,
+            trace_id=UUID(row["trace_id"]) if row.get("trace_id") else None,
             created_at=self._ts(row, "created_at"),
         )
 
@@ -1338,8 +1346,8 @@ class Repository:
     def append_channel_message(self, msg: ChannelMessage) -> UUID:
         if msg.idempotency_key:
             response = self._execute(
-                """INSERT INTO cogos_channel_message (id, channel, sender_process, payload, idempotency_key)
-                   VALUES (:id, :channel, :sender_process, :payload::jsonb, :idempotency_key)
+                """INSERT INTO cogos_channel_message (id, channel, sender_process, payload, idempotency_key, trace_id, trace_meta)
+                   VALUES (:id, :channel, :sender_process, :payload::jsonb, :idempotency_key, :trace_id, :trace_meta::jsonb)
                    ON CONFLICT (channel, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
                    RETURNING id, created_at""",
                 [
@@ -1348,6 +1356,8 @@ class Repository:
                     self._param("sender_process", msg.sender_process),
                     self._param("payload", msg.payload),
                     self._param("idempotency_key", msg.idempotency_key),
+                    self._param("trace_id", msg.trace_id),
+                    self._param("trace_meta", msg.trace_meta),
                 ],
             )
             row = self._first_row(response)
@@ -1365,14 +1375,16 @@ class Repository:
                 raise RuntimeError("Failed to append channel message")
         else:
             response = self._execute(
-                """INSERT INTO cogos_channel_message (id, channel, sender_process, payload)
-                   VALUES (:id, :channel, :sender_process, :payload::jsonb)
+                """INSERT INTO cogos_channel_message (id, channel, sender_process, payload, trace_id, trace_meta)
+                   VALUES (:id, :channel, :sender_process, :payload::jsonb, :trace_id, :trace_meta::jsonb)
                    RETURNING id, created_at""",
                 [
                     self._param("id", msg.id),
                     self._param("channel", msg.channel),
                     self._param("sender_process", msg.sender_process),
                     self._param("payload", msg.payload),
+                    self._param("trace_id", msg.trace_id),
+                    self._param("trace_meta", msg.trace_meta),
                 ],
             )
             row = self._first_row(response)
@@ -1385,7 +1397,7 @@ class Repository:
         # Auto-create deliveries for handlers bound to this channel
         handlers = self.match_handlers_by_channel(msg.channel)
         for handler in handlers:
-            delivery = Delivery(message=msg_id, handler=handler.id)
+            delivery = Delivery(message=msg_id, handler=handler.id, trace_id=msg.trace_id)
             _delivery_id, inserted = self.create_delivery(delivery)
             if inserted:
                 proc = self.get_process(handler.process)
@@ -1440,6 +1452,8 @@ class Repository:
                 channel=UUID(r["channel"]),
                 sender_process=UUID(r["sender_process"]) if r.get("sender_process") else None,
                 payload=self._json_field(r, "payload", {}),
+                trace_id=UUID(r["trace_id"]) if r.get("trace_id") else None,
+                trace_meta=self._json_field(r, "trace_meta"),
                 created_at=self._ts(r, "created_at"),
             )
             for r in self._rows_to_dicts(response)

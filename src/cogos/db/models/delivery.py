@@ -22,4 +22,5 @@ class Delivery(BaseModel):
     handler: UUID  # FK -> Handler.id
     status: DeliveryStatus = DeliveryStatus.PENDING
     run: UUID | None = None  # FK -> Run.id (which run processed this)
+    trace_id: UUID | None = None
     created_at: datetime | None = None

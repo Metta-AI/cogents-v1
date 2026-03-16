@@ -1042,7 +1042,7 @@ class LocalRepository:
             # Auto-create deliveries for handlers bound to this channel
             handlers = self.match_handlers_by_channel(msg.channel)
             for handler in handlers:
-                delivery = Delivery(message=msg.id, handler=handler.id)
+                delivery = Delivery(message=msg.id, handler=handler.id, trace_id=msg.trace_id)
                 _delivery_id, inserted = self.create_delivery(delivery)
                 if inserted:
                     proc = self.get_process(handler.process)
