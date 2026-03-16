@@ -206,6 +206,7 @@ class CogtainerStack(Stack):
                 "DISCORD_REPLY_QUEUE_URL": self.discord_reply_queue.queue_url,
                 "COGOS_INGRESS_QUEUE_URL": self.compute.ingress_queue.queue_url,
                 "AWS_REGION": config.region,
+                "SESSIONS_BUCKET": self.storage.bucket.bucket_name,
             },
             secrets={
                 "DISCORD_BOT_TOKEN": ecs.Secret.from_secrets_manager(bot_token_secret, field="access_token"),
@@ -231,6 +232,9 @@ class CogtainerStack(Stack):
         # IAM: SQS reply queue (receive for polling, send for capability)
         self.discord_reply_queue.grant_consume_messages(task_def.task_role)
         self.compute.ingress_queue.grant_send_messages(task_def.task_role)
+
+        # IAM: S3 blob store access for attachments
+        self.storage.bucket.grant_read_write(task_def.task_role, "blobs/*")
 
         # Grant the executor/orchestrator lambdas permission to send to the reply queue
         self.discord_reply_queue.grant_send_messages(self.compute.orchestrator)
