@@ -245,8 +245,8 @@ class CogtainerStack(Stack):
             self.compute.task_definition.task_role
         )
 
-        # Fargate service starts stopped by default. CLI flows can auto-start it
-        # after deploy when the Discord token is already configured.
+        # Default to 1 so CDK deploys don't kill a running bridge.
+        # update_cli saves/restores the count, but bare cdk deploys bypass that.
         sg = ec2.SecurityGroup(self, "DiscordSg", vpc=vpc, allow_all_outbound=True)
 
         self.discord_service = ecs.FargateService(
@@ -254,7 +254,7 @@ class CogtainerStack(Stack):
             service_name=f"cogent-{safe_name}-discord",
             cluster=cluster,
             task_definition=task_def,
-            desired_count=0,
+            desired_count=1,
             assign_public_ip=True,
             security_groups=[sg],
             vpc_subnets=ec2.SubnetSelection(
