@@ -655,6 +655,66 @@ class TestCogletCapabilityListPatches:
         assert isinstance(patches[0], PatchSummary)
 
 
+# ---------------------------------------------------------------------------
+# Validation script tests
+# ---------------------------------------------------------------------------
+
+
+class TestValidatePrompt:
+    def test_validate_prompt_passes(self, tmp_path):
+        from cogos.coglet.validate_prompt import validate
+        d = tmp_path / "coglet"
+        d.mkdir()
+        (d / "main.md").write_text("# Discover\n\n## Process\n1. Do things\n\n```python\nx = 1\n```\n")
+        assert validate(str(d)) == []
+
+    def test_validate_prompt_fails_missing_entrypoint(self, tmp_path):
+        from cogos.coglet.validate_prompt import validate
+        d = tmp_path / "coglet"
+        d.mkdir()
+        errors = validate(str(d))
+        assert any("main.md" in e for e in errors)
+
+    def test_validate_prompt_fails_bad_python(self, tmp_path):
+        from cogos.coglet.validate_prompt import validate
+        d = tmp_path / "coglet"
+        d.mkdir()
+        (d / "main.md").write_text("# Test\n\n## Process\n\n```python\ndef broken(\n```\n")
+        errors = validate(str(d))
+        assert any("syntax" in e.lower() for e in errors)
+
+
+class TestValidateConfig:
+    def test_validate_config_passes(self, tmp_path):
+        from cogos.coglet.validate_config import validate
+        d = tmp_path / "coglet"
+        d.mkdir()
+        (d / "criteria.md").write_text("# Criteria\n## Must-Have\n- X\n## Strong Signals\n- Y\n## Red Flags\n- Z\n")
+        (d / "rubric.json").write_text('{"github_activity": {"weight": 0.25}}')
+        (d / "strategy.md").write_text("# Strategy\nDo stuff here.")
+        (d / "diagnosis.md").write_text("# Diagnosis\n## Error Types\nStuff here.")
+        sourcer = d / "sourcer"
+        sourcer.mkdir()
+        for name in ["github.md", "twitter.md", "web.md", "substack.md"]:
+            (sourcer / name).write_text(f"# {name}\nSearch for stuff.")
+        assert validate(str(d)) == []
+
+    def test_validate_config_fails_bad_json(self, tmp_path):
+        from cogos.coglet.validate_config import validate
+        d = tmp_path / "coglet"
+        d.mkdir()
+        (d / "criteria.md").write_text("## Must-Have\n## Strong Signals\n## Red Flags\n")
+        (d / "rubric.json").write_text("not json")
+        (d / "strategy.md").write_text("ok content here")
+        (d / "diagnosis.md").write_text("ok content here")
+        sourcer = d / "sourcer"
+        sourcer.mkdir()
+        for name in ["github.md", "twitter.md", "web.md", "substack.md"]:
+            (sourcer / name).write_text("ok content here")
+        errors = validate(str(d))
+        assert any("rubric.json" in e for e in errors)
+
+
 class TestCogletCapabilityScope:
     def test_requires_coglet_id(self, tmp_path):
         repo = LocalRepository(str(tmp_path))
@@ -1056,3 +1116,34 @@ class TestCogletRun:
         result = scoped.run(None)  # procs not needed since it should fail before spawn
         assert isinstance(result, CogletError)
         assert "no entrypoint" in result.error
+
+
+# ---------------------------------------------------------------------------
+# Task 5: Recruiter coglets created on image apply
+# ---------------------------------------------------------------------------
+
+
+class TestRecruiterCoglets:
+    def test_recruiter_coglets_created_on_image_apply(self, tmp_path):
+        from cogos.image.spec import load_image
+        from cogos.image.apply import apply_image
+        from pathlib import Path
+
+        repo = LocalRepository(str(tmp_path))
+        image_dir = Path(__file__).resolve().parents[2] / "images" / "cogent-v1"
+        spec = load_image(image_dir)
+        apply_image(spec, repo)
+
+        store = FileStore(repo)
+        meta_files = store.list_files(prefix="coglets/")
+        coglet_names = set()
+        for f in meta_files:
+            if f.key.endswith("/meta.json"):
+                cid = f.key.split("/")[1]
+                meta = _load_meta(store, cid)
+                if meta and meta.name.startswith("recruiter-"):
+                    coglet_names.add(meta.name)
+
+        expected = {"recruiter-orchestrator", "recruiter-config", "recruiter-discover",
+                    "recruiter-present", "recruiter-profile", "recruiter-evolve"}
+        assert expected.issubset(coglet_names), f"Missing: {expected - coglet_names}"
