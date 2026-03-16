@@ -123,6 +123,8 @@ class DiscordBridge:
 
         self._sqs_client = boto3.client("sqs", region_name=self.region)
         self._repo = None  # lazy init
+        self._blob_bucket = os.environ.get("SESSIONS_BUCKET", "")
+        self._s3_client = boto3.client("s3", region_name=self.region) if self._blob_bucket else None
 
         # Typing indicator tasks keyed by channel_id
         self._typing_tasks: dict[int, asyncio.Task] = {}
@@ -152,6 +154,46 @@ class DiscordBridge:
                 "Set DISCORD_BOT_TOKEN or provision via channels CLI."
             )
         return token
+
+    MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024  # 25MB
+
+    async def _upload_attachment_to_s3(self, attachment) -> dict | None:
+        """Download a Discord attachment and upload to S3. Returns s3_key/s3_url dict or None."""
+        if not self._s3_client or not self._blob_bucket:
+            return None
+        if attachment.size and attachment.size > self.MAX_ATTACHMENT_SIZE:
+            logger.warning("Skipping oversized attachment %s (%d bytes)", attachment.filename, attachment.size)
+            return None
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(attachment.url) as resp:
+                    if resp.status != 200:
+                        logger.warning("Failed to download attachment %s: HTTP %s", attachment.filename, resp.status)
+                        return None
+                    data = await resp.read()
+        except Exception:
+            logger.exception("Failed to download attachment %s", attachment.filename)
+            return None
+
+        from uuid import uuid4
+        s3_key = f"blobs/{uuid4()}/{attachment.filename}"
+
+        try:
+            put_kwargs: dict = {"Bucket": self._blob_bucket, "Key": s3_key, "Body": data}
+            if attachment.content_type:
+                put_kwargs["ContentType"] = attachment.content_type
+            self._s3_client.put_object(**put_kwargs)
+
+            s3_url = self._s3_client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": self._blob_bucket, "Key": s3_key},
+                ExpiresIn=7 * 24 * 3600,
+            )
+            return {"s3_key": s3_key, "s3_url": s3_url}
+        except Exception:
+            logger.exception("Failed to upload attachment %s to S3", attachment.filename)
+            return None
 
     # ------------------------------------------------------------------
     # Discord event handlers
@@ -249,6 +291,14 @@ class DiscordBridge:
         is_mention = bool(self.client.user and self.client.user.mentioned_in(message))
 
         payload = _make_message_payload(message, message_type, is_dm=is_dm, is_mention=is_mention)
+
+        # Upload attachments to S3
+        if self._s3_client and payload.get("attachments"):
+            for att_payload, att_obj in zip(payload["attachments"], message.attachments):
+                s3_result = await self._upload_attachment_to_s3(att_obj)
+                if s3_result:
+                    att_payload["s3_key"] = s3_result["s3_key"]
+                    att_payload["s3_url"] = s3_result["s3_url"]
 
         try:
             from cogos.db.models import ChannelMessage
@@ -472,20 +522,31 @@ class DiscordBridge:
         if not file_specs:
             return []
         files = []
-        async with aiohttp.ClientSession() as session:
-            for spec in file_specs:
-                url = spec.get("url")
-                filename = spec.get("filename", "file")
-                if not url:
-                    continue
+        for spec in file_specs:
+            s3_key = spec.get("s3_key")
+            if s3_key and self._s3_client and self._blob_bucket:
                 try:
+                    resp = self._s3_client.get_object(Bucket=self._blob_bucket, Key=s3_key)
+                    data = resp["Body"].read()
+                    filename = spec.get("filename") or s3_key.rsplit("/", 1)[-1]
+                    files.append(discord.File(io.BytesIO(data), filename=filename))
+                except Exception:
+                    logger.exception("Failed to download blob: %s", s3_key)
+                continue
+
+            url = spec.get("url")
+            filename = spec.get("filename", "file")
+            if not url:
+                continue
+            try:
+                async with aiohttp.ClientSession() as session:
                     async with session.get(url) as resp:
                         if resp.status != 200:
                             continue
                         data = await resp.read()
                         files.append(discord.File(io.BytesIO(data), filename=filename))
-                except Exception:
-                    logger.exception("Failed to download file: %s", url)
+            except Exception:
+                logger.exception("Failed to download file: %s", url)
         return files
 
     # ------------------------------------------------------------------

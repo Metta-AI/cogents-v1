@@ -80,6 +80,8 @@ def _make_bridge():
     bridge._sqs_client = MagicMock()
     bridge._typing_tasks = {}
     bridge._repo = None
+    bridge._s3_client = None
+    bridge._blob_bucket = ""
 
     # Minimal discord client mock
     bridge.client = MagicMock()
