@@ -852,4 +852,37 @@ BUILTIN_CAPABILITIES: list[dict] = [
         ),
         "schema": {},
     },
+    {
+        "name": "coglet_factory",
+        "description": "Create and manage coglets — long-lived code+tests containers with PR-style patch workflows.",
+        "handler": "cogos.capabilities.coglet_factory.CogletFactoryCapability",
+        "instructions": (
+            "Use coglet_factory to create and manage coglets.\n"
+            "- coglet_factory.create(name, test_command, files) — create a new coglet\n"
+            "- coglet_factory.list() — list all coglets\n"
+            "- coglet_factory.get(coglet_id) — get coglet metadata\n"
+            "- coglet_factory.delete(coglet_id) — delete a coglet\n"
+            "A coglet wraps code + tests. Use the 'coglet' capability to operate on one."
+        ),
+        "schema": {},
+    },
+    {
+        "name": "coglet",
+        "description": "Operate on a single coglet — propose patches, inspect files, merge changes.",
+        "handler": "cogos.capabilities.coglet.CogletCapability",
+        "instructions": (
+            "Use coglet to interact with a specific coglet (must be scoped with coglet_id).\n"
+            "- coglet.propose_patch(diff) — apply a unified diff, run tests, return results\n"
+            "- coglet.merge_patch(patch_id) — promote a passing patch to main (fails if main changed)\n"
+            "- coglet.discard_patch(patch_id) — delete a patch branch\n"
+            "- coglet.read_file(path, patch_id?) — read a file from main or a patch\n"
+            "- coglet.list_files(patch_id?) — list files in main or a patch\n"
+            "- coglet.list_patches() — list pending patches with test results\n"
+            "- coglet.get_status() — current version, patch count\n"
+            "- coglet.run_tests() — run tests on current main\n"
+            "- coglet.get_log() — patch history\n"
+            "Workflow: propose_patch -> review results -> merge_patch or discard_patch"
+        ),
+        "schema": {},
+    },
 ]
