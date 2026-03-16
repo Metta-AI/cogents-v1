@@ -358,8 +358,10 @@ class LocalRepository:
             self._reset_state()
 
     def clear_config(self) -> None:
-        """Clear structural/config data only, preserving files, runs, deliveries, and messages."""
+        """Clear config and process-related data, preserving files and channel messages."""
         with self._writing(force=True):
+            self._runs.clear()
+            self._deliveries.clear()
             self._processes.clear()
             self._capabilities.clear()
             self._handlers.clear()

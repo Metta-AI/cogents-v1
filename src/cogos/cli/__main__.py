@@ -927,8 +927,12 @@ def reload(ctx: click.Context, image: str, yes: bool, full: bool):
                     pass
         click.echo("All tables cleared.")
     else:
-        # Selective wipe — clear config tables, delete only image-owned files
+        # Selective wipe — clear config tables, delete only image-owned files.
+        # Order matters: children before parents due to FK constraints.
+        # cogos_run references cogos_process without CASCADE, so clear it too.
         _CONFIG_TABLES = [
+            "cogos_trace", "cogos_event_delivery",
+            "cogos_run",
             "cogos_handler", "cogos_process_capability",
             "cogos_cron", "cogos_resource",
             "cogos_process", "cogos_capability",
