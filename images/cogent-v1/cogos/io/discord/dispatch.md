@@ -16,9 +16,13 @@ When activated with a message:
 
 1. Read the channel message payload to get `author_id`, `author`, `channel_id`, `content`, `message_id`, `is_dm`, `is_mention`
 2. **Channel messages (not DM, not mention):** Only respond if the message is clearly intended for you (e.g. asks a question, requests something, references you by name). If it's just general chat between users, update the waterline and exit silently — do not respond.
-3. Check the waterline — skip already-processed messages:
+3. Determine the conversation key (used for both waterline and log):
+   - DMs: `{author_id}`
+   - Channel messages: `{channel_id}`
+4. Check the per-channel waterline — skip already-processed messages:
    ```python
-   wl = data.get("waterline.json")
+   conv_key = author_id if is_dm else channel_id
+   wl = data.get(f"{conv_key}/waterline.json")
    wl_data = wl.read()
    waterline = json.loads(wl_data.content) if not hasattr(wl_data, 'error') else {}
    msg_id = payload.get("message_id", "")
@@ -27,18 +31,15 @@ When activated with a message:
        exit()
    ```
    Note: `json` is pre-loaded in the sandbox — do not `import` it.
-3. Determine the conversation key:
-   - DMs: `{author_id}/recent.log`
-   - Channel messages: `{channel_id}/recent.log`
-4. Append the new message to the log and read it for context:
+5. Append the new message to the log and read it for context:
    ```python
-   log = data.get(f"{author_id}/recent.log")
+   log = data.get(f"{conv_key}/recent.log")
    log.append(f"\n{author}: {content}")
    history = log.read()
    print(history.content)
    ```
-5. Respond based on the full conversation context
-6. Append your reply and update the waterline:
+6. Respond based on the full conversation context
+7. Append your reply and update the waterline:
    ```python
    log.append(f"\nassistant: {your_reply}")
    seen = waterline.get("seen", [])
