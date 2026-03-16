@@ -50,6 +50,7 @@ class DispatchResult(BaseModel):
     runner: str
     message_id: str | None = None
     delivery_id: str | None = None
+    trace_id: str | None = None
 
 
 class UnblockInfo(BaseModel):
@@ -180,8 +181,9 @@ class SchedulerCapability(Capability):
         deliveries = self.repo.get_pending_deliveries(target_id)
         message_id = deliveries[0].message if deliveries else None
         delivery_id = deliveries[0].id if deliveries else None
+        trace_id = deliveries[0].trace_id if deliveries else None
 
-        run = Run(process=target_id, message=message_id)
+        run = Run(process=target_id, message=message_id, trace_id=trace_id)
         run_id = self.repo.create_run(run)
 
         if delivery_id:
@@ -195,6 +197,7 @@ class SchedulerCapability(Capability):
             runner=proc.runner,
             message_id=str(message_id) if message_id else None,
             delivery_id=str(delivery_id) if delivery_id else None,
+            trace_id=str(trace_id) if trace_id else None,
         )
 
     def unblock_processes(self) -> UnblockResult:

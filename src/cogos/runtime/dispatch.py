@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 from uuid import UUID
 
@@ -43,5 +44,7 @@ def build_dispatch_event(repo, dispatch_result) -> dict[str, Any]:
         "process_id": dispatch_result.process_id,
         "run_id": dispatch_result.run_id,
         "message_id": dispatch_result.message_id,
+        "trace_id": getattr(dispatch_result, "trace_id", None),
+        "dispatched_at_ms": int(time.time() * 1000),
         "payload": _load_message_payload(repo, dispatch_result.message_id),
     }

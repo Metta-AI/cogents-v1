@@ -65,10 +65,10 @@ def _send_sqs(body: dict) -> None:
     client.send_message(QueueUrl=url, MessageBody=json.dumps(body))
 
 
-def _with_reply_meta(body: dict, *, process_id: UUID, run_id: UUID | None) -> dict:
+def _with_reply_meta(body: dict, *, process_id: UUID, run_id: UUID | None, trace_id: UUID | None = None) -> dict:
     meta = {
         "queued_at_ms": int(time.time() * 1000),
-        "trace_id": str(uuid4()),
+        "trace_id": str(trace_id) if trace_id else str(uuid4()),
         "process_id": str(process_id),
     }
     if run_id is not None:
@@ -164,7 +164,7 @@ class DiscordCapability(Capability):
             body["files"] = file_specs
 
         try:
-            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id))
+            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id))
             return SendResult(channel=channel, content_length=len(content))
         except Exception as e:
             return DiscordError(error=str(e))
@@ -186,7 +186,7 @@ class DiscordCapability(Capability):
                 "channel": channel,
                 "message_id": message_id,
                 "emoji": emoji,
-            }, process_id=self.process_id, run_id=self.run_id))
+            }, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id))
             return SendResult(channel=channel, content_length=0, type="reaction")
         except Exception as e:
             return DiscordError(error=str(e))
@@ -215,7 +215,7 @@ class DiscordCapability(Capability):
             body["message_id"] = message_id
 
         try:
-            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id))
+            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id))
             return SendResult(channel=channel, content_length=len(content), type="thread_create")
         except Exception as e:
             return DiscordError(error=str(e))
@@ -231,6 +231,7 @@ class DiscordCapability(Capability):
                 {"type": "dm", "user_id": user_id, "content": content},
                 process_id=self.process_id,
                 run_id=self.run_id,
+                trace_id=self.trace_id,
             ))
             return SendResult(channel=f"dm:{user_id}", content_length=len(content), type="dm")
         except Exception as e:

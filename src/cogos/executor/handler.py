@@ -156,11 +156,26 @@ def handler(event: dict, context: Any = None) -> dict:
         run_id = repo.create_run(run)
 
     repo.mark_run_deliveries_delivered(run.id)
+
+    # Extract trace context from dispatch event
+    trace_id_str = event.get("trace_id")
+    dispatched_at_ms = event.get("dispatched_at_ms")
+    executor_started_at_ms = int(time.time() * 1000)
+    trace_id = None
+    if trace_id_str:
+        try:
+            trace_id = UUID(trace_id_str)
+            # Ensure run has trace_id set (may already be set by scheduler)
+            if run.trace_id is None:
+                run.trace_id = trace_id
+        except (ValueError, Exception):
+            logger.debug("Invalid trace_id in event: %s", trace_id_str)
+
     logger.info(f"Starting run {run_id} for process {process.name}")
 
     start_time = time.time()
     try:
-        run = execute_process(process, event, run, config, repo)
+        run = execute_process(process, event, run, config, repo, trace_id=trace_id)
         run.status = RunStatus.COMPLETED
         duration_ms = int((time.time() - start_time) * 1000)
 
@@ -176,6 +191,14 @@ def handler(event: dict, context: Any = None) -> dict:
             scope_log=run.scope_log,
         )
         _log_run_completion_latency(run, process.name, duration_ms)
+
+        if trace_id_str:
+            logger.info(
+                "CogOS trace executor_timing trace_id=%s run=%s process=%s "
+                "dispatched_at_ms=%s executor_started_at_ms=%s executor_duration_ms=%s",
+                trace_id_str, run.id, process.name,
+                dispatched_at_ms, executor_started_at_ms, duration_ms,
+            )
 
         # Emit lifecycle message to implicit process channel
         _emit_lifecycle_message(repo, process, {
@@ -277,6 +300,8 @@ def _execute_python_process(
     run: Run,
     config: ExecutorConfig,
     repo: Repository,
+    *,
+    trace_id: UUID | None = None,
 ) -> Run:
     """Execute process by running resolved content as Python in the sandbox."""
     from cogos.files.context_engine import ContextEngine
@@ -292,7 +317,7 @@ def _execute_python_process(
 
     # Set up sandbox with capability proxies — same as LLM path
     vt = VariableTable()
-    _setup_capability_proxies(vt, process, repo, run_id=run.id)
+    _setup_capability_proxies(vt, process, repo, run_id=run.id, trace_id=trace_id)
 
     # Inject event payload as a variable
     vt.set("event", event_data)
@@ -315,10 +340,11 @@ def execute_process(
     repo: Repository,
     *,
     bedrock_client: Any | None = None,
+    trace_id: UUID | None = None,
 ) -> Run:
     """Execute process via Bedrock converse API with search + run_code tool loop."""
     if process.executor == "python":
-        return _execute_python_process(process, event_data, run, config, repo)
+        return _execute_python_process(process, event_data, run, config, repo, trace_id=trace_id)
 
     bedrock = bedrock_client or boto3.client(
         "bedrock-runtime",
@@ -370,7 +396,7 @@ def execute_process(
 
     # Set up sandbox with capability proxies
     vt = VariableTable()
-    _setup_capability_proxies(vt, process, repo, run_id=run.id)
+    _setup_capability_proxies(vt, process, repo, run_id=run.id, trace_id=trace_id)
     sandbox = SandboxExecutor(vt)
 
     total_input_tokens = 0
@@ -759,7 +785,7 @@ def _handle_search(tool_input: dict, process: Process, repo: Repository) -> str:
     return json.dumps(results, indent=2) if results else "No capabilities found matching query."
 
 
-def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Repository, *, run_id: UUID | None = None) -> None:
+def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Repository, *, run_id: UUID | None = None, trace_id: UUID | None = None) -> None:
     """Inject capability instances into the variable table.
 
     Only capabilities explicitly bound to the process via ProcessCapability
@@ -799,10 +825,12 @@ def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Reposit
                 vt.set(ns, handler_cls)
                 continue
             init_params = inspect.signature(handler_cls.__init__).parameters
+            kwargs = {}
             if "run_id" in init_params:
-                instance = handler_cls(repo, process.id, run_id=run_id)
-            else:
-                instance = handler_cls(repo, process.id)
+                kwargs["run_id"] = run_id
+            if "trace_id" in init_params:
+                kwargs["trace_id"] = trace_id
+            instance = handler_cls(repo, process.id, **kwargs)
             # Apply scope from config if present
             if pc.config:
                 instance = instance.scope(**pc.config)

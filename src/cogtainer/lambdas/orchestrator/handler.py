@@ -309,6 +309,8 @@ def _cogos_scheduler_tick(config) -> None:
                 "process_id": dispatch_result.process_id,
                 "run_id": dispatch_result.run_id,
                 "event_id": dispatch_result.event_id,
+                "trace_id": getattr(dispatch_result, "trace_id", None),
+                "dispatched_at_ms": int(time.time() * 1000),
                 "event_type": event_payload.get("event_type", ""),
                 "payload": event_payload,
             }

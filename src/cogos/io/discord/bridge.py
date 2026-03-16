@@ -301,6 +301,18 @@ class DiscordBridge:
                     att_payload["s3_key"] = s3_result["s3_key"]
                     att_payload["s3_url"] = s3_result["s3_url"]
 
+        # Generate trace for DMs and mentions (messages that trigger processing)
+        trace_id = None
+        trace_meta = None
+        if message_type in ("discord:dm", "discord:mention"):
+            from uuid import uuid4
+            bridge_received_at_ms = int(time.time() * 1000)
+            trace_id = uuid4()
+            trace_meta = {
+                "discord_created_at_ms": int(message.created_at.timestamp() * 1000),
+                "bridge_received_at_ms": bridge_received_at_ms,
+            }
+
         try:
             from cogos.db.models import ChannelMessage
             repo = self._get_repo()
@@ -313,11 +325,17 @@ class DiscordBridge:
 
             repo.append_channel_message(ChannelMessage(
                 channel=ch.id,
-                # Inbound Discord messages come from external users, not CogOS processes.
                 sender_process=None,
                 payload=payload,
                 idempotency_key=f"discord:{message.id}",
+                trace_id=trace_id,
+                trace_meta=trace_meta,
             ))
+
+            # Stamp db_written_at after successful insert
+            if trace_meta is not None:
+                trace_meta["db_written_at_ms"] = int(time.time() * 1000)
+
             logger.info("Wrote %s from %s to channel %s", message_type, message.author, channel_name)
 
             # Write to fine-grained per-source channel for message and dm types
@@ -411,6 +429,10 @@ class DiscordBridge:
 
     async def _send_reply(self, sqs_message: dict):
         body = json.loads(sqs_message["Body"])
+        # Stamp SQS receive time for trace
+        meta = body.get("_meta")
+        if isinstance(meta, dict):
+            meta["sqs_received_at_ms"] = int(time.time() * 1000)
         msg_type = body.get("type", "message")
 
         if msg_type == "dm":
@@ -447,6 +469,35 @@ class DiscordBridge:
             meta.get("process_id", ""),
             meta.get("run_id", ""),
             meta.get("trace_id", ""),
+        )
+
+    def _log_trace_summary(self, body: dict, *, msg_type: str, target_id: int | str):
+        """Log a complete trace summary if _meta contains trace_id."""
+        meta = body.get("_meta")
+        if not isinstance(meta, dict):
+            return
+        trace_id = meta.get("trace_id")
+        if not trace_id:
+            return
+
+        now_ms = int(time.time() * 1000)
+        queued_at_ms = meta.get("queued_at_ms")
+        sqs_received_at_ms = meta.get("sqs_received_at_ms", now_ms)
+
+        sqs_to_receive_ms = (sqs_received_at_ms - queued_at_ms) if queued_at_ms else None
+        receive_to_send_ms = now_ms - sqs_received_at_ms
+
+        logger.info(
+            "CogOS trace_complete trace_id=%s type=%s target=%s "
+            "process=%s run=%s "
+            "sqs_to_receive_ms=%s receive_to_send_ms=%s",
+            trace_id,
+            msg_type,
+            target_id,
+            meta.get("process_id", ""),
+            meta.get("run_id", ""),
+            sqs_to_receive_ms,
+            receive_to_send_ms,
         )
 
     async def _handle_message(self, body: dict, channel):
@@ -489,6 +540,7 @@ class DiscordBridge:
             for c in chunks[1:]:
                 await target.send(c)
         self._log_reply_send_latency(body, msg_type="message", target_id=target.id)
+        self._log_trace_summary(body, msg_type="message", target_id=target.id)
 
     async def _handle_reaction(self, body: dict, channel):
         message_id = body.get("message_id")
@@ -534,6 +586,7 @@ class DiscordBridge:
             for c in chunk_message(content):
                 await dm_channel.send(c)
             self._log_reply_send_latency(body, msg_type="dm", target_id=dm_channel.id)
+            self._log_trace_summary(body, msg_type="dm", target_id=dm_channel.id)
         except Exception:
             logger.exception("Failed to send DM to user %s", user_id)
 

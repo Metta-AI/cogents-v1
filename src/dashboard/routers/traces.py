@@ -63,9 +63,20 @@ class TraceDeliveryOut(BaseModel):
     emitted_messages: list[TraceMessageOut] = Field(default_factory=list)
 
 
+class TraceTimingOut(BaseModel):
+    trace_id: str | None = None
+    discord_to_db_ms: int | None = None
+    db_to_match_ms: int | None = None
+    executor_ms: int | None = None
+    total_tokens_in: int | None = None
+    total_tokens_out: int | None = None
+    turns: int | None = None
+
+
 class MessageTraceOut(BaseModel):
     message: TraceMessageOut
     deliveries: list[TraceDeliveryOut]
+    timing: TraceTimingOut | None = None
 
 
 class MessageTracesResponse(BaseModel):
@@ -278,6 +289,46 @@ def list_message_traces(
         if emitted_type_filters and not any(delivery.emitted_messages for delivery in delivery_items):
             continue
 
+        # Compute timing breakdown if trace data available
+        timing = None
+        trace_meta = message.trace_meta if hasattr(message, "trace_meta") and message.trace_meta else {}
+        msg_trace_id = message.trace_id if hasattr(message, "trace_id") else None
+        if msg_trace_id and trace_meta:
+            discord_to_db_ms = None
+            db_to_match_ms = None
+            discord_created = trace_meta.get("discord_created_at_ms")
+            db_written = trace_meta.get("db_written_at_ms")
+
+            if discord_created and db_written:
+                discord_to_db_ms = db_written - discord_created
+
+            first_delivery_at_ms = None
+            if message_deliveries:
+                dt = _as_utc(message_deliveries[0].created_at)
+                if dt:
+                    first_delivery_at_ms = int(dt.timestamp() * 1000)
+            if db_written and first_delivery_at_ms:
+                db_to_match_ms = first_delivery_at_ms - db_written
+
+            executor_ms = None
+            total_tokens_in = None
+            total_tokens_out = None
+            for d in delivery_items:
+                if d.run:
+                    executor_ms = d.run.duration_ms
+                    total_tokens_in = d.run.tokens_in
+                    total_tokens_out = d.run.tokens_out
+                    break
+
+            timing = TraceTimingOut(
+                trace_id=str(msg_trace_id),
+                discord_to_db_ms=discord_to_db_ms,
+                db_to_match_ms=db_to_match_ms,
+                executor_ms=executor_ms,
+                total_tokens_in=total_tokens_in,
+                total_tokens_out=total_tokens_out,
+            )
+
         traces.append(
             MessageTraceOut(
                 message=_message_out(
@@ -286,6 +337,7 @@ def list_message_traces(
                     process_names=process_names,
                 ),
                 deliveries=delivery_items,
+                timing=timing,
             )
         )
         if len(traces) >= limit:

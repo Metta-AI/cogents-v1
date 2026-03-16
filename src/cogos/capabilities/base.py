@@ -151,10 +151,11 @@ class Capability:
 
     _scope = _ScopeDescriptor()
 
-    def __init__(self, repo: Repository, process_id: UUID, run_id: UUID | None = None) -> None:
+    def __init__(self, repo: Repository, process_id: UUID, run_id: UUID | None = None, trace_id: UUID | None = None) -> None:
         self.repo = repo
         self.process_id = process_id
         self.run_id = run_id
+        self.trace_id = trace_id
         self._scope = {}
 
     def scope(self, **kwargs: object) -> Capability:
