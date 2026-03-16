@@ -91,10 +91,14 @@ def _execute_prompt(state: ShellState, content: str, *, verbose: bool = False) -
     ts = int(time.time())
     proc_name = f"shell-{ts}"
 
+    # Prepend the shell system prompt (includes code_mode, files, channels, procs docs)
+    shell_prompt = "@{cogos/includes/shell.md}\n\n"
+    full_content = shell_prompt + content
+
     process = Process(
         name=proc_name,
         mode=ProcessMode.ONE_SHOT,
-        content=content,
+        content=full_content,
         runner="local",
         status=ProcessStatus.RUNNING,
         tty=True,
