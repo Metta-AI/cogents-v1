@@ -139,9 +139,12 @@ class DiscordCapability(Capability):
         *,
         thread_id: str | None = None,
         reply_to: str | None = None,
-        files: list[dict] | None = None,
+        files: list[str | dict] | None = None,
     ) -> SendResult | DiscordError:
-        """Send a message to a Discord channel."""
+        """Send a message to a Discord channel.
+
+        files can be blob keys (str) or dicts with url/filename.
+        """
         if not channel or not content:
             return DiscordError(error="'channel' and 'content' are required")
         self._check("send", channel=channel)
@@ -152,7 +155,13 @@ class DiscordCapability(Capability):
         if reply_to:
             body["reply_to"] = reply_to
         if files:
-            body["files"] = files
+            file_specs = []
+            for f in files:
+                if isinstance(f, str):
+                    file_specs.append({"s3_key": f, "filename": f.rsplit("/", 1)[-1]})
+                else:
+                    file_specs.append(f)
+            body["files"] = file_specs
 
         try:
             _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id))

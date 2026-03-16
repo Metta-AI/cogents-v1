@@ -57,3 +57,29 @@ def test_list_channels_no_scope_returns_all():
     cap = _make_cap(repo)
     channels = cap.list_channels()
     assert len(channels) == 1
+
+
+def test_send_converts_blob_keys_to_file_specs():
+    """send() with blob key strings should convert to s3_key dicts."""
+    from unittest.mock import patch
+    import json
+
+    cap = _make_cap()
+    # Mock _send_sqs to capture the body
+    with patch("cogos.io.discord.capability._send_sqs") as mock_sqs:
+        cap.send("123", "hello", files=["blobs/abc/chart.png"])
+
+    body = mock_sqs.call_args.args[0]
+    assert body["files"] == [{"s3_key": "blobs/abc/chart.png", "filename": "chart.png"}]
+
+
+def test_send_passes_dict_files_through():
+    """send() with dict files should pass them through unchanged."""
+    from unittest.mock import patch
+
+    cap = _make_cap()
+    with patch("cogos.io.discord.capability._send_sqs") as mock_sqs:
+        cap.send("123", "hello", files=[{"url": "https://example.com/f.png", "filename": "f.png"}])
+
+    body = mock_sqs.call_args.args[0]
+    assert body["files"] == [{"url": "https://example.com/f.png", "filename": "f.png"}]
