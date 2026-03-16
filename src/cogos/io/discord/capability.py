@@ -220,19 +220,27 @@ class DiscordCapability(Capability):
         except Exception as e:
             return DiscordError(error=str(e))
 
-    def dm(self, user_id: str, content: str) -> SendResult | DiscordError:
-        """Send a direct message to a user."""
+    def dm(self, user_id: str, content: str, *, files: list[str | dict] | None = None) -> SendResult | DiscordError:
+        """Send a direct message to a user.
+
+        files can be blob keys (str) or dicts with url/filename.
+        """
         if not user_id or not content:
             return DiscordError(error="'user_id' and 'content' are required")
         self._check("dm")
 
+        body: dict = {"type": "dm", "user_id": user_id, "content": content}
+        if files:
+            file_specs = []
+            for f in files:
+                if isinstance(f, str):
+                    file_specs.append({"s3_key": f, "filename": f.rsplit("/", 1)[-1]})
+                else:
+                    file_specs.append(f)
+            body["files"] = file_specs
+
         try:
-            _send_sqs(_with_reply_meta(
-                {"type": "dm", "user_id": user_id, "content": content},
-                process_id=self.process_id,
-                run_id=self.run_id,
-                trace_id=self.trace_id,
-            ))
+            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id))
             return SendResult(channel=f"dm:{user_id}", content_length=len(content), type="dm")
         except Exception as e:
             return DiscordError(error=str(e))

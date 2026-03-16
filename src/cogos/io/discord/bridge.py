@@ -583,8 +583,17 @@ class DiscordBridge:
             user = await self.client.fetch_user(int(user_id))
             dm_channel = await user.create_dm()
             self._stop_typing(dm_channel.id)
-            for c in chunk_message(content):
-                await dm_channel.send(c)
+            file_specs = body.get("files") or []
+            discord_files = await self._download_files(file_specs)
+            if discord_files:
+                first_chunk = content[:2000] if content else None
+                await dm_channel.send(content=first_chunk, files=discord_files)
+                remaining = content[2000:] if content and len(content) > 2000 else ""
+                for c in chunk_message(remaining):
+                    await dm_channel.send(c)
+            else:
+                for c in chunk_message(content):
+                    await dm_channel.send(c)
             self._log_reply_send_latency(body, msg_type="dm", target_id=dm_channel.id)
             self._log_trace_summary(body, msg_type="dm", target_id=dm_channel.id)
         except Exception:
