@@ -422,15 +422,10 @@ class CogletCapability(Capability):
             return CogletError(error=f"Entrypoint '{meta.entrypoint}' not found in coglet '{meta.name}'")
 
         # Merge capabilities: meta defaults + overrides
-        spawn_caps = {}
-        for cap_entry in meta.capabilities:
-            if isinstance(cap_entry, dict):
-                alias = cap_entry.get("alias", cap_entry["name"])
-                spawn_caps[alias] = None
-            else:
-                spawn_caps[cap_entry] = None
-        if capability_overrides:
-            spawn_caps.update(capability_overrides)
+        from cogos.capabilities.coglet_caps import build_spawn_caps
+        spawn_caps = build_spawn_caps(
+            meta.capabilities, self.repo, self.process_id, capability_overrides,
+        )
 
         return procs.spawn(
             name=meta.name,

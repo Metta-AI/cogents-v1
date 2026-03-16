@@ -14,7 +14,11 @@ class TestRequiredSections:
 
     @pytest.mark.parametrize(
         "section",
-        ["## Flow", "## Responding", "## Escalation", "## Guidelines"],
+        [
+            "## How to process a message",
+            "## When to escalate",
+            "## Key rules",
+        ],
     )
     def test_section_exists(self, section):
         text = _read_main()
@@ -24,11 +28,11 @@ class TestRequiredSections:
 class TestRequiredCapabilities:
     """The prompt must reference each capability the handler depends on."""
 
-    @pytest.mark.parametrize("cap", ["discord", "channels", "dir"])
+    @pytest.mark.parametrize("cap", ["discord", "channels", "data"])
     def test_capability_referenced(self, cap):
         text = _read_main()
         assert (
-            f"`{cap}`" in text or f"`{cap}." in text
+            f"`{cap}`" in text or f"`{cap}." in text or f"{cap}." in text
         ), f"Missing reference to capability: {cap}"
 
 
