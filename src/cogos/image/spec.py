@@ -15,6 +15,7 @@ class ImageSpec:
     files: dict[str, str] = field(default_factory=dict)
     schemas: list[dict] = field(default_factory=list)
     channels: list[dict] = field(default_factory=list)
+    coglets: list[dict] = field(default_factory=list)
 
 
 def image_file_prefixes(image_dir: Path) -> list[str]:
@@ -83,6 +84,12 @@ def load_image(image_dir: Path) -> ImageSpec:
     def add_file(key, *, content=""):
         spec.files[key] = content
 
+    def add_coglet(name, *, test_command, files, executor="subprocess", timeout_seconds=60):
+        spec.coglets.append({
+            "name": name, "test_command": test_command, "files": files,
+            "executor": executor, "timeout_seconds": timeout_seconds,
+        })
+
     builtins = {
         "__builtins__": __builtins__,
         "add_capability": add_capability,
@@ -92,6 +99,7 @@ def load_image(image_dir: Path) -> ImageSpec:
         "add_schema": add_schema,
         "add_channel": add_channel,
         "add_file": add_file,
+        "add_coglet": add_coglet,
     }
 
     # Load top-level init scripts

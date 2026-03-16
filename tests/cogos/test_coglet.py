@@ -671,3 +671,228 @@ class TestCogletCapabilityScope:
         scoped = cap.scope(coglet_id="abc")
         with pytest.raises(ValueError, match="Cannot change"):
             scoped.scope(coglet_id="xyz")
+
+
+# ---------------------------------------------------------------------------
+# Task 10: Capability registration via image system
+# ---------------------------------------------------------------------------
+
+
+class TestCapabilityRegistration:
+    """Test that coglet capabilities can be registered and bound to processes
+    through the image system (add_capability + add_process with capability binding)."""
+
+    def test_coglet_capability_registered_and_bound(self, tmp_path):
+        """Register a coglets capability and bind it to a process via the image system."""
+        from cogos.image.spec import ImageSpec
+        from cogos.image.apply import apply_image
+
+        repo = LocalRepository(str(tmp_path))
+        spec = ImageSpec(
+            capabilities=[
+                {
+                    "name": "coglets",
+                    "handler": "cogos.capabilities.coglets.CogletsCapability",
+                    "description": "Coglet factory",
+                    "instructions": "",
+                    "schema": None,
+                    "iam_role_arn": None,
+                    "metadata": None,
+                },
+                {
+                    "name": "coglet",
+                    "handler": "cogos.capabilities.coglet.CogletCapability",
+                    "description": "Single coglet ops",
+                    "instructions": "",
+                    "schema": None,
+                    "iam_role_arn": None,
+                    "metadata": None,
+                },
+            ],
+            processes=[
+                {
+                    "name": "dev-agent",
+                    "mode": "daemon",
+                    "content": "You are a developer agent.",
+                    "runner": "lambda",
+                    "executor": "llm",
+                    "model": None,
+                    "priority": 50.0,
+                    "capabilities": ["coglets", "coglet"],
+                    "handlers": [],
+                    "metadata": {},
+                },
+            ],
+        )
+        counts = apply_image(spec, repo)
+
+        assert counts["capabilities"] == 2
+        assert counts["processes"] == 1
+
+        # Verify capability objects exist
+        caps = repo.list_capabilities()
+        cap_names = {c.name for c in caps}
+        assert "coglets" in cap_names
+        assert "coglet" in cap_names
+
+        # Verify process has both capabilities bound
+        procs = repo.list_processes()
+        assert len(procs) == 1
+        pcs = repo.list_process_capabilities(procs[0].id)
+        pc_names = {pc.name for pc in pcs}
+        assert "coglets" in pc_names
+        assert "coglet" in pc_names
+
+
+# ---------------------------------------------------------------------------
+# Task 11: Full E2E test
+# ---------------------------------------------------------------------------
+
+
+class TestCogletE2E:
+    """Full end-to-end: create coglet via image, propose patch, verify, merge."""
+
+    def test_full_workflow(self, tmp_path):
+        """
+        1. Create coglet (calculator with add function) via image apply
+        2. Propose patch (add multiply function + tests)
+        3. Verify tests pass on patch
+        4. Merge patch
+        5. Verify main updated, version bumped, tests pass
+        """
+        from cogos.image.spec import ImageSpec
+        from cogos.image.apply import apply_image
+        from cogos.coglet import read_file_tree
+
+        repo = LocalRepository(str(tmp_path))
+
+        # -- Step 1: Create coglet via image system --
+        calc_files = {
+            "calc.py": "def add(a, b):\n    return a + b\n",
+            "test_calc.py": (
+                "exec(open('calc.py').read())\n"
+                "assert add(2, 3) == 5\n"
+                "assert add(-1, 1) == 0\n"
+                "print('all tests passed')\n"
+            ),
+        }
+        spec = ImageSpec(
+            coglets=[
+                {
+                    "name": "calculator",
+                    "test_command": "python test_calc.py",
+                    "files": calc_files,
+                    "executor": "subprocess",
+                    "timeout_seconds": 30,
+                },
+            ],
+        )
+        counts = apply_image(spec, repo)
+        assert counts["coglets"] == 1
+
+        # Find the coglet ID
+        fs = FileStore(repo)
+        coglets_cap = CogletsCapability(repo, uuid4())
+        coglet_list = coglets_cap.list()
+        assert len(coglet_list) == 1
+        coglet_id = coglet_list[0].coglet_id
+        assert coglet_list[0].name == "calculator"
+
+        # Verify files were written
+        main_files = read_file_tree(fs, coglet_id, "main")
+        assert "calc.py" in main_files
+        assert "test_calc.py" in main_files
+
+        # -- Step 2: Propose patch (add multiply function + test) --
+        cap = _make_coglet_cap(repo, coglet_id)
+
+        diff = (
+            "--- a/calc.py\n"
+            "+++ b/calc.py\n"
+            "@@ -1,2 +1,5 @@\n"
+            " def add(a, b):\n"
+            "     return a + b\n"
+            "+\n"
+            "+def multiply(a, b):\n"
+            "+    return a * b\n"
+            "--- a/test_calc.py\n"
+            "+++ b/test_calc.py\n"
+            "@@ -1,4 +1,7 @@\n"
+            " exec(open('calc.py').read())\n"
+            " assert add(2, 3) == 5\n"
+            " assert add(-1, 1) == 0\n"
+            "+assert multiply(3, 4) == 12\n"
+            "+assert multiply(0, 5) == 0\n"
+            "+assert multiply(-2, 3) == -6\n"
+            " print('all tests passed')\n"
+        )
+
+        patch_result = cap.propose_patch(diff)
+        assert isinstance(patch_result, PatchResult)
+
+        # -- Step 3: Verify tests pass on the patch --
+        assert patch_result.test_passed is True
+        assert patch_result.base_version == 0
+
+        # -- Step 4: Merge patch --
+        merge_result = cap.merge_patch(patch_result.patch_id)
+        assert isinstance(merge_result, MergeResult)
+        assert merge_result.merged is True
+        assert merge_result.new_version == 1
+
+        # -- Step 5: Verify main updated, version bumped, tests pass --
+        main_files_after = read_file_tree(fs, coglet_id, "main")
+        assert "def multiply(a, b):" in main_files_after["calc.py"]
+        assert "assert multiply(3, 4) == 12" in main_files_after["test_calc.py"]
+
+        # Verify version via status
+        status = cap.get_status()
+        assert isinstance(status, CogletStatus)
+        assert status.version == 1
+
+        # Run tests on updated main
+        test_result = cap.run_tests()
+        assert isinstance(test_result, TestResultInfo)
+        assert test_result.passed is True
+
+    def test_image_coglet_idempotent_update(self, tmp_path):
+        """Applying image twice with same coglet name updates rather than duplicates."""
+        from cogos.image.spec import ImageSpec
+        from cogos.image.apply import apply_image
+
+        repo = LocalRepository(str(tmp_path))
+
+        files_v1 = {"main.py": "v1"}
+        spec = ImageSpec(coglets=[{
+            "name": "mylib", "test_command": "true",
+            "files": files_v1, "executor": "subprocess", "timeout_seconds": 30,
+        }])
+        apply_image(spec, repo)
+
+        # Apply again with updated files
+        files_v2 = {"main.py": "v2", "extra.py": "new"}
+        spec2 = ImageSpec(coglets=[{
+            "name": "mylib", "test_command": "python -c 'print(1)'",
+            "files": files_v2, "executor": "subprocess", "timeout_seconds": 45,
+        }])
+        counts = apply_image(spec2, repo)
+        assert counts["coglets"] == 1
+
+        # Should still have exactly one coglet
+        coglets_cap = CogletsCapability(repo, uuid4())
+        coglet_list = coglets_cap.list()
+        assert len(coglet_list) == 1
+        assert coglet_list[0].name == "mylib"
+
+        # Files should be updated
+        fs = FileStore(repo)
+        from cogos.coglet import read_file_tree
+        main_files = read_file_tree(fs, coglet_list[0].coglet_id, "main")
+        assert main_files["main.py"] == "v2"
+        assert "extra.py" in main_files
+
+        # Meta should be updated
+        from cogos.capabilities.coglets import _load_meta
+        meta = _load_meta(fs, coglet_list[0].coglet_id)
+        assert meta.test_command == "python -c 'print(1)'"
+        assert meta.timeout_seconds == 45

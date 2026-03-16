@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from cogos.db.models import (
@@ -163,7 +164,47 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
 
         counts["processes"] += 1
 
-    # 8. Disable stale top-level processes not in this image
+    # 8. Coglets
+    from cogos.coglet import CogletMeta, write_file_tree
+    from cogos.capabilities.coglets import _load_meta, _save_meta
+    counts["coglets"] = 0
+    for coglet_dict in spec.coglets:
+        name = coglet_dict["name"]
+        test_command = coglet_dict["test_command"]
+        files = coglet_dict["files"]
+        executor = coglet_dict.get("executor", "subprocess")
+        timeout_seconds = coglet_dict.get("timeout_seconds", 60)
+
+        # Check if coglet with this name already exists by scanning meta files
+        existing_metas = fs.list_files(prefix="coglets/", limit=1000)
+        existing_id = None
+        for mf in existing_metas:
+            if mf.key.endswith("/meta.json"):
+                content = fs.get_content(mf.key)
+                if content:
+                    try:
+                        m = CogletMeta(**json.loads(content))
+                        if m.name == name:
+                            existing_id = m.id
+                            break
+                    except Exception:
+                        pass
+
+        if existing_id:
+            meta = _load_meta(fs, existing_id)
+            write_file_tree(fs, existing_id, "main", files)
+            meta.test_command = test_command
+            meta.executor = executor
+            meta.timeout_seconds = timeout_seconds
+            _save_meta(fs, meta)
+        else:
+            meta = CogletMeta(name=name, test_command=test_command, executor=executor, timeout_seconds=timeout_seconds)
+            write_file_tree(fs, meta.id, "main", files)
+            _save_meta(fs, meta)
+
+        counts["coglets"] += 1
+
+    # 9. Disable stale top-level processes not in this image
     image_process_names = {p["name"] for p in spec.processes}
     all_procs = repo.list_processes(limit=500)
     stale_count = 0
