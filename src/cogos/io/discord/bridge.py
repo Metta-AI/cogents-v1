@@ -594,6 +594,8 @@ class DiscordBridge:
         if not file_specs:
             return []
         files = []
+        # Collect URL-based specs to download with a single session
+        url_specs = []
         for spec in file_specs:
             s3_key = spec.get("s3_key")
             if s3_key and self._s3_client and self._blob_bucket:
@@ -605,20 +607,23 @@ class DiscordBridge:
                 except Exception:
                     logger.exception("Failed to download blob: %s", s3_key)
                 continue
-
             url = spec.get("url")
-            filename = spec.get("filename", "file")
-            if not url:
-                continue
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url) as resp:
-                        if resp.status != 200:
-                            continue
-                        data = await resp.read()
-                        files.append(discord.File(io.BytesIO(data), filename=filename))
-            except Exception:
-                logger.exception("Failed to download file: %s", url)
+            if url:
+                url_specs.append(spec)
+
+        if url_specs:
+            async with aiohttp.ClientSession() as session:
+                for spec in url_specs:
+                    url = spec["url"]
+                    filename = spec.get("filename", "file")
+                    try:
+                        async with session.get(url) as resp:
+                            if resp.status != 200:
+                                continue
+                            data = await resp.read()
+                            files.append(discord.File(io.BytesIO(data), filename=filename))
+                    except Exception:
+                        logger.exception("Failed to download file: %s", url)
         return files
 
     # ------------------------------------------------------------------
