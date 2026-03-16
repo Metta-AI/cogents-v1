@@ -927,19 +927,21 @@ def reload(ctx: click.Context, image: str, yes: bool, full: bool):
                     pass
         click.echo("All tables cleared.")
     else:
-        # Selective wipe — clear config/process tables, preserve files and channel messages.
+        # Selective wipe — clear config/process/message tables, preserve files.
+        # Channel messages must be cleared too: otherwise fresh handlers (with
+        # no delivery history) cause match_messages() to re-deliver everything.
         # Order matters: children before parents due to FK constraints.
         _CONFIG_TABLES = [
             "cogos_trace",
             "cogos_delivery",
+            "cogos_channel_message",
             "cogos_run",
+            "cogos_handler",
             "cogos_process_capability",
             "cogos_cron", "cogos_resource",
         ]
-        # Null out FK refs to cogos_process from tables we want to keep.
         _NULLIFY_PROCESS_REFS = [
             "UPDATE cogos_channel SET owner_process = NULL WHERE owner_process IS NOT NULL",
-            "UPDATE cogos_channel_message SET sender_process = NULL WHERE sender_process IS NOT NULL",
         ]
         _CONFIG_TABLES_FINAL = [
             "cogos_process", "cogos_capability",
