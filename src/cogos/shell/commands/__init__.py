@@ -14,6 +14,9 @@ class ShellState:
     cwd: str  # current prefix, e.g. "prompts/" or "" for root
     bedrock_client: Any = None
     raw_line: str = ""  # raw input line for commands that need unparsed text
+    stdin_channel: Any = None   # Channel object for io:stdin
+    stdout_channel: Any = None  # Channel object for io:stdout
+    stdout_cursor: Any = None   # datetime of last-seen stdout message
 
 
 CommandFn = Callable[[ShellState, list[str]], str | None]

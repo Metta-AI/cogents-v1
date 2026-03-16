@@ -2,6 +2,26 @@
 
 from __future__ import annotations
 
+from cogos.db.models import Channel, ChannelMessage, ChannelType
+
+_STDIN_CHANNEL = "io:stdin"
+_STDOUT_CHANNEL = "io:stdout"
+
+
+def _ensure_io_channels(repo) -> tuple[Channel, Channel]:
+    """Create stdin/stdout channels if they don't exist."""
+    stdin_ch = repo.get_channel_by_name(_STDIN_CHANNEL)
+    if not stdin_ch:
+        stdin_ch = Channel(name=_STDIN_CHANNEL, channel_type=ChannelType.NAMED)
+        repo.upsert_channel(stdin_ch)
+
+    stdout_ch = repo.get_channel_by_name(_STDOUT_CHANNEL)
+    if not stdout_ch:
+        stdout_ch = Channel(name=_STDOUT_CHANNEL, channel_type=ChannelType.NAMED)
+        repo.upsert_channel(stdout_ch)
+
+    return stdin_ch, stdout_ch
+
 
 class CogentShell:
     """Main shell class — instantiated by the CLI entry point."""
@@ -16,10 +36,17 @@ class CogentShell:
         from cogos.shell.completer import ShellCompleter
         from prompt_toolkit import PromptSession
         from prompt_toolkit.formatted_text import HTML
-        from prompt_toolkit.history import FileHistory
 
         repo = create_repository()
         state = ShellState(cogent_name=self.cogent_name, repo=repo, cwd="")
+
+        # Set up stdin/stdout channels
+        stdin_ch, stdout_ch = _ensure_io_channels(repo)
+        state.stdin_channel = stdin_ch
+        state.stdout_channel = stdout_ch
+        # Track last-seen stdout message so we can drain new ones
+        stdout_msgs = repo.list_channel_messages(stdout_ch.id, limit=1)
+        state.stdout_cursor = stdout_msgs[-1].created_at if stdout_msgs else None
 
         try:
             import boto3
@@ -57,9 +84,35 @@ class CogentShell:
             enable_history_search=True,
         )
 
+        def _drain_stdout():
+            """Print any new messages on io:stdout since last check."""
+            msgs = repo.list_channel_messages(
+                stdout_ch.id, limit=50, since=state.stdout_cursor,
+            )
+            for m in msgs:
+                payload = m.payload
+                if isinstance(payload, dict):
+                    text = payload.get("text", payload.get("data", ""))
+                else:
+                    text = str(payload)
+                if text:
+                    print(text)
+                state.stdout_cursor = m.created_at
+
+        def _publish_stdin(line: str):
+            """Publish a user command to io:stdin."""
+            repo.append_channel_message(ChannelMessage(
+                channel=stdin_ch.id,
+                sender_process=None,
+                payload={"text": line, "source": "shell"},
+            ))
+
         print(f"CogOS shell for \033[1;36m{self.cogent_name}\033[0m (type 'help' for commands, 'exit' to quit)")
 
         while True:
+            # Drain stdout before prompting (catches async process output)
+            _drain_stdout()
+
             try:
                 cwd_display = "/" + state.cwd.rstrip("/") if state.cwd else "/"
                 prompt_text = HTML(
@@ -71,8 +124,12 @@ class CogentShell:
                 print()
                 break
 
+            _publish_stdin(line)
             output = registry.dispatch(state, line)
             if output is None:
                 break
             if output:
                 print(output)
+
+            # Drain stdout after command (catches output from llm/process runs)
+            _drain_stdout()
