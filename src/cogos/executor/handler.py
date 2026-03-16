@@ -88,13 +88,13 @@ TOOL_CONFIG = {"tools": [
         "description": (
             "Execute Python code in a sandboxed environment. "
             "Variables persist between calls — define a variable in one call, use it in the next. "
-            "Capability proxies are pre-injected as top-level objects (e.g. discord, channels, file, procs, data). "
-            "Use obj.help() or dir(obj) to see available methods on any capability. "
+            "Capability proxies are pre-injected as top-level objects. "
+            "print(__capabilities__) to see what's available. Use obj.help() to see methods. "
             "Available builtins: print, len, range, enumerate, zip, sorted, min, max, sum, "
             "str, int, float, list, dict, set, tuple, bool, isinstance, hasattr, getattr, "
-            "setattr, dir, type, vars, map, filter, any, all, repr, json (pre-loaded). "
-            "No import statements — use stdlib.time, stdlib.os, etc. for standard library access. "
-            "Print results to see them. Returns stdout output or error traceback."
+            "setattr, type, map, filter, any, all, repr, json (pre-loaded). "
+            "No import statements — use stdlib.time for timestamps. "
+            "Print results to see them."
         ),
         "inputSchema": {"json": {
             "type": "object",
@@ -900,6 +900,10 @@ def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Reposit
             vt.set(ns, instance)
         except (ImportError, AttributeError) as exc:
             logger.warning("Could not load capability %s (%s): %s", cap_model.name, handler_path, exc)
+
+    # Expose a summary of what's available so the model doesn't waste turns probing
+    cap_names = sorted(k for k in vt.as_dict() if k != "print")
+    vt.set("__capabilities__", ", ".join(cap_names))
 
     # Create implicit process channel if it doesn't exist
     try:
