@@ -19,7 +19,8 @@ procs.spawn("scheduler",
         "scheduler/unblock_processes": None,
         "scheduler/kill_process": None,
         "channels": None,
-    })
+    },
+    subscribe="system:tick:minute")
 
 discord_prompt = file.read("cogos/io/discord/dispatch.md").content
 procs.spawn("discord-handle-message",
