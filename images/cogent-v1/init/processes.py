@@ -11,6 +11,6 @@ add_process(
     capabilities=[
         "me", "procs", "dir", "file", "discord", "channels",
         "secrets", "stdlib", "coglet_factory", "coglet", "alerts",
-        "blob", "image",
+        "blob", "image", "scheduler",
     ],
 )
