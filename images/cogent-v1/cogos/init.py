@@ -1,8 +1,12 @@
 # CogOS Init — boot script
 # Spawns all infrastructure processes, app daemons, and coglets.
 
-# ── Discord channels (created at boot so handlers can subscribe) ──────
-for ch_name in ["io:discord:dm", "io:discord:mention", "io:discord:message"]:
+# ── Channels (created at boot so handlers can subscribe) ──────
+for ch_name in [
+    "io:discord:dm", "io:discord:mention", "io:discord:message",
+    "system:tick:minute", "system:tick:hour",
+    "supervisor:help",
+]:
     channels.create(ch_name)
 
 # ── Infrastructure ───────────────────────────────────────────
