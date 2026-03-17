@@ -44,7 +44,7 @@ cog.make_coglet(
     },
     capabilities=[
         "discord", "channels", "stdlib", "procs", "file",
-        "image", "blob", "secrets",
+        "image", "blob", "secrets", "web",
         {"name": "dir", "alias": "data", "config": {"prefix": "data/discord/"}},
     ],
     handlers=[
