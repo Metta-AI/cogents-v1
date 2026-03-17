@@ -1188,11 +1188,11 @@ class LocalRepository:
         with self._writing():
             self._alerts[alert.id] = alert
 
-    def list_alerts(self, *, resolved: bool = False) -> list:
+    def list_alerts(self, *, resolved: bool = False, limit: int = 50) -> list:
         self._maybe_reload()
         from cogos.db.models.alert import Alert
 
         alerts = list(self._alerts.values())
         if not resolved:
             alerts = [a for a in alerts if a.resolved_at is None]
-        return sorted(alerts, key=lambda a: a.created_at or datetime.min, reverse=True)
+        return sorted(alerts, key=lambda a: a.created_at or datetime.min, reverse=True)[:limit]
