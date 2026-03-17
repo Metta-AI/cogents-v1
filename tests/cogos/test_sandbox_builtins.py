@@ -87,6 +87,54 @@ def test_state_does_not_clobber_capabilities():
     assert "real_capability" in result
 
 
+def test_safe_builtins_blocks_type():
+    """type() removed to prevent class hierarchy traversal."""
+    result = _run("print(type([]))")
+    assert "Error" in result or "error" in result.lower()
+
+
+def test_safe_builtins_blocks_vars():
+    """vars() removed to prevent object introspection."""
+    result = _run("print(vars({}))")
+    assert "Error" in result or "error" in result.lower()
+
+
+def test_safe_builtins_blocks_setattr():
+    """setattr() removed to prevent object mutation."""
+    result = _run("x = []; setattr(x, 'y', 1)")
+    assert "Error" in result or "error" in result.lower()
+
+
+def test_safe_getattr_blocks_dunder():
+    """getattr blocks dunder attribute access."""
+    result = _run("print(getattr([], '__class__'))")
+    assert "Error" in result or "error" in result.lower()
+
+
+def test_safe_getattr_allows_normal_access():
+    """getattr still works for normal attributes."""
+    result = _run("print(getattr('hello', 'upper')())")
+    assert "HELLO" in result
+
+
+def test_safe_getattr_with_default():
+    """getattr with default still works."""
+    result = _run("print(getattr({}, 'missing', 'fallback'))")
+    assert "fallback" in result
+
+
+def test_class_hierarchy_traversal_blocked():
+    """Can't traverse class hierarchy to find dangerous classes."""
+    result = _run("t = getattr([], '__class__')")
+    assert "Error" in result or "error" in result.lower()
+
+
+def test_isinstance_still_works():
+    """isinstance should still work (doesn't need type())."""
+    result = _run("print(isinstance(42, int))")
+    assert "True" in result
+
+
 def test_scope_not_accessible_from_sandbox():
     """Sandbox code should not be able to read _scope from capability objects."""
     from unittest.mock import MagicMock

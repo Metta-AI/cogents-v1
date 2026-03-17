@@ -36,5 +36,6 @@ class Run(BaseModel):
     scope_log: list[dict[str, Any]] = Field(default_factory=list)
     trace_id: UUID | None = None
     parent_trace_id: UUID | None = None
+    metadata: dict[str, Any] | None = None
     created_at: datetime | None = None
     completed_at: datetime | None = None

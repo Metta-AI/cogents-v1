@@ -59,6 +59,11 @@ def handler(event: dict, context) -> dict:
     # 0b. Recover stuck daemons — if RUNNING but no active run, reset to WAITING
     _recover_stuck_daemons(repo)
 
+    # 0c. Flush failed runs to dead-letter channel
+    flushed = _flush_dead_letters(repo)
+    if flushed:
+        logger.info("Flushed %s failed runs to dead-letter channel", flushed)
+
     # 1. Generate virtual system tick events (not written to event log)
     _apply_system_ticks(repo)
 
@@ -123,6 +128,51 @@ def _recover_stuck_daemons(repo) -> None:
                 logger.debug("Could not create alert for stuck daemon %s", proc.name)
 
 
+
+
+def _flush_dead_letters(repo) -> int:
+    """Write recently failed/timed-out runs to the dead-letter channel for visibility."""
+    from cogos.db.models import Channel, ChannelMessage, ChannelType, RunStatus
+
+    # Ensure the dead-letter channel exists
+    dl_ch = repo.get_channel_by_name("system:dead-letter")
+    if dl_ch is None:
+        dl_ch = Channel(name="system:dead-letter", channel_type=ChannelType.NAMED)
+        repo.upsert_channel(dl_ch)
+        dl_ch = repo.get_channel_by_name("system:dead-letter")
+
+    # Find runs that failed or timed out in the last 2 minutes
+    # (dispatcher runs every 60s, so 2min catches anything since last tick)
+    failed_runs = repo.list_recent_failed_runs(max_age_ms=120_000)
+    flushed = 0
+    for run in failed_runs:
+        # Skip if already reported (check metadata)
+        if run.metadata and run.metadata.get("dead_letter_reported"):
+            continue
+
+        process = repo.get_process(run.process)
+        process_name = process.name if process else str(run.process)
+
+        repo.append_channel_message(ChannelMessage(
+            channel=dl_ch.id,
+            payload={
+                "type": "executor:failed",
+                "run_id": str(run.id),
+                "process_id": str(run.process),
+                "process_name": process_name,
+                "status": run.status.value,
+                "error": run.error or "unknown",
+                "duration_ms": run.duration_ms,
+            },
+        ))
+
+        # Mark as reported to avoid duplicate dead-letters
+        run_meta = run.metadata or {}
+        run_meta["dead_letter_reported"] = True
+        repo.update_run_metadata(run.id, run_meta)
+        flushed += 1
+
+    return flushed
 
 
 def _apply_system_ticks(repo, *, now: datetime | None = None) -> None:

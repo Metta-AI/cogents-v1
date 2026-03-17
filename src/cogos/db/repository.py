@@ -1109,6 +1109,27 @@ class Repository:
         )
         return response.get("numberOfRecordsUpdated", 0)
 
+    def list_recent_failed_runs(self, max_age_ms: int = 120_000) -> list[Run]:
+        """List runs that failed or timed out within the last max_age_ms."""
+        response = self._execute(
+            """SELECT * FROM cogos_run
+               WHERE status IN ('failed', 'timeout')
+                 AND COALESCE(completed_at, created_at) > now() - make_interval(secs => :max_age_s)
+               ORDER BY completed_at DESC""",
+            [self._param("max_age_s", max_age_ms / 1000.0)],
+        )
+        return [self._run_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def update_run_metadata(self, run_id: UUID, metadata: dict) -> None:
+        """Update the metadata JSON field on a run."""
+        self._execute(
+            "UPDATE cogos_run SET metadata = :metadata::jsonb WHERE id = :id",
+            [
+                self._param("id", run_id),
+                self._param("metadata", metadata),
+            ],
+        )
+
     def get_run(self, run_id: UUID) -> Run | None:
         response = self._execute(
             "SELECT * FROM cogos_run WHERE id = :id",
@@ -1150,6 +1171,7 @@ class Repository:
             scope_log=self._json_field(row, "scope_log", []),
             trace_id=UUID(row["trace_id"]) if row.get("trace_id") else None,
             parent_trace_id=UUID(row["parent_trace_id"]) if row.get("parent_trace_id") else None,
+            metadata=self._json_field(row, "metadata"),
             created_at=self._ts(row, "created_at"),
             completed_at=self._ts(row, "completed_at"),
         )

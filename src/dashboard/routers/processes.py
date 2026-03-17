@@ -435,6 +435,54 @@ def reboot_system(name: str) -> dict:
     return result
 
 
+class ProcessLogEntry(BaseModel):
+    stream: str  # "stdout" or "stderr"
+    text: str
+    process_name: str | None = None
+    created_at: str | None = None
+
+
+class ProcessLogsResponse(BaseModel):
+    process_id: str
+    process_name: str
+    entries: list[ProcessLogEntry]
+
+
+@router.get("/processes/{process_id}/logs", response_model=ProcessLogsResponse)
+def get_process_logs(
+    name: str,
+    process_id: str,
+    limit: int = Query(100, le=500),
+) -> ProcessLogsResponse:
+    repo = get_repo()
+    p = repo.get_process(UUID(process_id))
+    if not p:
+        raise HTTPException(status_code=404, detail="Process not found")
+
+    entries: list[ProcessLogEntry] = []
+    for stream in ("stdout", "stderr"):
+        ch = repo.get_channel_by_name(f"process:{p.name}:{stream}")
+        if not ch:
+            continue
+        msgs = repo.list_channel_messages(ch.id, limit=limit)
+        for m in msgs:
+            entries.append(ProcessLogEntry(
+                stream=stream,
+                text=m.payload.get("text", ""),
+                process_name=m.payload.get("process", p.name),
+                created_at=_iso(m.created_at) if m.created_at else None,
+            ))
+
+    # Sort by created_at
+    entries.sort(key=lambda e: e.created_at or "")
+
+    return ProcessLogsResponse(
+        process_id=str(p.id),
+        process_name=p.name,
+        entries=entries,
+    )
+
+
 @router.delete("/processes/{process_id}")
 def delete_process(name: str, process_id: str) -> dict:
     repo = get_repo()

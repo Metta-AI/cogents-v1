@@ -962,6 +962,26 @@ class LocalRepository:
         self._maybe_reload()
         return self._runs.get(run_id)
 
+    def list_recent_failed_runs(self, max_age_ms: int = 120_000) -> list[Run]:
+        """List runs that failed or timed out within the last max_age_ms."""
+        self._maybe_reload()
+        from datetime import timedelta
+        cutoff = datetime.now(UTC) - timedelta(milliseconds=max_age_ms)
+        result = []
+        for run in self._runs.values():
+            if run.status in (RunStatus.FAILED, RunStatus.TIMEOUT):
+                if run.completed_at and run.completed_at >= cutoff:
+                    result.append(run)
+                elif run.created_at and run.created_at >= cutoff:
+                    result.append(run)
+        return result
+
+    def update_run_metadata(self, run_id: UUID, metadata: dict) -> None:
+        with self._writing():
+            run = self._runs.get(run_id)
+            if run:
+                run.metadata = metadata
+
     def list_runs(self, *, process_id: UUID | None = None, limit: int = 50) -> list[Run]:
         self._maybe_reload()
         runs = list(self._runs.values())

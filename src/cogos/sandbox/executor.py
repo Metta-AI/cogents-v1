@@ -26,6 +26,13 @@ def _sandbox_exit():
     raise _SandboxExit()
 
 
+def _safe_getattr(obj, name, *default):
+    """getattr that blocks dunder attribute access from sandbox code."""
+    if isinstance(name, str) and name.startswith("__") and name.endswith("__"):
+        raise AttributeError(f"Access to '{name}' is not allowed")
+    return getattr(obj, name, *default) if default else getattr(obj, name)
+
+
 _SAFE_BUILTINS: dict[str, Any] = {
     # Control flow
     "exit": _sandbox_exit,
@@ -62,16 +69,12 @@ _SAFE_BUILTINS: dict[str, Any] = {
     "bool": bool,
     "bytes": bytes,
     "bytearray": bytearray,
-    "object": object,
     "slice": slice,
-    "type": type,
     # Introspection
     "isinstance": isinstance,
     "issubclass": issubclass,
     "hasattr": hasattr,
-    "getattr": getattr,
-    "setattr": setattr,
-    "vars": vars,
+    "getattr": _safe_getattr,
     "id": id,
     "callable": callable,
     # Numeric

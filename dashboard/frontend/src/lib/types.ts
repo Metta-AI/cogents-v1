@@ -381,6 +381,19 @@ export interface Tool {
   updated_at: string | null;
 }
 
+export interface ProcessLogEntry {
+  stream: string;
+  text: string;
+  process_name: string | null;
+  created_at: string | null;
+}
+
+export interface ProcessLogsResponse {
+  process_id: string;
+  process_name: string;
+  entries: ProcessLogEntry[];
+}
+
 export type TimeRange = "1m" | "10m" | "1h" | "24h" | "1w";
 export type Timezone = "local" | "utc" | "pst";
 

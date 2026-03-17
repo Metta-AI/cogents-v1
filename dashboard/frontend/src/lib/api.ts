@@ -18,6 +18,7 @@ import type {
   MessageTrace,
   CogosChannel,
   ChannelSendResult,
+  ProcessLogsResponse,
 } from "./types";
 
 interface MessageTraceFilters {
@@ -226,6 +227,16 @@ export async function deleteProcess(name: string, processId: string): Promise<vo
     headers: headers(),
   });
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+}
+
+export async function getProcessLogs(
+  cogentName: string,
+  processId: string,
+  limit: number = 100,
+): Promise<ProcessLogsResponse> {
+  return fetchJSON(
+    `/api/cogents/${cogentName}/processes/${processId}/logs?limit=${limit}`,
+  );
 }
 
 export async function getFiles(name: string): Promise<CogosFile[]> {
