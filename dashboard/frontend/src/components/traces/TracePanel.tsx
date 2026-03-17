@@ -64,6 +64,51 @@ function payloadPreview(payload: Record<string, unknown>): string {
     .join(" · ");
 }
 
+function getPayloadString(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized || null;
+}
+
+function summarizeDiscordPayload(payload: Record<string, unknown>): string | null {
+  const content = getPayloadString(payload, "content");
+  if (content) {
+    return content;
+  }
+
+  const embeds = payload.embeds;
+  if (Array.isArray(embeds)) {
+    const embedSummary = embeds
+      .flatMap((embed) => {
+        if (!embed || typeof embed !== "object" || Array.isArray(embed)) return [];
+        const record = embed as Record<string, unknown>;
+        return [record.title, record.description]
+          .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+          .map((value) => value.trim().replace(/\s+/g, " "));
+      })
+      .join(" · ");
+    if (embedSummary) {
+      return embedSummary;
+    }
+  }
+
+  const attachments = payload.attachments;
+  if (Array.isArray(attachments) && attachments.length > 0) {
+    const label = attachments.length === 1 ? "attachment" : "attachments";
+    return `${attachments.length} ${label}`;
+  }
+
+  return null;
+}
+
+function messagePreview(messageType: string | null | undefined, payload: Record<string, unknown>): string {
+  if (messageType?.startsWith("discord:")) {
+    return summarizeDiscordPayload(payload) ?? payloadPreview(payload);
+  }
+  return payloadPreview(payload);
+}
+
 function emittedCount(deliveries: TraceDelivery[]): number {
   return deliveries.reduce((count, delivery) => count + delivery.emitted_messages.length, 0);
 }
@@ -180,7 +225,7 @@ function traceSearchBlob(trace: MessageTrace): string {
     trace.message.trace_id ?? "",
     trace.message.sender_process_name ?? "",
     trace.message.sender_process ?? "",
-    payloadPreview(trace.message.payload),
+    messagePreview(trace.message.message_type, trace.message.payload),
     safeJson(trace.message.payload),
   ];
 
@@ -200,7 +245,7 @@ function traceSearchBlob(trace: MessageTrace): string {
         emitted.message_type ?? "",
         emitted.request_id ?? "",
         emitted.trace_id ?? "",
-        payloadPreview(emitted.payload),
+        messagePreview(emitted.message_type, emitted.payload),
         safeJson(emitted.payload),
       );
     }
@@ -258,7 +303,7 @@ function TraceMessageCard({
         )}
       </div>
       <div className="text-[12px] text-[var(--text-secondary)] font-mono">
-        {payloadPreview(message.payload)}
+        {messagePreview(message.message_type, message.payload)}
       </div>
       <JsonViewer data={message.payload} />
     </div>
@@ -793,7 +838,7 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
                     </span>
                   </div>
                   <div className="text-[12px] text-[var(--text-secondary)] font-mono truncate">
-                    {payloadPreview(message.payload)}
+                    {messagePreview(message.message_type, message.payload)}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {targetNames.map((target) => (
@@ -912,7 +957,7 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
                                       </button>
                                     </div>
                                     <div className="text-[12px] text-[var(--text-secondary)] font-mono">
-                                      {payloadPreview(emitted.payload)}
+                                      {messagePreview(emitted.message_type, emitted.payload)}
                                     </div>
                                     <JsonViewer data={emitted.payload} />
                                   </div>
