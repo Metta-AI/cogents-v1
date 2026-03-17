@@ -17,6 +17,7 @@ class RunStatus(str, enum.Enum):
     FAILED = "failed"
     TIMEOUT = "timeout"
     SUSPENDED = "suspended"
+    THROTTLED = "throttled"
 
 
 class Run(BaseModel):

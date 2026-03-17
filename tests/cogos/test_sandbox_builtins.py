@@ -62,10 +62,11 @@ def test_safe_builtins_allows_getattr():
     assert "HELLO" in result
 
 
-def test_safe_builtins_blocks_dir():
-    """dir() is excluded because it collides with the dir capability namespace."""
+def test_safe_dir_filters_dunders():
+    """dir() works but filters out dunder attributes."""
     result = _run("print(dir([]))")
-    assert "Error" in result or "error" in result.lower()
+    assert "append" in result
+    assert "__" not in result
 
 
 def test_state_persists_between_executions():
@@ -133,6 +134,48 @@ def test_isinstance_still_works():
     """isinstance should still work (doesn't need type())."""
     result = _run("print(isinstance(42, int))")
     assert "True" in result
+
+
+def test_safe_dir_lists_public_methods():
+    """dir() on a capability object lists its public methods."""
+    from unittest.mock import MagicMock
+    from uuid import uuid4
+    from cogos.capabilities.scheduler import SchedulerCapability
+
+    repo = MagicMock()
+    cap = SchedulerCapability(repo, uuid4())
+
+    vt = VariableTable()
+    vt.set("scheduler", cap)
+    executor = SandboxExecutor(vt)
+    result = executor.execute("print(dir(scheduler))")
+    assert "match_messages" in result
+    assert "select_processes" in result
+    assert "__" not in result
+
+
+def test_safe_dir_on_builtin_types():
+    """dir() on strings/lists shows public methods."""
+    result = _run("print(dir('hello'))")
+    assert "upper" in result
+    assert "__" not in result
+
+
+def test_safe_help_on_capability():
+    """help(obj) prints the capability help text."""
+    from unittest.mock import MagicMock
+    from uuid import uuid4
+    from cogos.capabilities.scheduler import SchedulerCapability
+
+    repo = MagicMock()
+    cap = SchedulerCapability(repo, uuid4())
+
+    vt = VariableTable()
+    vt.set("scheduler", cap)
+    executor = SandboxExecutor(vt)
+    result = executor.execute("help(scheduler)")
+    assert "match_messages" in result
+    assert "MatchResult" in result
 
 
 def test_scope_not_accessible_from_sandbox():

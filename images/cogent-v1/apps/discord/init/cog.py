@@ -15,9 +15,11 @@ def _read(rel: str) -> str:
 
 cog = add_cog("discord")
 cog.make_default_coglet(
-    entrypoint="main.md",
+    entrypoint="main.py",
     mode="daemon",
-    files={"main.md": _read("discord.md")},
+    executor="python",
+    model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    files={"main.py": _read("discord.py"), "main.md": _read("discord.md")},
     capabilities=[
         "me", "procs", "dir", "file", "discord", "channels",
         "stdlib", "cog", "coglet_runtime", "image", "blob", "secrets", "web",

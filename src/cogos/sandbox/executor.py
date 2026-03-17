@@ -33,6 +33,26 @@ def _safe_getattr(obj, name, *default):
     return getattr(obj, name, *default) if default else getattr(obj, name)
 
 
+def _safe_dir(obj=None):
+    """dir() that filters out dunder attributes for sandbox safety."""
+    if obj is None:
+        return []
+    return [name for name in dir(obj) if not name.startswith("_")]
+
+
+def _safe_help(obj=None):
+    """help() that prints capability help or public methods."""
+    if obj is None:
+        print("Use help(object) to see available methods.")
+        return
+    if hasattr(obj, "help") and callable(obj.help) and not isinstance(obj, type):
+        print(obj.help())
+        return
+    methods = _safe_dir(obj)
+    type_name = type(obj).__name__
+    print(f"{type_name} methods: {', '.join(methods)}")
+
+
 _SAFE_BUILTINS: dict[str, Any] = {
     # Control flow
     "exit": _sandbox_exit,
@@ -77,6 +97,8 @@ _SAFE_BUILTINS: dict[str, Any] = {
     "getattr": _safe_getattr,
     "id": id,
     "callable": callable,
+    "dir": _safe_dir,
+    "help": _safe_help,
     # Numeric
     "chr": chr,
     "ord": ord,

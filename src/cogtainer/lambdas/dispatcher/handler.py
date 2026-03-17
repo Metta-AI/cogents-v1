@@ -23,6 +23,15 @@ from cogos.runtime.schedule import apply_scheduled_messages
 
 logger = setup_logging()
 
+_THROTTLE_COOLDOWN_MS = 300_000  # 5 minutes
+
+
+def _is_throttle_cooldown_active(repo) -> bool:
+    """Check if any recent run was throttled, indicating we should back off."""
+    from cogos.db.models import RunStatus
+    recent = repo.list_recent_failed_runs(max_age_ms=_THROTTLE_COOLDOWN_MS)
+    return any(r.status == RunStatus.THROTTLED for r in recent)
+
 
 def handler(event: dict, context) -> dict:
     """Lambda entry point: single-shot scheduler tick."""
@@ -50,6 +59,11 @@ def handler(event: dict, context) -> dict:
         repo.set_meta("state:modified_at")
     except Exception:
         pass
+
+    # 0. Check throttle cooldown — skip LLM dispatch if recently throttled
+    if _is_throttle_cooldown_active(repo):
+        logger.info("Throttle cooldown active — skipping LLM dispatch this tick")
+        return {"statusCode": 200, "dispatched": 0, "throttle_cooldown": True}
 
     # 0a. Reap runs stuck in RUNNING longer than 15 minutes (Lambda max timeout)
     reaped = repo.timeout_stale_runs(max_age_ms=900_000)

@@ -16,7 +16,7 @@ class TestDiscordCogImage:
         discord_cog = next(c for c in spec.cogs if c["name"] == "discord")
         default = discord_cog["default_coglet"]
         assert default is not None
-        assert default["entrypoint"] == "main.md"
+        assert default["entrypoint"] == "main.py"
         assert default["mode"] == "daemon"
 
     def test_discord_cog_has_handlers(self):
@@ -64,5 +64,5 @@ class TestDiscordCogApply:
         store = FileStore(repo)
         meta = load_coglet_meta(store, "discord", "discord")
         assert meta is not None
-        assert meta.entrypoint == "main.md"
+        assert meta.entrypoint == "main.py"
         assert meta.mode == "daemon"

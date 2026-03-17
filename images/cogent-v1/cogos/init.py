@@ -22,6 +22,7 @@ else:
         mode="daemon",
         content=scheduler_data.content,
         priority=100.0,
+        model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
         capabilities={"scheduler": None, "channels": None},
         subscribe="system:tick:minute")
     if hasattr(r, 'error'):

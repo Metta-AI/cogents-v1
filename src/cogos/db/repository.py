@@ -1113,7 +1113,7 @@ class Repository:
         """List runs that failed or timed out within the last max_age_ms."""
         response = self._execute(
             """SELECT * FROM cogos_run
-               WHERE status IN ('failed', 'timeout')
+               WHERE status IN ('failed', 'timeout', 'throttled')
                  AND COALESCE(completed_at, created_at) > now() - make_interval(secs => :max_age_s)
                ORDER BY completed_at DESC""",
             [self._param("max_age_s", max_age_ms / 1000.0)],

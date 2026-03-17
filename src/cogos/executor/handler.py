@@ -317,9 +317,11 @@ def handler(event: dict, context: Any = None) -> dict:
         cost = _estimate_cost(run.model_version or "", run.tokens_in, run.tokens_out)
         run.cost_usd = cost
 
+        # Preserve THROTTLED status set by execute_process
+        final_status = run.status if run.status == RunStatus.THROTTLED else RunStatus.FAILED
         repo.complete_run(
             run.id,
-            status=RunStatus.FAILED,
+            status=final_status,
             tokens_in=run.tokens_in,
             tokens_out=run.tokens_out,
             cost_usd=cost,
@@ -791,6 +793,10 @@ def execute_process(
         return run
     except Exception as exc:
         _publish_process_io(repo, process, "stderr", f"[{process.name}] {exc}")
+        # Detect throttling so dispatcher can apply cooldown
+        exc_str = str(exc)
+        if "ThrottlingException" in exc_str or "Too many tokens" in exc_str:
+            run.status = RunStatus.THROTTLED
         run.tokens_in = total_input_tokens
         run.tokens_out = total_output_tokens
         run.scope_log = sandbox.scope_log

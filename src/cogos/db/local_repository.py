@@ -970,7 +970,7 @@ class LocalRepository:
         cutoff = datetime.now(UTC) - timedelta(milliseconds=max_age_ms)
         result = []
         for run in self._runs.values():
-            if run.status in (RunStatus.FAILED, RunStatus.TIMEOUT):
+            if run.status in (RunStatus.FAILED, RunStatus.TIMEOUT, RunStatus.THROTTLED):
                 if run.completed_at and run.completed_at >= cutoff:
                     result.append(run)
                 elif run.created_at and run.created_at >= cutoff:
