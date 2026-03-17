@@ -58,15 +58,12 @@ else:
 
 # Option A — Text reply:
 reply = "your response here"
-discord.send(channel=channel_id, content=reply, reply_to=message_id)
 
-# Option B — React only (for escalation ⬆️, ack 👍, or background task 🔄):
+# Option B — React only (for ack 👍 or background task 🔄):
 # discord.react(channel=channel_id, message_id=message_id, emoji="👍")
 
 # Option C — Escalate (when you lack capability or info):
 # reply = "On it — handing this off now!"
-# discord.send(channel=channel_id, content=reply, reply_to=message_id)
-# discord.react(channel=channel_id, message_id=message_id, emoji="⬆️")
 # channels.send("supervisor:help", {
 #     "process_name": "discord-handle-message",
 #     "description": "what the user asked for",
@@ -78,7 +75,8 @@ discord.send(channel=channel_id, content=reply, reply_to=message_id)
 #     "discord_author_id": author_id,
 # })
 
-# Update conversation log and waterline
+# Update conversation log and waterline BEFORE sending to Discord.
+# This prevents double-sends if write() fails and the LLM retries.
 log_handle = data.get(f"{conv_key}/recent.log")
 log_handle.write(history + f"\n{author}: {content}\nassistant: {reply}")
 seen = waterline.get("seen", [])
@@ -86,6 +84,10 @@ seen.append(message_id)
 waterline["seen"] = seen[-100:]
 wl = data.get(f"{conv_key}/waterline.json")
 wl.write(json.dumps(waterline))
+
+# Send LAST — after state is saved, so retries won't double-send.
+discord.send(channel=channel_id, content=reply, reply_to=message_id)
+# For escalation, also: discord.react(channel=channel_id, message_id=message_id, emoji="⬆️")
 print("Done")
 ```
 
