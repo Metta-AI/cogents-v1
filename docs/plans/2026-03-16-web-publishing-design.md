@@ -4,7 +4,7 @@
 
 Let cogents publish web artifacts to their own subdomain (`{name}.softmax-cogents.com`). A cogent can serve static files (HTML/JS/CSS) and handle dynamic API requests — managing its own web presence the same way it manages Discord interactions today.
 
-CogOS provides the infrastructure (IO bridge, capability, gateway). The cogent decides what to publish and how to handle requests. The existing operator dashboard remains separate.
+CogOS provides the infrastructure (IO bridge, capability, serving). The cogent decides what to publish and how to handle requests.
 
 ## Separation of Concerns — Three Layers
 
@@ -14,11 +14,9 @@ Deployed once per cogent via CloudFormation. These are AWS resources:
 
 | Resource | Purpose |
 |----------|---------|
-| **Web Gateway Lambda** | Python function + Function URL. Routes HTTP to file store (static) or invokes executor for dynamic requests. The only new AWS resource. |
-| **Cloudflare DNS record** | Points `{name}.softmax-cogents.com` at the Function URL. Access policy already exists. |
-| **IAM role** | Gateway needs: RDS Data API access (read file store, write channels), invoke executor Lambda. |
-
-Nothing else changes in the CDK stack. No ALB changes, no new ECS tasks, no S3 buckets.
+| **Dashboard (FastAPI)** | Already exists. Now also serves cogent web content at `/web/` and proxies `/api/` requests to the executor. Primary entry point for web content. |
+| **Web Gateway Lambda** | Python function + Function URL. Standalone entry point for `{name}.softmax-cogents.com` — validates Cloudflare Access JWT and serves the same content as the dashboard routes. Used when the cogent's subdomain points directly at a Lambda Function URL instead of the ALB. |
+| **Cloudflare DNS record** | Points `{name}.softmax-cogents.com` at either the ALB (dashboard) or the Lambda Function URL. Access policy already exists. |
 
 ### Layer 2: CogOS Runtime (image boot)
 
@@ -37,11 +35,11 @@ The cogent decides if and how to use its web presence. None of this is mandatory
 
 | Component | Purpose |
 |-----------|---------|
-| **Web cog + handler coglet** | Defined in `apps/website/init/cog.py` (or wherever). A daemon process subscribed to `io:web:request` via `handlers=["io:web:request"]`. |
-| **Handler prompt** | The coglet's `main.md` — decides what to do with each request, calls `web.respond()`. Route logic lives here. |
+| **Web cog + handler coglet** | Defined in `apps/website/init/cog.py`. A daemon process subscribed to `io:web:request` via `handlers=["io:web:request"]`. |
+| **Handler prompt** | The coglet's `main.md` — receives the web request as injected JSON, calls `web.respond()`. Route logic lives here. |
 | **Published files** | Any process with the `web` capability can call `web.publish("index.html", content)`. Files sit in file store under `web/`. |
 
-A cogent that doesn't want a web presence just doesn't create a web cog. The infra sits idle at zero cost (Lambda isn't invoked, no processes running).
+A cogent that doesn't want a web presence just doesn't create a web cog. The infra sits idle at zero cost (no processes running).
 
 ### The boundary
 
@@ -51,6 +49,18 @@ The cogent never knows how HTTP serving works. CogOS never knows what the cogent
 
 ### Request Flow
 
+There are two entry points that serve the same content:
+
+**Via Dashboard (primary):**
+```
+Browser
+  → ALB → Dashboard (FastAPI)
+  → Route decision:
+      ├── /web/{path}: read file from Postgres file store → return HTTP
+      └── /api/{path}: append to io:web:request channel → invoke executor → handler responds → return HTTP
+```
+
+**Via Web Gateway Lambda (subdomain):**
 ```
 Browser
   → Cloudflare (Access auth via JWT + DNS)
@@ -61,57 +71,55 @@ Browser
       └── Dynamic: append to io:web:request channel → invoke executor → handler responds → return HTTP
 ```
 
-No Cloudflare caching in v1. Every request hits the Lambda. Gateway sends `Cache-Control: no-store` on all responses to prevent intermediary caching. Caching is a future optimization.
+No Cloudflare caching in v1. Gateway sends `Cache-Control: no-store` on all responses. Caching is a future optimization.
 
 ### Components
 
-#### 1. Web Gateway Lambda (new, CogOS)
+#### 1. Dashboard Web Routes (new routes on existing FastAPI app)
 
-A new Lambda per cogent, provisioned in the cogtainer CDK stack. Single entry point for all HTTP requests to the cogent's subdomain.
+The dashboard already runs as an ECS service behind the ALB. Two new catch-all routes serve cogent web content:
 
-**Auth:** Validates the Cloudflare Access JWT on every request using Cloudflare's public key endpoint (`https://{team}.cloudflareaccess.com/cdn-cgi/access/certs`). Rejects requests without a valid JWT. This prevents direct access to the Lambda Function URL bypassing Cloudflare.
+**`/web/{path}` — static content:**
+1. Map URL path to file store key: `/web/dashboard/index.html` → `web/dashboard/index.html`
+2. If path is empty or ends with `/`, append `index.html`
+3. Read file from Postgres via `FileStore.get_content()`
+4. Infer `Content-Type` from extension, default to `application/octet-stream`
+5. Return file content, or 404 if not found
+
+**`/api/{path}` — dynamic requests (catch-all below dashboard API routes):**
+1. Find the `io:web:request` channel and its handler process
+2. Generate `request_id` (UUID)
+3. Append channel message with request payload
+4. Invoke executor Lambda synchronously, passing process ID + web request context
+5. Return the executor's web response, or 502 on failure
+
+These routes are registered after the dashboard's own `/api/cogents/{name}/...` routes, so they only catch non-dashboard API paths.
+
+#### 2. Web Gateway Lambda (new, CogOS)
+
+A standalone Lambda per cogent for the subdomain path. Identical logic to the dashboard routes but runs independently behind a Function URL.
+
+**Auth:** Validates the Cloudflare Access JWT on every request using Cloudflare's public key endpoint (`https://{team}.cloudflareaccess.com/cdn-cgi/access/certs`). Rejects requests without a valid JWT.
 
 **Static path (`/*` except `/api/*`):**
-1. Map URL path to file store key: `GET /dashboard/index.html` → `web/dashboard/index.html`
+1. Map URL path to file store key: `GET /page.html` → `web/page.html`
 2. Lookup chain: `web/{path}` → `web/{path}/index.html` → 404
 3. `GET /` → `web/index.html`
 4. Read file from Postgres via RDS Data API
-5. Infer `Content-Type` from extension, default to `application/octet-stream` for extensionless paths
+5. Infer `Content-Type` from extension, default to `application/octet-stream`
 6. Return file content with `Cache-Control: no-store`
-7. If not found, return 404
 
-**Dynamic path (`/api/*`):**
-1. Receive HTTP request (method, path, query params, headers, body)
-2. Generate `request_id` (UUID)
-3. Append channel message to `io:web:request` with payload:
-   ```json
-   {
-     "request_id": "<uuid>",
-     "method": "POST",
-     "path": "/api/status",
-     "query": {"format": "json"},
-     "headers": {"content-type": "application/json"},
-     "body": "{...}"
-   }
-   ```
-4. `append_channel_message()` auto-creates delivery, marks handler RUNNABLE
-5. Invoke executor Lambda synchronously, passing handler process ID + request context
-6. Executor runs handler process → handler calls `web.respond()` → response captured in executor context
-7. Executor returns response payload to gateway
-8. Gateway returns HTTP response (status, headers, body)
-9. On executor timeout/crash: return 502 with error details
+**Dynamic path (`/api/*`):** Same flow as dashboard — append channel message, invoke executor, return response.
 
-**Timeout:** Governed by the executor Lambda's own timeout. The gateway Lambda timeout must exceed this (e.g., executor 30s, gateway 60s).
-
-#### 2. `web` Capability (new, CogOS)
+#### 3. `web` Capability (new, CogOS)
 
 A new built-in capability, analogous to `discord`. Provides the verbs a process needs to interact with the web.
 
 **Methods:**
 
-- `web.publish(path, content, content_type=None)` — write a file to `web/{path}` in the file store. Convenience wrapper over `file.write()` with the `web/` prefix. Text content only in v1 (binary files like images are out of scope).
+- `web.publish(path, content)` — write a file to `web/{path}` in the file store. Text content only in v1 (binary files like images are out of scope).
 - `web.unpublish(path)` — delete `web/{path}` from the file store.
-- `web.respond(request_id, status=200, headers=None, body="")` — set the HTTP response for the current request. Captured by the executor and returned to the gateway. Only one `respond()` per `request_id` (subsequent calls are no-ops).
+- `web.respond(request_id, status=200, headers=None, body="")` — set the HTTP response for the current request. Captured by the executor and returned to the caller. Only one `respond()` per `request_id` (subsequent calls are no-ops).
 - `web.list(prefix="")` — list published files under `web/{prefix}`.
 
 **Scoping:** Like other capabilities, `web` can be scoped:
@@ -119,7 +127,7 @@ A new built-in capability, analogous to `discord`. Provides the verbs a process 
 - `web.scope(ops=["respond"])` — API handling only, no publishing
 - `web.scope(path_prefix="dashboard/")` — restrict to a subdirectory
 
-#### 3. `io:web:request` Channel (new, CogOS)
+#### 4. `io:web:request` Channel (new, CogOS)
 
 A system channel created at boot (like `io:discord:dm`). Schema:
 
@@ -138,29 +146,33 @@ Handler processes subscribe to this channel to receive dynamic API requests.
 
 Only one process should be subscribed to `io:web:request` at a time. If multiple processes subscribe, each request gets delivered to all subscribers, and the first `web.respond()` call wins (subsequent calls for the same `request_id` are no-ops).
 
-#### 4. Response Mechanism
+#### 5. Response Mechanism
 
 No intermediate storage needed. The response flows back through the invocation chain:
 
-1. Gateway invokes executor Lambda synchronously (like awaiting a future)
-2. Executor runs handler process
+1. Caller (dashboard or gateway) invokes executor Lambda synchronously
+2. Executor runs handler process, injecting the web request as JSON in the user message
 3. Handler calls `web.respond(request_id, status, headers, body)`
-4. `web.respond()` captures the response in the executor's in-memory context
-5. When the handler finishes (or after `web.respond()` is called), executor returns the response payload to the gateway
-6. Gateway returns HTTP
+4. `web.respond()` captures the response in the executor's in-memory `_pending_responses` dict
+5. After the handler finishes, the executor extracts the pending response via `_extract_web_response()` and returns it in the `web_response` field
+6. Caller returns HTTP
 
-This mirrors the parent/child process pattern in CogOS — the gateway is effectively spawning a child (via the executor) and receiving the response back through the return value. No polling, no correlation tables, no intermediate channels for the response path.
+No polling, no correlation tables, no intermediate channels for the response path.
 
-**Error handling:** If the handler process crashes, the executor returns an error payload. The gateway returns 502 with error details. If the executor itself times out, the synchronous invoke fails and the gateway returns 504.
+**Error handling:** If the handler process crashes, the executor returns an error payload. The caller returns 502 with error details. If the executor itself times out, the synchronous invoke fails and the caller returns 502/504.
 
 ### Dispatch
 
-For dynamic requests, the gateway bypasses the SQS → ingress scheduler path and invokes the executor directly. This is the right choice for synchronous HTTP — web requests shouldn't wait in a scheduler queue.
+For dynamic requests, both the dashboard and the gateway bypass the SQS → ingress scheduler path and invoke the executor directly. This is the right choice for synchronous HTTP — web requests shouldn't wait in a scheduler queue.
 
 The channel append (`io:web:request`) still happens for:
 - Handler subscription semantics (delivery creation, RUNNABLE marking)
 - Audit trail (all requests are logged as channel messages)
 - Future: if we add async/webhook-style endpoints, those could use the normal scheduler path
+
+### Request Injection
+
+The executor injects the web request directly into the handler's user message as JSON (via the `web_request` field in the event payload). The handler doesn't need to read from the `io:web:request` channel — the request arrives as part of its input context.
 
 ### Concurrency
 
@@ -177,10 +189,17 @@ This is acceptable for v1. Mitigations:
 
 ## Infrastructure Details
 
+### Dashboard (FastAPI)
+
+- Already deployed as ECS service behind ALB
+- New routes: `/web/{path}` (static), `/api/{path}` (dynamic catch-all)
+- Uses `FileStore` and `Repository` from existing dashboard DB connection
+- Needs `EXECUTOR_FUNCTION_NAME` env var to invoke the executor Lambda
+
 ### Web Gateway Lambda (cogtainer CDK stack)
 
 - Runtime: Python 3.12
-- Memory: 512 MB
+- Memory: 256 MB
 - Timeout: 60 seconds (must exceed executor timeout)
 - Function URL: enabled (provides HTTPS endpoint)
 - No VPC — uses RDS Data API like all other Lambdas in the stack
@@ -188,13 +207,12 @@ This is acceptable for v1. Mitigations:
 
 ### Cloudflare DNS + Auth
 
-- Point `{name}.softmax-cogents.com` at the Lambda Function URL
+- Point `{name}.softmax-cogents.com` at the ALB (dashboard) or Lambda Function URL
 - Cloudflare Access policy controls who can reach it (already exists for dashboard)
 - Gateway Lambda validates Cloudflare Access JWT on every request (public key from `https://{team}.cloudflareaccess.com/cdn-cgi/access/certs`)
 
 ### What Doesn't Change
 
-- Existing ALB + dashboard routing (separate concern)
 - Executor Lambda / ECS task definitions
 - Scheduler, dispatcher, orchestrator Lambdas
 - Polis shared infrastructure
@@ -220,11 +238,8 @@ Accessible at:
 ### Handling dynamic requests (daemon process subscribed to `io:web:request`)
 
 ```python
-# In the web handler process's prompt/code:
-# The process wakes when a message arrives on io:web:request
-
-request = channels.read("io:web:request", limit=1)[0]
-req = request.payload
+# The web request is injected into the handler's message as JSON.
+# The handler parses it and responds.
 
 if req["path"] == "/api/status":
     data = file.read("data/metrics/latest.json")
@@ -243,13 +258,13 @@ elif req["path"].startswith("/api/trigger/"):
 ### Setting up the handler (in image init or cog)
 
 ```python
-# As a cog (like discord cog)
+# As a cog (like discord cog) — see apps/website/init/cog.py
 cog = add_cog("website")
 cog.make_default_coglet(
     entrypoint="main.md",
     mode="daemon",
-    files={"main.md": web_handler_prompt, "test_main.py": web_handler_tests},
-    capabilities=["web", "channels", "file", "procs", "stdlib",
+    files={"main.md": _read("handler/main.md")},
+    capabilities=["me", "procs", "dir", "file", "web", "channels", "stdlib",
                    {"name": "dir", "alias": "data", "config": {"prefix": "data/"}}],
     handlers=["io:web:request"],
     priority=5.0,

@@ -338,6 +338,7 @@ class CogtainerStack(Stack):
             "SESSIONS_BUCKET": self.storage.bucket.bucket_name,
             "DASHBOARD_ASSETS_S3": f"s3://{self.storage.bucket.bucket_name}/dashboard/frontend.tar.gz",
             "DASHBOARD_DOCKER_VERSION": docker_version,
+            "EXECUTOR_FUNCTION_NAME": f"cogent-{safe_name}-executor",
         }
 
         task_def.add_container(
@@ -398,6 +399,14 @@ class CogtainerStack(Stack):
             )
         )
         self.storage.bucket.grant_read_write(task_def.task_role)
+
+        # IAM: invoke executor Lambda for /api/ proxy
+        task_def.task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"],
+                resources=[self.compute.executor.function_arn],
+            )
+        )
 
         # Fargate service
         sg = ec2.SecurityGroup(self, "DashSg", vpc=vpc)

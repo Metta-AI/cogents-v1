@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from dashboard.config import settings
@@ -32,6 +32,7 @@ def _verify_admin_key(key: str) -> bool:
                     import json
 
                     import boto3
+
                     sm = boto3.client("secretsmanager", region_name="us-east-1")
                     secret_id = f"cogent/{cogent_name}/dashboard-api-key"
                     resp = sm.get_secret_value(SecretId=secret_id)
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
         setup,
         traces,
     )
+
     app.include_router(alerts.router, prefix="/api/cogents/{name}")
     app.include_router(processes.router, prefix="/api/cogents/{name}")
     app.include_router(handlers.router, prefix="/api/cogents/{name}")
@@ -130,6 +132,104 @@ def create_app() -> FastAPI:
                 await ws.receive_text()
         except WebSocketDisconnect:
             manager.disconnect(name, ws)
+
+    # --- Web content from FileStore (DB) ---
+    @app.get("/web/{path:path}")
+    async def web_content(path: str):
+        import mimetypes
+
+        from cogos.files.store import FileStore
+        from dashboard.db import get_repo
+
+        if not path or path.endswith("/"):
+            path = (path or "") + "index.html"
+
+        store = FileStore(get_repo())
+        content = store.get_content(f"web/{path}")
+        if content is None:
+            return JSONResponse(status_code=404, content={"detail": "not found"})
+
+        mime, _ = mimetypes.guess_type(path)
+        return Response(content=content, media_type=mime or "application/octet-stream")
+
+    # --- Executor proxy for non-dashboard /api/ paths ---
+    @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+    async def api_proxy(request: Request, path: str):
+        import json
+        from uuid import uuid4
+
+        import boto3
+
+        from cogos.db.models.channel_message import ChannelMessage
+        from dashboard.db import get_repo
+
+        repo = get_repo()
+        channel = repo.get_channel_by_name("io:web:request")
+        if not channel:
+            return JSONResponse(status_code=503, content={"detail": "web request channel not configured"})
+
+        handlers = repo.match_handlers_by_channel(channel.id)
+        if not handlers:
+            return JSONResponse(status_code=503, content={"detail": "no handler for web requests"})
+
+        target_handler = handlers[0]
+        process = repo.get_process(target_handler.process)
+        if not process:
+            return JSONResponse(status_code=503, content={"detail": "handler process not found"})
+
+        request_id = str(uuid4())
+        body = (await request.body()).decode() or None
+        query_params = dict(request.query_params)
+        headers = {k: v for k, v in request.headers.items() if not k.startswith("cf-")}
+
+        msg = ChannelMessage(
+            channel=channel.id,
+            payload={
+                "request_id": request_id,
+                "method": request.method,
+                "path": path,
+                "query": query_params,
+                "headers": headers,
+                "body": body,
+            },
+        )
+        repo.append_channel_message(msg)
+
+        executor_fn = os.environ.get("EXECUTOR_FUNCTION_NAME", "")
+        if not executor_fn:
+            return JSONResponse(status_code=503, content={"detail": "executor function not configured"})
+
+        try:
+            lambda_client = boto3.client("lambda")
+            response = lambda_client.invoke(
+                FunctionName=executor_fn,
+                InvocationType="RequestResponse",
+                Payload=json.dumps(
+                    {
+                        "process_id": str(process.id),
+                        "web_request_id": request_id,
+                        "web_request": {
+                            "method": request.method,
+                            "path": path,
+                            "query": query_params,
+                            "headers": headers,
+                            "body": body,
+                        },
+                    }
+                ),
+            )
+            resp_payload = json.loads(response["Payload"].read())
+            web_response = resp_payload.get("web_response")
+            if not web_response:
+                return Response(status_code=204)
+            return Response(
+                content=web_response.get("body", ""),
+                status_code=web_response.get("status", 200),
+                media_type=web_response.get("headers", {}).get("content-type", "application/json"),
+            )
+        except Exception:
+            logger.exception("Executor invocation failed")
+            return JSONResponse(status_code=502, content={"detail": "executor error"})
 
     # Serve static frontend files if DASHBOARD_STATIC_DIR is set
     static_dir = os.environ.get("DASHBOARD_STATIC_DIR")

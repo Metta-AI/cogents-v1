@@ -38,7 +38,7 @@ else:
         capabilities={
             "me": None, "procs": None, "dir": None, "file": None,
             "discord": None, "channels": None, "secrets": None,
-            "stdlib": None, "alerts": None,
+            "stdlib": None, "alerts": None, "email": None, "web": None,
         },
         subscribe="supervisor:help")
     if hasattr(r, 'error'):
