@@ -130,11 +130,6 @@ class DiscordBridge:
         # Typing indicator tasks keyed by channel_id
         self._typing_tasks: dict[int, asyncio.Task] = {}
 
-        # SQS dedup: track recently processed MessageIds to skip duplicates
-        # (standard SQS queues guarantee at-least-once, not exactly-once)
-        self._seen_sqs_ids: set[str] = set()
-        self._seen_sqs_max = 1000
-
         intents = discord.Intents.default()
         intents.message_content = True
         intents.dm_messages = True
@@ -414,27 +409,20 @@ class DiscordBridge:
                     ),
                 )
                 for msg in response.get("Messages", []):
-                    sqs_id = msg.get("MessageId", "")
-                    if sqs_id in self._seen_sqs_ids:
-                        logger.info("Skipping duplicate SQS message %s", sqs_id)
-                    else:
-                        try:
-                            await self._send_reply(msg)
-                        except discord.errors.NotFound:
-                            logger.error("Channel not found for reply %s, discarding", sqs_id)
-                        except Exception:
-                            logger.exception("Failed to send reply: %s", sqs_id)
-                            continue
-                        self._seen_sqs_ids.add(sqs_id)
-                        if len(self._seen_sqs_ids) > self._seen_sqs_max:
-                            self._seen_sqs_ids = set(list(self._seen_sqs_ids)[-500:])
+                    try:
+                        await self._send_reply(msg)
+                    except discord.errors.NotFound:
+                        logger.error("Channel not found for reply %s, discarding", msg.get("MessageId"))
+                    except Exception:
+                        logger.exception("Failed to send reply: %s", msg.get("MessageId"))
+                        continue
                     try:
                         self._sqs_client.delete_message(
                             QueueUrl=self.reply_queue_url,
                             ReceiptHandle=msg["ReceiptHandle"],
                         )
                     except Exception:
-                        logger.exception("Failed to delete SQS message %s", sqs_id)
+                        logger.exception("Failed to delete SQS message %s", msg.get("MessageId"))
             except Exception:
                 logger.exception("Reply poll error")
                 await asyncio.sleep(5)
