@@ -24,6 +24,8 @@ import type {
 interface MessageTraceFilters {
   messageTypes?: string[];
   emittedMessageTypes?: string[];
+  categories?: string[];
+  requestIds?: string[];
   limit?: number;
 }
 
@@ -61,6 +63,12 @@ export async function getMessageTraces(
   }
   for (const value of filters.emittedMessageTypes ?? []) {
     params.append("emitted_message_type", value);
+  }
+  for (const value of filters.categories ?? []) {
+    params.append("category", value);
+  }
+  for (const value of filters.requestIds ?? []) {
+    params.append("request_id", value);
   }
   if (filters.limit != null) {
     params.set("limit", String(filters.limit));
