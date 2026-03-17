@@ -28,10 +28,14 @@ You can update your website files using:
 - `web.unpublish(path)` -- remove a published file
 - `web.list(prefix="")` -- list published files
 
+## Important
+
+`json` is already available in the sandbox -- do NOT use `import json` (imports are not allowed). All capability proxies (`web`, `file`, `dir`, etc.) are pre-injected.
+
 ## Example
 
 ```python
-import json
+# json is already available, no import needed
 req = json.loads(...)  # parse from message
 if req["path"] == "status":
     web.respond(req["request_id"], status=200,
