@@ -178,10 +178,9 @@ class ProcsCapability(Capability):
             tty=tty,
         )
 
-        child_id = self.repo.upsert_process(child)
-
-        # Bind explicitly requested capabilities (with delegation authorization)
+        # Validate all capabilities before creating the process
         parent_grants = self.repo.list_process_capabilities(self.process_id)
+        validated_caps: list[tuple[str, UUID, dict | None]] = []
 
         for grant_name, cap_instance in (capabilities or {}).items():
             # Support "alias:capability" syntax — e.g. "data:dir" exposes dir as data
@@ -191,12 +190,10 @@ class ProcsCapability(Capability):
                 cap_lookup = grant_name
 
             if cap_instance is not None:
-                # Scoped or unscoped capability instance — resolve by class name
                 cap_type_name = type(cap_instance).__name__.lower().replace("capability", "")
                 cap = self.repo.get_capability_by_name(cap_type_name)
                 child_scope = getattr(cap_instance, "_scope", None) or None
             else:
-                # None means look up by cap_lookup, unscoped
                 cap_type_name = cap_lookup
                 cap = self.repo.get_capability_by_name(cap_lookup)
                 child_scope = None
@@ -204,7 +201,6 @@ class ProcsCapability(Capability):
             if not cap or not cap.enabled:
                 return ProcessError(error=f"Capability '{grant_name}' not found or disabled")
 
-            # Check parent holds this capability type
             parent_grant = next(
                 (pg for pg in parent_grants if pg.capability == cap.id),
                 None,
@@ -214,7 +210,6 @@ class ProcsCapability(Capability):
                     error=f"Cannot delegate '{grant_name}': parent does not hold capability '{cap_type_name}'"
                 )
 
-            # Check child scope is within parent scope
             parent_scope = parent_grant.config
             if parent_scope and child_scope:
                 try:
@@ -228,15 +223,19 @@ class ProcsCapability(Capability):
                         error=f"Cannot delegate '{grant_name}': child scope exceeds parent scope"
                     )
             elif parent_scope and not child_scope:
-                # Parent is scoped but child is unscoped = widening = denied
                 return ProcessError(
                     error=f"Cannot delegate '{grant_name}': cannot widen parent's scoped grant to unscoped"
                 )
-            # If parent is unscoped, child can be anything (narrowing is always OK)
 
+            validated_caps.append((grant_name, cap.id, child_scope))
+
+        # Validation passed — now create the process and bind capabilities
+        child_id = self.repo.upsert_process(child)
+
+        for grant_name, cap_id, child_scope in validated_caps:
             pc = ProcessCapability(
                 process=child_id,
-                capability=cap.id,
+                capability=cap_id,
                 name=grant_name,
                 config=child_scope,
             )
