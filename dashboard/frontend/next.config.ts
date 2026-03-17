@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
         { source: "/ws/:path*", destination: `http://127.0.0.1:${bePort}/ws/:path*` },
         { source: "/healthz", destination: `http://127.0.0.1:${bePort}/healthz` },
         { source: "/admin/:path*", destination: `http://127.0.0.1:${bePort}/admin/:path*` },
+        { source: "/web/:path*", destination: `http://127.0.0.1:${bePort}/web/:path*` },
       ];
     },
     async headers() {
