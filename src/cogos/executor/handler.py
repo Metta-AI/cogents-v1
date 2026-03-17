@@ -88,10 +88,10 @@ TOOL_CONFIG = {"tools": [
             "Execute Python code in a sandboxed environment. "
             "Variables persist between calls — define a variable in one call, use it in the next. "
             "Capability proxies are pre-injected as top-level objects. "
-            "print(__capabilities__) to see what's available. Use obj.help() to see methods. "
-            "Available builtins: print, len, range, enumerate, zip, sorted, min, max, sum, "
+            "print(__help__) shows ALL available capabilities with method signatures. "
+            "Available builtins: print, len, range, sorted, min, max, sum, "
             "str, int, float, list, dict, set, tuple, bool, isinstance, hasattr, getattr, "
-            "setattr, type, map, filter, any, all, repr, json (pre-loaded). "
+            "type, map, filter, any, all, repr, json (pre-loaded). "
             "No import statements — use stdlib.time for timestamps. "
             "Print results to see them."
         ),
@@ -900,6 +900,18 @@ def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Reposit
     # Expose a summary of what's available so the model doesn't waste turns probing
     cap_names = sorted(k for k in vt.as_dict() if k != "print")
     vt.set("__capabilities__", ", ".join(cap_names))
+
+    # Generate concise help for each capability
+    help_lines = []
+    for name in cap_names:
+        obj = vt.get(name)
+        if obj is not None and hasattr(obj, "help") and callable(obj.help):
+            try:
+                help_lines.append(f"## {name}\n{obj.help()}")
+            except Exception:
+                pass
+    if help_lines:
+        vt.set("__help__", "\n\n".join(help_lines))
 
     # Create implicit process channel if it doesn't exist
     try:
