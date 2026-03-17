@@ -27,6 +27,7 @@ class ProcessMode(str, enum.Enum):
 
 class Process(BaseModel):
     id: UUID = Field(default_factory=uuid4)
+    epoch: int = 0
     name: str
     mode: ProcessMode = ProcessMode.ONE_SHOT
     content: str = ""

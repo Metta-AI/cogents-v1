@@ -18,6 +18,7 @@ class DeliveryStatus(str, enum.Enum):
 
 class Delivery(BaseModel):
     id: UUID = Field(default_factory=uuid4)
+    epoch: int = 0
     message: UUID  # FK -> ChannelMessage.id
     handler: UUID  # FK -> Handler.id
     status: DeliveryStatus = DeliveryStatus.PENDING

@@ -18,6 +18,7 @@ class Handler(BaseModel):
     """Process-to-channel subscription used for wakeup and delivery tracking."""
 
     id: UUID = Field(default_factory=uuid4)
+    epoch: int = 0
     process: UUID  # FK -> Process.id
     channel: UUID | None = None  # FK -> Channel.id; None only in legacy compatibility paths
     enabled: bool = True

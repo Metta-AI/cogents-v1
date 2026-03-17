@@ -22,6 +22,7 @@ class RunStatus(str, enum.Enum):
 
 class Run(BaseModel):
     id: UUID = Field(default_factory=uuid4)
+    epoch: int = 0
     process: UUID  # FK -> Process.id
     message: UUID | None = None  # FK -> ChannelMessage.id (triggering message)
     conversation: UUID | None = None  # FK -> Conversation.id

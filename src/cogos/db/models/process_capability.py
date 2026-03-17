@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 class ProcessCapability(BaseModel):
     id: UUID = Field(default_factory=uuid4)
+    epoch: int = 0
     process: UUID  # FK -> Process.id
     capability: UUID  # FK -> Capability.id
     name: str = ""  # namespace alias (e.g. "email_me"); defaults to capability name
