@@ -59,6 +59,10 @@ def handler(event: dict, context) -> dict:
     # 0b. Recover stuck daemons — if RUNNING but no active run, reset to WAITING
     _recover_stuck_daemons(repo)
 
+    # 0b2. Wake waiting daemons that have pending deliveries (they may have been
+    # reset to WAITING by _recover_stuck_daemons but still have unprocessed work)
+    _wake_waiting_with_pending(repo)
+
     # 0c. Flush failed runs to dead-letter channel
     flushed = _flush_dead_letters(repo)
     if flushed:
@@ -126,6 +130,19 @@ def _recover_stuck_daemons(repo) -> None:
                 )
             except Exception:
                 logger.debug("Could not create alert for stuck daemon %s", proc.name)
+
+
+def _wake_waiting_with_pending(repo) -> None:
+    """Transition WAITING daemons with pending deliveries to RUNNABLE."""
+    from cogos.db.models import ProcessMode, ProcessStatus
+
+    waiting = repo.list_processes(status=ProcessStatus.WAITING)
+    for proc in waiting:
+        if proc.mode != ProcessMode.DAEMON:
+            continue
+        if repo.has_pending_deliveries(proc.id):
+            repo.update_process_status(proc.id, ProcessStatus.RUNNABLE)
+            logger.info("Woke waiting daemon %s: has pending deliveries", proc.name)
 
 
 
