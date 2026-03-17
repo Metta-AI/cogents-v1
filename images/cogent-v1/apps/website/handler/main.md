@@ -9,7 +9,7 @@ The web request is injected directly into your message as JSON. Parse it and res
 Each request has:
 - `request_id` -- unique ID, pass to `web.respond()`
 - `method` -- HTTP method (GET, POST, etc.)
-- `path` -- URL path (e.g., `/api/status`)
+- `path` -- URL path relative to the route prefix (e.g., `status` for `/web/api/status`)
 - `query` -- query parameters dict
 - `headers` -- request headers dict
 - `body` -- request body string or null
@@ -33,7 +33,7 @@ You can update your website files using:
 ```python
 import json
 req = json.loads(...)  # parse from message
-if req["path"] == "/api/status":
+if req["path"] == "status":
     web.respond(req["request_id"], status=200,
                 headers={"content-type": "application/json"},
                 body='{"status": "ok"}')

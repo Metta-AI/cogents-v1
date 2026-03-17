@@ -14,7 +14,7 @@ Deployed once per cogent via CloudFormation. These are AWS resources:
 
 | Resource | Purpose |
 |----------|---------|
-| **Dashboard (FastAPI)** | Already exists. Now also serves cogent web content at `/web/` and proxies `/api/` requests to the executor. Primary entry point for web content. |
+| **Dashboard (FastAPI)** | Already exists. Now also serves cogent web content at `/web/static/` and proxies `/web/api/` requests to the executor. Primary entry point for web content. |
 | **Web Gateway Lambda** | Python function + Function URL. Standalone entry point for `{name}.softmax-cogents.com` — validates Cloudflare Access JWT and serves the same content as the dashboard routes. Used when the cogent's subdomain points directly at a Lambda Function URL instead of the ALB. |
 | **Cloudflare DNS record** | Points `{name}.softmax-cogents.com` at either the ALB (dashboard) or the Lambda Function URL. Access policy already exists. |
 
@@ -56,8 +56,8 @@ There are two entry points that serve the same content:
 Browser
   → ALB → Dashboard (FastAPI)
   → Route decision:
-      ├── /web/{path}: read file from Postgres file store → return HTTP
-      └── /api/{path}: append to io:web:request channel → invoke executor → handler responds → return HTTP
+      ├── /web/static/{path}: read file from Postgres file store → return HTTP
+      └── /web/api/{path}: append to io:web:request channel → invoke executor → handler responds → return HTTP
 ```
 
 **Via Web Gateway Lambda (subdomain):**
@@ -77,23 +77,23 @@ No Cloudflare caching in v1. Gateway sends `Cache-Control: no-store` on all resp
 
 #### 1. Dashboard Web Routes (new routes on existing FastAPI app)
 
-The dashboard already runs as an ECS service behind the ALB. Two new catch-all routes serve cogent web content:
+The dashboard already runs as an ECS service behind the ALB. Two new routes under `/web/` serve cogent web content, completely isolated from the dashboard's own `/api/` namespace:
 
-**`/web/{path}` — static content:**
-1. Map URL path to file store key: `/web/dashboard/index.html` → `web/dashboard/index.html`
+**`/web/static/{path}` — static content:**
+1. Map URL path to file store key: `/web/static/index.html` → `web/index.html`
 2. If path is empty or ends with `/`, append `index.html`
 3. Read file from Postgres via `FileStore.get_content()`
 4. Infer `Content-Type` from extension, default to `application/octet-stream`
 5. Return file content, or 404 if not found
 
-**`/api/{path}` — dynamic requests (catch-all below dashboard API routes):**
+**`/web/api/{path}` — dynamic requests:**
 1. Find the `io:web:request` channel and its handler process
 2. Generate `request_id` (UUID)
 3. Append channel message with request payload
 4. Invoke executor Lambda synchronously, passing process ID + web request context
 5. Return the executor's web response, or 502 on failure
 
-These routes are registered after the dashboard's own `/api/cogents/{name}/...` routes, so they only catch non-dashboard API paths.
+The `/web/` prefix keeps cogent web routes cleanly separated from the dashboard's `/api/cogents/{name}/...` routes, avoiding any routing conflicts.
 
 #### 2. Web Gateway Lambda (new, CogOS)
 
@@ -192,7 +192,7 @@ This is acceptable for v1. Mitigations:
 ### Dashboard (FastAPI)
 
 - Already deployed as ECS service behind ALB
-- New routes: `/web/{path}` (static), `/api/{path}` (dynamic catch-all)
+- New routes: `/web/static/{path}` (static), `/web/api/{path}` (dynamic)
 - Uses `FileStore` and `Repository` from existing dashboard DB connection
 - Needs `EXECUTOR_FUNCTION_NAME` env var to invoke the executor Lambda
 
@@ -231,9 +231,9 @@ web.publish("style.css", "body { font-family: sans-serif; }")
 ```
 
 Accessible at:
-- `https://dr-gamma.softmax-cogents.com/index.html`
-- `https://dr-gamma.softmax-cogents.com/app.js`
-- `https://dr-gamma.softmax-cogents.com/style.css`
+- `https://dr-gamma.softmax-cogents.com/web/static/index.html`
+- `https://dr-gamma.softmax-cogents.com/web/static/app.js`
+- `https://dr-gamma.softmax-cogents.com/web/static/style.css`
 
 ### Handling dynamic requests (daemon process subscribed to `io:web:request`)
 
@@ -241,13 +241,13 @@ Accessible at:
 # The web request is injected into the handler's message as JSON.
 # The handler parses it and responds.
 
-if req["path"] == "/api/status":
+if req["path"] == "status":
     data = file.read("data/metrics/latest.json")
     web.respond(req["request_id"], status=200,
                 headers={"content-type": "application/json"},
                 body=data.content)
 
-elif req["path"].startswith("/api/trigger/"):
+elif req["path"].startswith("trigger/"):
     task_name = req["path"].split("/")[-1]
     handle = procs.spawn(name=f"task-{task_name}", content=f"Run {task_name}")
     web.respond(req["request_id"], status=202,
@@ -275,13 +275,23 @@ cog.make_default_coglet(
 
 Simple convention-based routing, no configuration needed:
 
+**Via Dashboard:**
+
+| URL Pattern | Behavior |
+|-------------|----------|
+| `/web/static/` | Serve `web/index.html` from file store |
+| `/web/static/{path}` | Serve `web/{path}` from file store, 404 if not found |
+| `/web/api/{path}` | Bridge to `io:web:request` channel, invoke executor |
+
+**Via Web Gateway Lambda (subdomain):**
+
 | URL Pattern | Behavior |
 |-------------|----------|
 | `/` | Serve `web/index.html` |
 | `/{path}` | Serve `web/{path}`, then try `web/{path}/index.html`, then 404 |
 | `/api/{path}` | Bridge to `io:web:request` channel, invoke executor |
 
-The cogent controls everything under its subdomain. There's no routing config — the cogent just publishes files wherever it wants and handles API requests however it wants.
+The dashboard routes live under `/web/` to avoid conflicts with the dashboard's own `/api/` namespace. The web gateway Lambda serves at the root since it has no other routes to conflict with.
 
 ## Limitations (v1)
 
