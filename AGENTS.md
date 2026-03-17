@@ -152,11 +152,15 @@ cogent dr.alpha dashboard deploy --docker     # Force Docker image rebuild
 
 This builds the Next.js static export, packages it with the FastAPI backend into a Docker image, pushes to ECR (`901289084804.dkr.ecr.us-east-1.amazonaws.com/cogent`), and restarts the ECS Fargate service. The dashboard is served at `https://{safe-name}.softmax-cogents.com`.
 
-### Deploying brain (Lambda + DB migrations)
+### Deploying Lambda + DB migrations
+
+See [docs/deploy.md](docs/deploy.md) for the full deploy reference.
 
 ```bash
-cogent dr.alpha brain update                  # Update Lambda code + run DB migrations
-cogent dr.alpha brain update stack            # Update CloudFormation stack (ALB rules, etc.)
+cogent dr.alpha cogtainer update lambda       # Update Lambda code (~15s)
+cogent dr.alpha cogtainer update rds          # Run DB schema migrations
+cogent dr.alpha cogtainer update all          # Lambda + RDS + sync
+cogent dr.alpha cogtainer create --watch      # Full CDK stack deploy (ALB rules, IAM, etc.)
 ```
 
 ### Managing the Discord bridge (remote)
@@ -174,7 +178,7 @@ cogent dr.alpha cogos io discord status    # Check running/desired counts
 
 ```bash
 cogent dr.alpha dashboard create-pat
-cogent dr.alpha brain update stack            # Apply ALB bypass rule
+cogent dr.alpha cogtainer create --watch      # Apply ALB bypass rule
 ```
 
 2. Test with curl:

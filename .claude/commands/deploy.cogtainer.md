@@ -1,5 +1,7 @@
 Deploy cogtainer infrastructure changes (CDK stack, Lambda, ECS, RDS).
 
+Human-readable reference: [docs/deploy.md](../../docs/deploy.md)
+
 This is the heaviest deploy — only use when actual infrastructure changes are needed.
 
 ## Pre-flight

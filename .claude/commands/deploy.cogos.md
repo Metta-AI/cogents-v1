@@ -1,5 +1,7 @@
 Deploy CogOS changes (image data, DB schema, executor logic) with minimal disruption.
 
+Human-readable reference: [docs/deploy.md](../../docs/deploy.md)
+
 ## Pre-flight
 
 1. Ensure no uncommitted changes: `git status --porcelain` must be empty. If dirty, stop and ask.
