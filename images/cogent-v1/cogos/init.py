@@ -11,32 +11,42 @@ for ch_name in [
 
 # ── Infrastructure ───────────────────────────────────────────
 
-scheduler_prompt = file.read("cogos/lib/scheduler.md").content
-procs.spawn("scheduler",
-    mode="daemon",
-    content=scheduler_prompt,
-    priority=100.0,
-    capabilities={
-        "scheduler/match_channel_messages": None,
-        "scheduler/select_processes": None,
-        "scheduler/dispatch_process": None,
-        "scheduler/unblock_processes": None,
-        "scheduler/kill_process": None,
-        "channels": None,
-    },
-    subscribe="system:tick:minute")
+scheduler_data = file.read("cogos/lib/scheduler.md")
+if hasattr(scheduler_data, 'error'):
+    print(f"WARN: scheduler prompt not found: {scheduler_data.error}")
+else:
+    r = procs.spawn("scheduler",
+        mode="daemon",
+        content=scheduler_data.content,
+        priority=100.0,
+        capabilities={
+            "scheduler/match_channel_messages": None,
+            "scheduler/select_processes": None,
+            "scheduler/dispatch_process": None,
+            "scheduler/unblock_processes": None,
+            "scheduler/kill_process": None,
+            "channels": None,
+        },
+        subscribe="system:tick:minute")
+    if hasattr(r, 'error'):
+        print(f"WARN: scheduler spawn failed: {r.error}")
 
-supervisor_prompt = file.read("apps/supervisor/supervisor.md").content
-procs.spawn("supervisor",
-    mode="daemon",
-    content=supervisor_prompt,
-    priority=8.0,
-    capabilities={
-        "me": None, "procs": None, "dir": None, "file": None,
-        "discord": None, "channels": None, "secrets": None,
-        "stdlib": None, "alerts": None, "email": None,
-    },
-    subscribe="supervisor:help")
+supervisor_data = file.read("apps/supervisor/supervisor.md")
+if hasattr(supervisor_data, 'error'):
+    print(f"WARN: supervisor prompt not found: {supervisor_data.error}")
+else:
+    r = procs.spawn("supervisor",
+        mode="daemon",
+        content=supervisor_data.content,
+        priority=8.0,
+        capabilities={
+            "me": None, "procs": None, "dir": None, "file": None,
+            "discord": None, "channels": None, "secrets": None,
+            "stdlib": None, "alerts": None, "email": None,
+        },
+        subscribe="supervisor:help")
+    if hasattr(r, 'error'):
+        print(f"WARN: supervisor spawn failed: {r.error}")
 
 # ── Apps are now cogs (created by apply_image from apps/*/init/cog.py) ──
 
