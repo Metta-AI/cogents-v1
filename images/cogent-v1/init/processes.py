@@ -12,5 +12,7 @@ add_process(
         "me", "procs", "dir", "file", "discord", "channels",
         "secrets", "stdlib", "coglet_factory", "coglet", "alerts",
         "blob", "image", "scheduler",
+        # Delegatable to supervisor → helpers:
+        "asana", "email", "github", "web_search", "web_fetch",
     ],
 )

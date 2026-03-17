@@ -975,6 +975,8 @@ def run_local(ctx: click.Context, poll_interval: float, once: bool):
     from cogos.executor.handler import get_config
     from cogos.runtime.local import run_local_loop
 
+    os.environ.setdefault("COGENT_NAME", ctx.obj["cogent_name"])
+
     repo = _repo()
     config = get_config()
     bedrock = _bedrock_client()

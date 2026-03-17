@@ -38,7 +38,11 @@ else:
         capabilities={
             "me": None, "procs": None, "dir": None, "file": None,
             "discord": None, "channels": None, "secrets": None,
-            "stdlib": None, "alerts": None, "email": None, "web": None,
+            "stdlib": None, "alerts": None,
+            # Delegatable to helpers:
+            "asana": None, "email": None, "github": None,
+            "web_search": None, "web_fetch": None, "web": None,
+            "blob": None, "image": None,
         },
         subscribe="supervisor:help")
     if hasattr(r, 'error'):
