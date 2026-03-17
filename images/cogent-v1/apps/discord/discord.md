@@ -27,6 +27,7 @@ if hasattr(status, "error"):
         model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
         capabilities=[
             "discord", "channels", "stdlib", "procs", "file",
+            "image", "blob", "secrets",
             {"name": "dir", "alias": "data", "config": {"prefix": "data/discord/"}},
         ],
         idle_timeout_ms=300000,
