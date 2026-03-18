@@ -488,8 +488,9 @@ def _publish_io(repo, process, channel_name: str, text: str) -> None:
 
 
 def _publish_process_io(repo, process, stream: str, text: str) -> None:
-    """Publish to process:<name>:<stream> and optionally forward to io:<stream>."""
+    """Publish to process:<name>:<stream>, coglet alias io:<stream>:<name>, and optionally io:<stream>."""
     _publish_io(repo, process, f"process:{process.name}:{stream}", text)
+    _publish_io(repo, process, f"io:{stream}:{process.name}", text)
     if process.tty:
         _publish_io(repo, process, f"io:{stream}", text)
 
@@ -550,6 +551,18 @@ def execute_process(
         user_text += f"Message payload: {json.dumps(event_data['payload'], indent=2)}\n"
     if not user_text.strip():
         user_text = "Execute your task."
+
+    # Inject pending cog:from messages into context (parent cog guidance)
+    cog_from_msgs = _read_cog_from_messages(repo, process)
+    if cog_from_msgs:
+        user_text += "\n\n--- Messages from your cog ---\n"
+        for msg in cog_from_msgs:
+            payload = msg.payload
+            if isinstance(payload, dict) and "text" in payload:
+                user_text += f"\n{payload['text']}\n"
+            else:
+                user_text += f"\n{json.dumps(payload, indent=2)}\n"
+
     user_message = {"role": "user", "content": [{"text": user_text}]}
 
     messages = list(loaded_checkpoint.messages)
@@ -953,6 +966,14 @@ def _emit_lifecycle_message(repo: Repository, process: Process, payload: dict) -
             ))
     except Exception:
         logger.warning("Failed to emit lifecycle message for process %s", process.name, exc_info=True)
+
+
+def _read_cog_from_messages(repo: Repository, process: Process) -> list:
+    """Read pending messages from the cog:from channel for this process."""
+    ch = repo.get_channel_by_name(f"cog:from:{process.name}")
+    if ch is None:
+        return []
+    return repo.list_channel_messages(ch.id, limit=50)
 
 
 def _handle_search(tool_input: dict, process: Process, repo: Repository) -> str:

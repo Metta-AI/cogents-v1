@@ -266,7 +266,7 @@ class ProcsCapability(Capability):
         )
         self.repo.upsert_channel(recv_ch)
 
-        # Create per-process stdio channels
+        # Create per-process stdio channels (legacy names + coglet aliases)
         for stream in ("stdin", "stdout", "stderr"):
             io_ch = Channel(
                 name=f"process:{name}:{stream}",
@@ -274,6 +274,40 @@ class ProcsCapability(Capability):
                 channel_type=ChannelType.NAMED,
             )
             self.repo.upsert_channel(io_ch)
+
+        # Create coglet channel aliases (io:stdin, io:stdout, io:stderr, cog:from, cog:to)
+        # These are the standard channels coglets use; they share the same underlying
+        # message streams as the legacy process/spawn channels.
+        stdout_schema = None
+        if schema is not None:
+            if isinstance(schema, dict):
+                stdout_schema = {"fields": schema} if "fields" not in schema else schema
+        for alias, legacy in (
+            (f"io:stdin:{name}", f"process:{name}:stdin"),
+            (f"io:stdout:{name}", f"process:{name}:stdout"),
+            (f"io:stderr:{name}", f"process:{name}:stderr"),
+        ):
+            alias_ch = Channel(
+                name=alias,
+                owner_process=child_id,
+                channel_type=ChannelType.NAMED,
+                inline_schema=stdout_schema if "stdout" in alias else None,
+            )
+            self.repo.upsert_channel(alias_ch)
+
+        # cog:from = parent→child, cog:to = child→parent
+        cog_from_ch = Channel(
+            name=f"cog:from:{name}",
+            owner_process=self.process_id,
+            channel_type=ChannelType.NAMED,
+        )
+        self.repo.upsert_channel(cog_from_ch)
+        cog_to_ch = Channel(
+            name=f"cog:to:{name}",
+            owner_process=child_id,
+            channel_type=ChannelType.NAMED,
+        )
+        self.repo.upsert_channel(cog_to_ch)
 
         # Bind child to channel handlers if subscribe is set
         if subscribe:

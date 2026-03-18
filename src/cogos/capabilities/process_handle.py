@@ -110,6 +110,31 @@ class ProcessHandle:
     def wait_all(handles: list[ProcessHandle]) -> dict:
         return {"type": "wait_all", "process_ids": [h.id for h in handles]}
 
+    def cog_send(self, payload: dict[str, Any]) -> dict:
+        """Send a message to the child via cog:from channel (injected into its context)."""
+        ch = self._repo.get_channel_by_name(f"cog:from:{self._process.name}")
+        if not ch:
+            return {"error": f"No cog:from channel for {self._process.name}"}
+        msg = ChannelMessage(channel=ch.id, sender_process=self._caller_id, payload=payload)
+        msg_id = self._repo.append_channel_message(msg)
+        return {"id": str(msg_id), "channel": ch.name}
+
+    def cog_recv(self, limit: int = 10) -> list[MessageInfo]:
+        """Read messages from the child's cog:to channel."""
+        ch = self._repo.get_channel_by_name(f"cog:to:{self._process.name}")
+        if not ch:
+            return []
+        msgs = self._repo.list_channel_messages(ch.id, limit=limit)
+        return [
+            MessageInfo(
+                id=str(m.id),
+                payload=m.payload,
+                sender_process=str(m.sender_process),
+                created_at=m.created_at.isoformat() if m.created_at else None,
+            )
+            for m in msgs
+        ]
+
     def stdin(self, text: str) -> dict:
         """Write to child's stdin channel."""
         ch = self._repo.get_channel_by_name(f"process:{self._process.name}:stdin")

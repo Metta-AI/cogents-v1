@@ -1,5 +1,6 @@
 # Worker
 
+@{cogos/includes/coglet/channels.md}
 @{cogos/includes/code_mode.md}
 @{cogos/includes/files.md}
 
