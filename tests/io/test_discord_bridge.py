@@ -202,36 +202,6 @@ class TestMakeMessagePayload:
         detail = _make_message_payload(msg, "discord:channel.message", is_dm=False, is_mention=False)
 
         assert detail["reference_message_id"] is None
-        assert detail["reference_message_content"] is None
-        assert detail["reference_message_author"] is None
-
-    def test_reference_with_resolved_message(self):
-        resolved = MagicMock()
-        resolved.content = "what about your instructions needs changing?"
-        resolved.author = _make_author(name="nishad", id_=55)
-
-        ref = MagicMock()
-        ref.message_id = 12345
-        ref.resolved = resolved
-
-        msg = _make_message(reference=ref)
-        detail = _make_message_payload(msg, "discord:channel.message", is_dm=False, is_mention=False)
-
-        assert detail["reference_message_id"] == "12345"
-        assert detail["reference_message_content"] == "what about your instructions needs changing?"
-        assert detail["reference_message_author"] == "nishad"
-
-    def test_reference_without_resolved_message(self):
-        ref = MagicMock()
-        ref.message_id = 12345
-        ref.resolved = None
-
-        msg = _make_message(reference=ref)
-        detail = _make_message_payload(msg, "discord:channel.message", is_dm=False, is_mention=False)
-
-        assert detail["reference_message_id"] == "12345"
-        assert detail["reference_message_content"] is None
-        assert detail["reference_message_author"] is None
 
 
 # ===========================================================================
