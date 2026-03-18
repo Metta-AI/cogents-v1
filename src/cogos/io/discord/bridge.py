@@ -130,6 +130,10 @@ class DiscordBridge:
         # Typing indicator tasks keyed by channel_id
         self._typing_tasks: dict[int, asyncio.Task] = {}
 
+        # Pending DM tracker: dm_channel_id -> (message_id, author_id, received_at)
+        self._pending_dms: dict[str, tuple[str, str, float]] = {}
+        self._alerted_dm_ids: set[str] = set()
+
         intents = discord.Intents.default()
         intents.message_content = True
         intents.dm_messages = True
@@ -143,6 +147,20 @@ class DiscordBridge:
 
             self._repo = create_repository()
         return self._repo
+
+    def _create_alert(self, severity: str, alert_type: str, message: str, metadata: dict | None = None) -> None:
+        """Create an alert in the DB (best-effort, never raises)."""
+        try:
+            repo = self._get_repo()
+            repo.create_alert(
+                severity=severity,
+                alert_type=alert_type,
+                source=f"discord:bridge:{self.cogent_name}",
+                message=message,
+                metadata=metadata or {},
+            )
+        except Exception:
+            logger.exception("Failed to create alert: %s %s", alert_type, message)
 
     def _get_bot_token(self) -> str:
         token = os.environ.get("DISCORD_BOT_TOKEN")
@@ -248,6 +266,7 @@ class DiscordBridge:
                 await self._sync_guild(guild)
             self.client.loop.create_task(self._poll_replies())
             self.client.loop.create_task(self._poll_api_requests())
+            self.client.loop.create_task(self._check_pending_dms())
 
         @self.client.event
         async def on_guild_channel_create(channel):
@@ -366,11 +385,20 @@ class DiscordBridge:
                         payload=payload,
                     ))
 
-            # Start typing indicator for DMs and mentions
+            # Start typing indicator and track pending DMs
             if message_type in ("discord:dm", "discord:mention"):
                 self._start_typing(message.channel)
+            if message_type == "discord:dm":
+                self._track_pending_dm(payload["channel_id"], payload["message_id"], payload["author_id"])
         except Exception:
             logger.exception("Failed to write message %s to DB", message.id)
+            if message_type in ("discord:dm", "discord:mention"):
+                self._create_alert(
+                    "critical",
+                    "discord:inbound_relay_failed",
+                    f"Failed to relay inbound {message_type} from {message.author} to DB — message will be lost",
+                    {"message_id": str(message.id), "author": str(message.author), "message_type": message_type},
+                )
 
     # ------------------------------------------------------------------
     # Typing indicator
@@ -397,6 +425,47 @@ class DiscordBridge:
         task = self._typing_tasks.pop(channel_id, None)
         if task and not task.done():
             task.cancel()
+
+    # ------------------------------------------------------------------
+    # Pending DM timeout monitor
+    # ------------------------------------------------------------------
+
+    _DM_TIMEOUT_S = 300  # 5 minutes without a response triggers an alert
+    _DM_STALE_S = 3600   # clean up entries after 1 hour
+
+    def _track_pending_dm(self, dm_channel_id: str, message_id: str, author_id: str) -> None:
+        """Record an inbound DM that expects a response."""
+        self._pending_dms[dm_channel_id] = (message_id, author_id, time.time())
+
+    def _clear_pending_dm(self, channel_id: str) -> None:
+        """Clear pending DM when a response is sent to the channel."""
+        entry = self._pending_dms.pop(channel_id, None)
+        if entry:
+            self._alerted_dm_ids.discard(entry[0])
+
+    def _sweep_pending_dms(self) -> None:
+        """Check for timed-out or stale pending DMs (called by the periodic loop)."""
+        now = time.time()
+        for dm_channel_id, (message_id, author_id, received_at) in list(self._pending_dms.items()):
+            elapsed = now - received_at
+            if elapsed > self._DM_STALE_S:
+                del self._pending_dms[dm_channel_id]
+                self._alerted_dm_ids.discard(message_id)
+            elif elapsed > self._DM_TIMEOUT_S and message_id not in self._alerted_dm_ids:
+                self._alerted_dm_ids.add(message_id)
+                self._create_alert(
+                    "warning",
+                    "discord:dm_timeout",
+                    f"DM from user {author_id} has had no response for {int(elapsed)}s",
+                    {"author_id": author_id, "message_id": message_id, "dm_channel_id": dm_channel_id, "elapsed_s": int(elapsed)},
+                )
+                logger.warning("DM timeout: no response to user %s (message %s) after %ds", author_id, message_id, int(elapsed))
+
+    async def _check_pending_dms(self):
+        """Periodically check for DMs that haven't received a response."""
+        while True:
+            await asyncio.sleep(60)
+            self._sweep_pending_dms()
 
     # ------------------------------------------------------------------
     # SQS reply poller
@@ -427,6 +496,23 @@ class DiscordBridge:
                         logger.error("Channel not found for reply %s, discarding", msg.get("MessageId"))
                     except Exception:
                         logger.exception("Failed to send reply: %s", msg.get("MessageId"))
+                        try:
+                            body = json.loads(msg.get("Body", "{}"))
+                            meta = body.get("_meta") if isinstance(body.get("_meta"), dict) else {}
+                            self._create_alert(
+                                "critical",
+                                "discord:send_failed",
+                                f"Failed to send {body.get('type', 'message')} reply — SQS will retry",
+                                {
+                                    "sqs_message_id": msg.get("MessageId"),
+                                    "msg_type": body.get("type", "message"),
+                                    "target": body.get("channel") or body.get("user_id"),
+                                    "process_id": meta.get("process_id"),
+                                    "trace_id": meta.get("trace_id"),
+                                },
+                            )
+                        except Exception:
+                            logger.debug("Failed to create send-failure alert", exc_info=True)
                         continue
                     try:
                         self._sqs_client.delete_message(
@@ -565,67 +651,62 @@ class DiscordBridge:
         await self._maybe_react(sent_message, body)
         self._log_reply_send_latency(body, msg_type="message", target_id=target.id)
         self._log_trace_summary(body, msg_type="message", target_id=target.id)
+        # Clear pending DM if this reply was to a DM channel
+        self._clear_pending_dm(body.get("channel", ""))
 
     async def _handle_reaction(self, body: dict, channel):
         message_id = body.get("message_id")
         emoji = body.get("emoji")
         if not message_id or not emoji:
             return
-        try:
-            message = await channel.fetch_message(int(message_id))
-            await message.add_reaction(emoji)
-            self._log_reply_send_latency(body, msg_type="reaction", target_id=channel.id)
-        except Exception:
-            logger.exception("Failed to add reaction %s to message %s", emoji, message_id)
+        message = await channel.fetch_message(int(message_id))
+        await message.add_reaction(emoji)
+        self._log_reply_send_latency(body, msg_type="reaction", target_id=channel.id)
 
     async def _handle_thread_create(self, body: dict, channel):
         thread_name = body.get("thread_name", "Thread")
         message_id = body.get("message_id")
         content = body.get("content", "")
 
-        try:
-            if message_id:
-                message = await channel.fetch_message(int(message_id))
-                thread = await message.create_thread(name=thread_name)
-            else:
-                thread = await channel.create_thread(
-                    name=thread_name, type=discord.ChannelType.public_thread
-                )
-            if content:
-                for c in chunk_message(content):
-                    await thread.send(c)
-            self._log_reply_send_latency(body, msg_type="thread_create", target_id=channel.id)
-        except Exception:
-            logger.exception("Failed to create thread '%s' in channel %s", thread_name, channel.id)
+        if message_id:
+            message = await channel.fetch_message(int(message_id))
+            thread = await message.create_thread(name=thread_name)
+        else:
+            thread = await channel.create_thread(
+                name=thread_name, type=discord.ChannelType.public_thread
+            )
+        if content:
+            for c in chunk_message(content):
+                await thread.send(c)
+        self._log_reply_send_latency(body, msg_type="thread_create", target_id=channel.id)
 
     async def _handle_dm(self, body: dict):
         user_id = body.get("user_id")
         content = body.get("content", "")
         if not user_id or not content:
+            logger.warning("Dropping DM with missing user_id=%s or empty content", user_id)
             return
-        try:
-            user = await self.client.fetch_user(int(user_id))
-            dm_channel = await user.create_dm()
-            self._stop_typing(dm_channel.id)
-            file_specs = body.get("files") or []
-            discord_files = await self._download_files(file_specs)
-            sent_message = None
-            if discord_files:
-                first_chunk = content[:2000] if content else None
-                sent_message = await dm_channel.send(content=first_chunk, files=discord_files)
-                remaining = content[2000:] if content and len(content) > 2000 else ""
-                for c in chunk_message(remaining):
-                    await dm_channel.send(c)
-            else:
-                chunks = chunk_message(content)
-                sent_message = await dm_channel.send(chunks[0])
-                for c in chunks[1:]:
-                    await dm_channel.send(c)
-            await self._maybe_react(sent_message, body)
-            self._log_reply_send_latency(body, msg_type="dm", target_id=dm_channel.id)
-            self._log_trace_summary(body, msg_type="dm", target_id=dm_channel.id)
-        except Exception:
-            logger.exception("Failed to send DM to user %s", user_id)
+        user = await self.client.fetch_user(int(user_id))
+        dm_channel = await user.create_dm()
+        self._stop_typing(dm_channel.id)
+        file_specs = body.get("files") or []
+        discord_files = await self._download_files(file_specs)
+        sent_message = None
+        if discord_files:
+            first_chunk = content[:2000] if content else None
+            sent_message = await dm_channel.send(content=first_chunk, files=discord_files)
+            remaining = content[2000:] if content and len(content) > 2000 else ""
+            for c in chunk_message(remaining):
+                await dm_channel.send(c)
+        else:
+            chunks = chunk_message(content)
+            sent_message = await dm_channel.send(chunks[0])
+            for c in chunks[1:]:
+                await dm_channel.send(c)
+        await self._maybe_react(sent_message, body)
+        self._log_reply_send_latency(body, msg_type="dm", target_id=dm_channel.id)
+        self._log_trace_summary(body, msg_type="dm", target_id=dm_channel.id)
+        self._clear_pending_dm(str(dm_channel.id))
 
     async def _download_files(self, file_specs: list[dict]) -> list[discord.File]:
         if not file_specs:

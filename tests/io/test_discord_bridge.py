@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -82,6 +83,8 @@ def _make_bridge():
     bridge._repo = None
     bridge._s3_client = None
     bridge._blob_bucket = ""
+    bridge._pending_dms = {}
+    bridge._alerted_dm_ids = set()
 
     # Minimal discord client mock
     bridge.client = MagicMock()
@@ -528,3 +531,283 @@ class TestBridgeOutbound:
         assert "**Hello**" in sent
         assert "link (<https://example.com>)" in sent
         assert "# Hello" not in sent
+
+    async def test_handle_dm_propagates_exception(self):
+        """DM send failures should propagate so SQS can retry."""
+        bridge = _make_bridge()
+        bridge._stop_typing = MagicMock()
+        bridge.client.fetch_user = AsyncMock(side_effect=RuntimeError("Discord API down"))
+
+        with pytest.raises(RuntimeError, match="Discord API down"):
+            await bridge._handle_dm({"user_id": "777", "content": "hi"})
+
+    async def test_handle_reaction_propagates_exception(self):
+        """Reaction failures should propagate so SQS can retry."""
+        bridge = _make_bridge()
+        channel = AsyncMock()
+        channel.id = 100
+        channel.fetch_message.side_effect = RuntimeError("not found")
+
+        with pytest.raises(RuntimeError):
+            await bridge._handle_reaction({"message_id": "456", "emoji": "👍"}, channel)
+
+    async def test_handle_thread_create_propagates_exception(self):
+        """Thread create failures should propagate so SQS can retry."""
+        bridge = _make_bridge()
+        channel = AsyncMock()
+        channel.id = 100
+        channel.fetch_message.side_effect = RuntimeError("not found")
+
+        with pytest.raises(RuntimeError):
+            await bridge._handle_thread_create(
+                {"thread_name": "T", "message_id": "456", "content": "hi"}, channel
+            )
+
+    async def test_handle_dm_clears_pending(self):
+        """Successful DM send should clear the pending DM tracker."""
+        bridge = _make_bridge()
+        bridge._stop_typing = MagicMock()
+        mock_user = AsyncMock()
+        mock_dm_channel = AsyncMock()
+        mock_dm_channel.id = 444
+        mock_user.create_dm.return_value = mock_dm_channel
+        bridge.client.fetch_user = AsyncMock(return_value=mock_user)
+
+        # Simulate a pending DM for this channel
+        bridge._pending_dms["444"] = ("msg123", "777", 1000.0)
+
+        await bridge._handle_dm({"user_id": "777", "content": "reply"})
+
+        assert "444" not in bridge._pending_dms
+
+    async def test_handle_message_clears_pending_dm(self):
+        """Message sent to a DM channel should clear pending DM tracker."""
+        bridge = _make_bridge()
+        channel = AsyncMock()
+        channel.id = 100
+
+        bridge._pending_dms["555"] = ("msg456", "42", 1000.0)
+
+        await bridge._handle_message({"content": "reply", "channel": "555"}, channel)
+
+        assert "555" not in bridge._pending_dms
+
+
+# ===========================================================================
+# TestAlertingAndTimeout
+# ===========================================================================
+
+
+class TestAlertingAndTimeout:
+    async def test_relay_dm_tracks_pending(self):
+        """Inbound DM should be tracked as pending."""
+        bridge = _make_bridge()
+        bridge._start_typing = MagicMock()
+        repo = MagicMock()
+        bridge._get_repo = MagicMock(return_value=repo)
+
+        from cogos.db.models import Channel, ChannelType
+        ch = Channel(name="io:discord:dm", channel_type=ChannelType.NAMED)
+        repo.get_channel_by_name.return_value = ch
+
+        msg = _make_message(is_dm=True, content="hello", channel_id=101, message_id=301)
+        await bridge._relay_to_db(msg)
+
+        assert "101" in bridge._pending_dms
+        msg_id, author_id, _ = bridge._pending_dms["101"]
+        assert msg_id == "301"
+        assert author_id == "42"
+
+    async def test_relay_dm_failure_creates_alert(self):
+        """Failed inbound DM relay should create a critical alert."""
+        bridge = _make_bridge()
+        bridge._start_typing = MagicMock()
+        bridge._create_alert = MagicMock()
+        repo = MagicMock()
+        repo.get_channel_by_name.return_value = None  # force channel lookup to return None
+        bridge._get_repo = MagicMock(return_value=repo)
+
+        # _get_or_create_channel returns None → raises RuntimeError
+        msg = _make_message(is_dm=True, content="hello")
+        await bridge._relay_to_db(msg)
+
+        bridge._create_alert.assert_called_once()
+        call_args = bridge._create_alert.call_args
+        assert call_args.args[0] == "critical"
+        assert call_args.args[1] == "discord:inbound_relay_failed"
+
+    async def test_relay_channel_message_failure_no_alert(self):
+        """Failed relay for regular channel messages should NOT create an alert."""
+        bridge = _make_bridge()
+        bridge._create_alert = MagicMock()
+        repo = MagicMock()
+        repo.get_channel_by_name.return_value = None
+        bridge._get_repo = MagicMock(return_value=repo)
+
+        msg = _make_message(content="hello")
+        await bridge._relay_to_db(msg)
+
+        bridge._create_alert.assert_not_called()
+
+    async def test_poll_replies_alerts_on_send_failure(self):
+        """SQS reply send failure should create an alert."""
+        bridge = _make_bridge()
+        bridge._create_alert = MagicMock()
+
+        sqs_body = {
+            "type": "dm",
+            "user_id": "777",
+            "content": "hi",
+            "_meta": {"process_id": "p1", "trace_id": "t1"},
+        }
+        sqs_msg = {
+            "MessageId": "sqs-1",
+            "ReceiptHandle": "rh-1",
+            "Body": json.dumps(sqs_body),
+        }
+
+        # _send_reply raises
+        bridge._send_reply = AsyncMock(side_effect=RuntimeError("boom"))
+
+        # Make receive_message return one message then stop the loop
+        call_count = {"n": 0}
+        def _receive(**kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return {"Messages": [sqs_msg]}
+            raise KeyboardInterrupt("stop")
+
+        bridge._sqs_client.receive_message.side_effect = _receive
+
+        with pytest.raises(KeyboardInterrupt):
+            await bridge._poll_replies()
+
+        bridge._create_alert.assert_called_once()
+        call_args = bridge._create_alert.call_args
+        assert call_args.args[0] == "critical"
+        assert call_args.args[1] == "discord:send_failed"
+        # SQS message should NOT be deleted (for retry)
+        bridge._sqs_client.delete_message.assert_not_called()
+
+    async def test_poll_replies_deletes_on_success(self):
+        """Successful send should delete the SQS message."""
+        bridge = _make_bridge()
+
+        sqs_msg = {
+            "MessageId": "sqs-1",
+            "ReceiptHandle": "rh-1",
+            "Body": json.dumps({"type": "message", "channel": "100", "content": "hi"}),
+        }
+
+        bridge._send_reply = AsyncMock()
+
+        call_count = {"n": 0}
+        def _receive(**kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return {"Messages": [sqs_msg]}
+            raise KeyboardInterrupt("stop")
+
+        bridge._sqs_client.receive_message.side_effect = _receive
+
+        with pytest.raises(KeyboardInterrupt):
+            await bridge._poll_replies()
+
+        bridge._sqs_client.delete_message.assert_called_once()
+
+    def test_pending_dm_tracking(self):
+        """Basic pending DM track/clear cycle."""
+        bridge = _make_bridge()
+
+        bridge._track_pending_dm("ch1", "msg1", "user1")
+        assert "ch1" in bridge._pending_dms
+
+        bridge._clear_pending_dm("ch1")
+        assert "ch1" not in bridge._pending_dms
+
+    def test_clear_pending_dm_noop_if_missing(self):
+        """Clearing a non-existent pending DM should not raise."""
+        bridge = _make_bridge()
+        bridge._clear_pending_dm("nonexistent")  # should not raise
+
+    def test_create_alert_helper(self):
+        """_create_alert should call repo.create_alert."""
+        bridge = _make_bridge()
+        repo = MagicMock()
+        bridge._get_repo = MagicMock(return_value=repo)
+
+        bridge._create_alert("warning", "test:alert", "something happened", {"key": "val"})
+
+        repo.create_alert.assert_called_once_with(
+            severity="warning",
+            alert_type="test:alert",
+            source="discord:bridge:test-bot",
+            message="something happened",
+            metadata={"key": "val"},
+        )
+
+    def test_create_alert_swallows_errors(self):
+        """_create_alert should never raise, even if repo fails."""
+        bridge = _make_bridge()
+        repo = MagicMock()
+        repo.create_alert.side_effect = RuntimeError("db down")
+        bridge._get_repo = MagicMock(return_value=repo)
+
+        # Should not raise
+        bridge._create_alert("critical", "test:alert", "boom")
+
+    def test_sweep_alerts_on_timeout(self):
+        """_sweep_pending_dms should alert when DM exceeds timeout."""
+        bridge = _make_bridge()
+        bridge._create_alert = MagicMock()
+
+        # Simulate a DM received 6 minutes ago (> 300s timeout)
+        import time as _time
+        bridge._pending_dms["ch1"] = ("msg1", "user1", _time.time() - 360)
+
+        bridge._sweep_pending_dms()
+
+        bridge._create_alert.assert_called_once()
+        assert bridge._create_alert.call_args.args[1] == "discord:dm_timeout"
+        assert "msg1" in bridge._alerted_dm_ids
+
+    def test_sweep_does_not_double_alert(self):
+        """_sweep_pending_dms should only alert once per message."""
+        bridge = _make_bridge()
+        bridge._create_alert = MagicMock()
+
+        import time as _time
+        bridge._pending_dms["ch1"] = ("msg1", "user1", _time.time() - 360)
+
+        bridge._sweep_pending_dms()
+        bridge._sweep_pending_dms()  # second sweep
+
+        # Only alerted once
+        bridge._create_alert.assert_called_once()
+
+    def test_sweep_skips_fresh_dms(self):
+        """_sweep_pending_dms should not alert for recent DMs."""
+        bridge = _make_bridge()
+        bridge._create_alert = MagicMock()
+
+        import time as _time
+        bridge._pending_dms["ch1"] = ("msg1", "user1", _time.time() - 10)  # 10s ago
+
+        bridge._sweep_pending_dms()
+
+        bridge._create_alert.assert_not_called()
+        assert "ch1" in bridge._pending_dms  # still tracked
+
+    def test_sweep_cleans_stale_entries(self):
+        """_sweep_pending_dms should remove entries older than 1 hour."""
+        bridge = _make_bridge()
+        bridge._create_alert = MagicMock()
+
+        import time as _time
+        bridge._pending_dms["ch1"] = ("msg1", "user1", _time.time() - 4000)  # >1h ago
+        bridge._alerted_dm_ids.add("msg1")
+
+        bridge._sweep_pending_dms()
+
+        assert "ch1" not in bridge._pending_dms
+        assert "msg1" not in bridge._alerted_dm_ids
