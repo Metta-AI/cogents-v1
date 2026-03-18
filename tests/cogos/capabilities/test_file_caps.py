@@ -12,7 +12,8 @@ from cogos.capabilities.file_cap import (
     FileCapability,
     FileVersionCapability,
 )
-from cogos.capabilities.files import FileError
+from cogos.capabilities.files import FileContent, FileError
+from cogos.db.models import File, FileVersion
 
 
 @pytest.fixture
@@ -262,3 +263,68 @@ class TestDirGrepGlobTree:
         scoped = cap.scope(ops={"list"})
         with pytest.raises(PermissionError):
             scoped.tree()
+
+
+# ── FileCapability sliced read / head / tail ───────────────
+
+
+class TestFileSlicedRead:
+    def _setup_file(self, repo, key="test.py"):
+        content = "\n".join(f"line {i}" for i in range(100))
+        f = File(key=key)
+        fv = FileVersion(
+            file_id=f.id, version=1, content=content, source="agent", is_active=True
+        )
+        repo.get_active_file_version.return_value = fv
+        return f, fv, content
+
+    def test_read_with_offset_limit(self, repo, pid):
+        cap = FileCapability(repo, pid)
+        f, fv, content = self._setup_file(repo)
+        with patch("cogos.capabilities.file_cap.FileStore") as mock_cls:
+            mock_cls.return_value.get.return_value = f
+            result = cap.read("test.py", offset=10, limit=5)
+            assert isinstance(result, FileContent)
+            assert result.total_lines == 100
+            lines = result.content.split("\n")
+            assert len(lines) == 5
+            assert lines[0] == "line 10"
+
+    def test_read_no_slice_includes_total_lines(self, repo, pid):
+        cap = FileCapability(repo, pid)
+        f, fv, content = self._setup_file(repo)
+        with patch("cogos.capabilities.file_cap.FileStore") as mock_cls:
+            mock_cls.return_value.get.return_value = f
+            result = cap.read("test.py")
+            assert result.total_lines == 100
+
+    def test_head(self, repo, pid):
+        cap = FileCapability(repo, pid)
+        f, fv, content = self._setup_file(repo)
+        with patch("cogos.capabilities.file_cap.FileStore") as mock_cls:
+            mock_cls.return_value.get.return_value = f
+            result = cap.head("test.py", n=3)
+            lines = result.content.split("\n")
+            assert len(lines) == 3
+            assert lines[0] == "line 0"
+
+    def test_tail(self, repo, pid):
+        cap = FileCapability(repo, pid)
+        f, fv, content = self._setup_file(repo)
+        with patch("cogos.capabilities.file_cap.FileStore") as mock_cls:
+            mock_cls.return_value.get.return_value = f
+            result = cap.tail("test.py", n=3)
+            lines = result.content.split("\n")
+            assert len(lines) == 3
+            assert lines[-1] == "line 99"
+
+    def test_read_negative_offset(self, repo, pid):
+        """Negative offset reads from end, like tail."""
+        cap = FileCapability(repo, pid)
+        f, fv, content = self._setup_file(repo)
+        with patch("cogos.capabilities.file_cap.FileStore") as mock_cls:
+            mock_cls.return_value.get.return_value = f
+            result = cap.read("test.py", offset=-5)
+            lines = result.content.split("\n")
+            assert len(lines) == 5
+            assert lines[-1] == "line 99"

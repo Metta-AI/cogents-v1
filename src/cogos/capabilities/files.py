@@ -23,6 +23,7 @@ class FileContent(BaseModel):
     content: str
     read_only: bool = False
     source: str = ""
+    total_lines: int | None = None
 
 
 class FileWriteResult(BaseModel):

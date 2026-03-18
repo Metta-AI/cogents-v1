@@ -71,7 +71,12 @@ class FileCapability(Capability):
             raise ValueError("key is required (pass it or scope the capability)")
         return k
 
-    def read(self, key: str | None = None) -> FileContent | FileError:
+    def read(
+        self,
+        key: str | None = None,
+        offset: int | None = None,
+        limit: int | None = None,
+    ) -> FileContent | FileError:
         k = self._resolve_key(key)
         self._check("read", key=k)
 
@@ -84,14 +89,34 @@ class FileCapability(Capability):
         if fv is None:
             return FileError(error=f"no active version for '{k}'")
 
+        content = fv.content
+        lines = content.split("\n")
+        total_lines = len(lines)
+
+        if offset is not None or limit is not None:
+            start = offset or 0
+            if start < 0:
+                start = max(0, total_lines + start)
+            end = start + limit if limit is not None else total_lines
+            content = "\n".join(lines[start:end])
+
         return FileContent(
             id=str(f.id),
             key=f.key,
             version=fv.version,
-            content=fv.content,
+            content=content,
             read_only=fv.read_only,
             source=fv.source,
+            total_lines=total_lines,
         )
+
+    def head(self, key: str | None = None, n: int = 20) -> FileContent | FileError:
+        """First n lines of a file."""
+        return self.read(key, offset=0, limit=n)
+
+    def tail(self, key: str | None = None, n: int = 20) -> FileContent | FileError:
+        """Last n lines of a file."""
+        return self.read(key, offset=-n)
 
     def write(
         self, content: str, key: str | None = None, source: str = "agent"
