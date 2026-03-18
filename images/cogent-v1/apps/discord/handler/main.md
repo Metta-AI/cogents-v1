@@ -38,24 +38,56 @@ message_id = "..."
 is_dm = True  # or False
 is_mention = False  # or True
 
-# 2. Conversation key
+# 2. Read identity from profile
+profile_data = file.read("whoami/profile.md")
+my_name = ""
+my_discord_id = ""
+if not hasattr(profile_data, 'error'):
+    for line in profile_data.content.split("\n"):
+        if "**Name:**" in line:
+            my_name = line.split("**Name:**")[1].strip()
+        elif "**Discord User ID:**" in line:
+            my_discord_id = line.split("**Discord User ID:**")[1].strip()
+
+# 3. Conversation key
 conv_key = author_id if is_dm else channel_id
 
-# 3. Check waterline — skip if already seen
+# 4. Check waterline — skip if already seen
 wl = data.get(f"{conv_key}/waterline.json")
 wl_data = wl.read()
 waterline = json.loads(wl_data.content) if not hasattr(wl_data, 'error') else {}
 if message_id in waterline.get("seen", []):
     print("SKIP: already processed")
-elif not is_dm and not is_mention and "<@" in content:
-    # Message @mentions someone else — not for us, skip silently
-    seen = waterline.get("seen", [])
-    seen.append(message_id)
-    waterline["seen"] = seen[-100:]
-    wl.write(json.dumps(waterline))
-    print("SKIP: message mentions another user/bot")
+elif not is_dm and not is_mention:
+    # Channel message — check if it's for us
+    content_lower = content.lower()
+    has_mention_tag = "<@" in content
+    mentions_me = (my_discord_id and f"<@{my_discord_id}>" in content) or (my_name and my_name.lower() in content_lower)
+    mentions_other = has_mention_tag and not (my_discord_id and f"<@{my_discord_id}>" in content)
+
+    if mentions_other and not mentions_me:
+        # @mentions someone else, not us — skip
+        seen = waterline.get("seen", [])
+        seen.append(message_id)
+        waterline["seen"] = seen[-100:]
+        wl.write(json.dumps(waterline))
+        print("SKIP: message mentions another user/bot")
+    elif not mentions_me:
+        # General chat, not addressed to us — skip
+        seen = waterline.get("seen", [])
+        seen.append(message_id)
+        waterline["seen"] = seen[-100:]
+        wl.write(json.dumps(waterline))
+        print("SKIP: channel message not addressed to me")
+    else:
+        # Mentions us — proceed
+        log_handle = data.get(f"{conv_key}/recent.log")
+        log_data = log_handle.read()
+        history = log_data.content if not hasattr(log_data, 'error') else ""
+        print(f"HISTORY:\n{history}")
+        print(f"\nNEW: {author}: {content}")
 else:
-    # 4. Read conversation history for context
+    # DM or @mention — always respond
     log_handle = data.get(f"{conv_key}/recent.log")
     log_data = log_handle.read()
     history = log_data.content if not hasattr(log_data, 'error') else ""
@@ -123,9 +155,17 @@ When escalating, react with ⬆️, send a brief reply (e.g. "On it — handing 
 
 ## Channel messages (not DM, not mention)
 
-Only respond if the message is clearly intended for you. General chat between users → update waterline silently and exit.
+Your identity is in `whoami/profile.md` — it contains your **Name** and **Discord User ID**. Use these to decide whether a channel message is for you.
 
-**If `is_mention` is false but the content contains `<@` (an @mention for someone else), update waterline and exit silently.** This means the message was directed at another bot or user, not you.
+**Skip (update waterline silently and exit) when:**
+- The content contains `<@` but NOT your Discord User ID — another bot/user was mentioned, not you
+- The message addresses another cogent by name (e.g. mentions "dr.gamma" but you are "dr.alpha")
+- General chat between users that is not directed at you
+
+**Respond when:**
+- The content mentions your name (case-insensitive)
+- The message is clearly directed at you based on conversation context
+- DMs and @mentions always get a response (handled by `is_dm` / `is_mention`)
 
 ## Key rules
 

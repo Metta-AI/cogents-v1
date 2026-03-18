@@ -108,9 +108,9 @@ if hasattr(_profile, 'error'):
     file.write("whoami/profile.md",
         "# Profile\n"
         "\n"
-        "- **Name:** (set via dashboard)\n"
-        "- **Created:** " + _boot_date + "\n"
-        "- **Manager:** (set via dashboard)\n"
+        "- **Name:** (set on boot)\n"
+        "- **Discord User ID:** (set on boot)\n"
+        "- **Discord Username:** (set on boot)\n"
     )
 
 # ── Read cog manifests ────────────────────────────────────────
