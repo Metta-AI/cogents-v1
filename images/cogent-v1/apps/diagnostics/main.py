@@ -237,11 +237,65 @@ def diag_email():
     return checks
 
 def diag_asana():
+    """Test Asana capability — read-only operations."""
     checks = []
+
     def test_wired():
         if asana is None:
             raise Exception("asana is None")
     checks.append(check("wired", test_wired))
+
+    def test_list_workspaces():
+        ws = asana.list_workspaces()
+        if hasattr(ws, "error"):
+            raise Exception(str(ws.error))
+        if not isinstance(ws, list):
+            raise Exception("expected list, got " + str(type(ws)))
+        if len(ws) == 0:
+            raise Exception("no workspaces found")
+    checks.append(check("list_workspaces", test_list_workspaces))
+
+    def test_list_projects():
+        ws = asana.list_workspaces()
+        if hasattr(ws, "error") or not ws:
+            raise Exception("need workspaces first")
+        projects = asana.list_projects(workspace=ws[0]["id"], limit=5)
+        if hasattr(projects, "error"):
+            raise Exception(str(projects.error))
+        if not isinstance(projects, list):
+            raise Exception("expected list, got " + str(type(projects)))
+    checks.append(check("list_projects", test_list_projects))
+
+    def test_my_tasks():
+        tasks = asana.my_tasks(limit=5)
+        if hasattr(tasks, "error"):
+            raise Exception(str(tasks.error))
+        if not isinstance(tasks, list):
+            raise Exception("expected list, got " + str(type(tasks)))
+    checks.append(check("my_tasks", test_my_tasks))
+
+    def test_find_user():
+        ws = asana.list_workspaces()
+        if hasattr(ws, "error") or not ws:
+            raise Exception("need workspaces first")
+        users = asana.find_user(workspace=ws[0]["id"], query="a")
+        if hasattr(users, "error"):
+            raise Exception(str(users.error))
+        if not isinstance(users, list):
+            raise Exception("expected list, got " + str(type(users)))
+    checks.append(check("find_user", test_find_user))
+
+    def test_search_tasks():
+        ws = asana.list_workspaces()
+        if hasattr(ws, "error") or not ws:
+            raise Exception("need workspaces first")
+        results = asana.search_tasks(ws[0]["id"], "test", limit=5)
+        if hasattr(results, "error"):
+            raise Exception(str(results.error))
+        if not isinstance(results, list):
+            raise Exception("expected list, got " + str(type(results)))
+    checks.append(check("search_tasks", test_search_tasks))
+
     return checks
 
 def diag_github():

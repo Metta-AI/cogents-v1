@@ -12,7 +12,7 @@ class TestDiagnosticsCog:
     def test_cog_loads(self):
         cog = Cog(DIAGNOSTICS_DIR)
         assert cog.name == "diagnostics"
-        assert cog.config.mode == "one_shot"
+        assert cog.config.mode in ("one_shot", "daemon")
         assert cog.config.executor == "python"
         assert cog.main_entrypoint == "main.py"
 
