@@ -29,6 +29,10 @@ def image_file_prefixes(image_dir: Path) -> list[str]:
     return prefixes
 
 
+# Files that are configuration, not content — excluded from spec.files
+_EXCLUDED_FILES = {"cog.py"}
+
+
 def load_image(image_dir: Path) -> ImageSpec:
     """Load an image from a directory by exec'ing init/*.py and walking files/."""
     spec = ImageSpec()
@@ -96,74 +100,6 @@ def load_image(image_dir: Path) -> ImageSpec:
             "mode": mode, "idle_timeout_ms": idle_timeout_ms,
         })
 
-    class _CogBuilder:
-        """Builder returned by add_cog(). Collects coglet declarations."""
-
-        def __init__(self, cog_name: str):
-            self.cog_name = cog_name
-
-        def make_default_coglet(
-            self, *, entrypoint, files, mode="daemon",
-            test_command="true", model=None, executor="llm",
-            capabilities=None, handlers=None,
-            priority=0.0, runner="lambda",
-            idle_timeout_ms=None,
-        ):
-            """Declare the default (root) coglet for this cog.
-
-            This coglet is auto-started as a process at boot.
-            """
-            cog_entry = next((c for c in spec.cogs if c["name"] == self.cog_name), None)
-            if cog_entry is None:
-                raise ValueError(f"Cog '{self.cog_name}' not found in spec")
-            cog_entry["default_coglet"] = {
-                "entrypoint": entrypoint,
-                "files": files,
-                "mode": mode,
-                "test_command": test_command,
-                "model": model,
-                "executor": executor,
-                "capabilities": capabilities or [],
-                "handlers": handlers or [],
-                "priority": priority,
-                "runner": runner,
-                "idle_timeout_ms": idle_timeout_ms,
-            }
-
-        def make_coglet(
-            self, *, name, entrypoint, files, mode="daemon",
-            test_command="true", model=None, executor="llm",
-            capabilities=None, handlers=None,
-            priority=0.0, runner="lambda",
-            idle_timeout_ms=None,
-        ):
-            """Declare a child coglet for this cog.
-
-            Child coglets are created as processes at boot, named ``cog/name``.
-            """
-            cog_entry = next((c for c in spec.cogs if c["name"] == self.cog_name), None)
-            if cog_entry is None:
-                raise ValueError(f"Cog '{self.cog_name}' not found in spec")
-            cog_entry.setdefault("coglets", []).append({
-                "name": name,
-                "entrypoint": entrypoint,
-                "files": files,
-                "mode": mode,
-                "test_command": test_command,
-                "model": model,
-                "executor": executor,
-                "capabilities": capabilities or [],
-                "handlers": handlers or [],
-                "priority": priority,
-                "runner": runner,
-                "idle_timeout_ms": idle_timeout_ms,
-            })
-
-    def add_cog(name):
-        """Register a cog and return a builder for declaring its default coglet."""
-        spec.cogs.append({"name": name, "default_coglet": None, "coglets": []})
-        return _CogBuilder(name)
-
     builtins = {
         "__builtins__": __builtins__,
         "add_capability": add_capability,
@@ -174,7 +110,6 @@ def load_image(image_dir: Path) -> ImageSpec:
         "add_channel": add_channel,
         "add_file": add_file,
         "add_coglet": add_coglet,
-        "add_cog": add_cog,
     }
 
     # Load top-level init scripts
@@ -191,7 +126,7 @@ def load_image(image_dir: Path) -> ImageSpec:
     for child in sorted(image_dir.iterdir()):
         if child.is_dir() and child.name not in _STRUCTURAL_DIRS:
             for f in sorted(child.rglob("*")):
-                if f.is_file():
+                if f.is_file() and f.name not in _EXCLUDED_FILES:
                     key = str(f.relative_to(image_dir))
                     spec.files[key] = f.read_text()
 
@@ -208,11 +143,35 @@ def load_image(image_dir: Path) -> ImageSpec:
                     if py.name.startswith("_"):
                         continue
                     exec(compile(py.read_text(), str(py), "exec"), builtins.copy())
-            # App files — everything under the app dir except init/ and __pycache__/
+            # App files — everything under the app dir except init/, __pycache__/, and cog.py
             for f in sorted(app_dir.rglob("*")):
                 rel_parts = f.relative_to(app_dir).parts
-                if f.is_file() and "init" not in rel_parts and "__pycache__" not in rel_parts:
+                if (f.is_file()
+                    and "init" not in rel_parts
+                    and "__pycache__" not in rel_parts
+                    and f.name not in _EXCLUDED_FILES):
                     key = str(f.relative_to(image_dir))
                     spec.files[key] = f.read_text()
+
+    # Discover cogs — directories containing main.py or main.md
+    from cogos.cog.cog import Cog, _is_cog_dir
+    from cogos.cog.runtime import CogManifest
+
+    # Scan app directories for cog directories
+    if apps_dir.is_dir():
+        for app_dir in sorted(apps_dir.iterdir()):
+            if _is_cog_dir(app_dir):
+                cog = Cog(app_dir)
+                manifest = CogManifest.from_cog(cog)
+                spec.cogs.append(manifest.to_dict(content_prefix="apps"))
+
+    # Scan cogos/ subdirectory for cog directories (e.g. cogos/supervisor/)
+    cogos_dir = image_dir / "cogos"
+    if cogos_dir.is_dir():
+        for sub_dir in sorted(cogos_dir.iterdir()):
+            if _is_cog_dir(sub_dir):
+                cog = Cog(sub_dir)
+                manifest = CogManifest.from_cog(cog)
+                spec.cogs.append(manifest.to_dict(content_prefix="cogos"))
 
     return spec

@@ -32,7 +32,7 @@ def test_boot_cogent_v1(tmp_path):
 
 
 def test_boot_cogs_e2e(tmp_path):
-    """Boot cogent-v1, verify cog metadata + boot manifest are written correctly."""
+    """Boot cogent-v1, verify cog manifests are written correctly."""
     import json
     repo_root = Path(__file__).resolve().parents[2]
     image_dir = repo_root / "images" / "cogent-v1"
@@ -41,7 +41,8 @@ def test_boot_cogs_e2e(tmp_path):
     spec = load_image(image_dir)
     counts = apply_image(spec, repo)
 
-    assert counts["cogs"] == 4  # recruiter + newsfromthefront + discord + website
+    # 4 app cogs + 1 cogos cog (supervisor)
+    assert counts["cogs"] == 5
 
     # -- Cog processes are NOT created by apply_image (deferred to init.py) --
     procs = repo.list_processes()
@@ -49,35 +50,34 @@ def test_boot_cogs_e2e(tmp_path):
     assert "recruiter" not in proc_names
     assert "newsfromthefront" not in proc_names
 
-    # -- Verify boot manifest has all cog process specs --
+    # -- Verify cog manifests are written --
     from cogos.files.store import FileStore
     fs = FileStore(repo)
-    raw = fs.get_content("_boot/cog_processes.json")
+    raw = fs.get_content("_boot/cog_manifests.json")
     assert raw is not None
-    manifest = json.loads(raw)
-    manifest_map = {e["name"]: e for e in manifest}
+    manifests = json.loads(raw)
+    manifest_map = {e["name"]: e for e in manifests}
 
     assert "recruiter" in manifest_map
     assert "newsfromthefront" in manifest_map
     assert "discord" in manifest_map
     assert "website" in manifest_map
+    assert "supervisor" in manifest_map
 
-    # -- Recruiter manifest entry: daemon, has cog + coglet_runtime --
+    # -- Recruiter manifest: daemon, has capabilities --
     rec = manifest_map["recruiter"]
-    assert rec["mode"] == "daemon"
-    rec_cap_names = [c if isinstance(c, str) else c["name"] for c in rec["capabilities"]]
-    assert "cog" in rec_cap_names
-    assert "coglet_runtime" in rec_cap_names
+    rec_config = rec["config"]
+    assert rec_config["mode"] == "daemon"
+    rec_cap_names = [c if isinstance(c, str) else c["name"] for c in rec_config["capabilities"]]
     assert "procs" in rec_cap_names
     assert "discord" in rec_cap_names
-    assert "recruiter:feedback" in rec["handlers"]
+    assert "recruiter:feedback" in rec_config["handlers"]
 
-    # -- Newsfromthefront manifest entry: daemon, has cog + coglet_runtime --
+    # -- Newsfromthefront manifest: daemon --
     nff = manifest_map["newsfromthefront"]
-    assert nff["mode"] == "daemon"
-    nff_cap_names = [c if isinstance(c, str) else c["name"] for c in nff["capabilities"]]
-    assert "cog" in nff_cap_names
-    assert "coglet_runtime" in nff_cap_names
+    nff_config = nff["config"]
+    assert nff_config["mode"] == "daemon"
+    nff_cap_names = [c if isinstance(c, str) else c["name"] for c in nff_config["capabilities"]]
     assert "web_search" in nff_cap_names
     expected_nff_handlers = {
         "newsfromthefront:tick",
@@ -85,18 +85,18 @@ def test_boot_cogs_e2e(tmp_path):
         "newsfromthefront:discord-feedback",
         "newsfromthefront:run-requested",
     }
-    assert expected_nff_handlers.issubset(set(nff["handlers"]))
+    assert expected_nff_handlers.issubset(set(nff_config["handlers"]))
 
-    # -- Verify cog storage has default coglets --
-    from cogos.cog import load_cog_meta, load_coglet_meta
+    # -- Verify CogManifest round-trip works --
+    from cogos.cog.runtime import CogManifest
 
-    for cog_name in ["recruiter", "newsfromthefront"]:
-        cog_meta = load_cog_meta(fs, cog_name)
-        assert cog_meta is not None, f"cog meta missing for {cog_name}"
-        coglet_meta = load_coglet_meta(fs, cog_name, cog_name)
-        assert coglet_meta is not None, f"default coglet missing for {cog_name}"
-        assert coglet_meta.entrypoint in ("main.md", "recruiter.py", "newsfromthefront.py")
-        assert coglet_meta.mode == "daemon"
+    for m_dict in manifests:
+        prefix = m_dict.get("content_prefix", "apps")
+        name = m_dict["name"]
+        entrypoint = m_dict["entrypoint"]
+        content_key = f"{prefix}/{name}/{entrypoint}"
+        content = fs.get_content(content_key)
+        assert content is not None, f"Content missing for {name} at {content_key}"
 
     # -- Verify runtime cog.make_coglet works --
     from uuid import uuid4
@@ -111,6 +111,7 @@ def test_boot_cogs_e2e(tmp_path):
     assert child.name == "discover"
     assert child.read_file("main.md") == "# Discover\n\n## Steps\nDo things."
 
+    from cogos.cog import load_coglet_meta
     child_meta = load_coglet_meta(fs, "recruiter", "discover")
     assert child_meta is not None
     assert child_meta.entrypoint == "main.md"

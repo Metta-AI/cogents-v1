@@ -269,7 +269,7 @@ class TestAddCog:
         apply_image(spec, repo)
 
         fs = FileStore(repo)
-        raw = fs.get_content("_boot/cog_processes.json")
+        raw = fs.get_content("_boot/cog_manifests.json")
         manifest = json.loads(raw)
         names = {e["name"] for e in manifest}
         assert "recruiter" in names

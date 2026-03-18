@@ -1126,7 +1126,6 @@ class TestRecruiterCoglets:
     def test_recruiter_cog_created_on_image_apply(self, tmp_path):
         from pathlib import Path
 
-        from cogos.cog import load_cog_meta, load_coglet_meta
         from cogos.image.apply import apply_image
         from cogos.image.spec import load_image
 
@@ -1137,19 +1136,10 @@ class TestRecruiterCoglets:
 
         store = FileStore(repo)
 
-        # Cog meta should exist
-        cog_meta = load_cog_meta(store, "recruiter")
-        assert cog_meta is not None
-        assert cog_meta.name == "recruiter"
-
-        # Default coglet should exist
-        coglet_meta = load_coglet_meta(store, "recruiter", "recruiter")
-        assert coglet_meta is not None
-        assert coglet_meta.entrypoint == "recruiter.py"
-        assert coglet_meta.mode == "daemon"
-
         # Process creation is deferred to init.py — verify boot manifest
-        raw = store.get_content("_boot/cog_processes.json")
+        raw = store.get_content("_boot/cog_manifests.json")
         manifest = json.loads(raw)
         entry = next((e for e in manifest if e["name"] == "recruiter"), None)
         assert entry is not None
+        assert entry["config"]["mode"] == "daemon"
+        assert entry["entrypoint"] == "main.py"

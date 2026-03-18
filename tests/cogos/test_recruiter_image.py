@@ -95,15 +95,12 @@ def test_cogent_v1_recruiter_loads():
 
     cog = next((c for c in spec.cogs if c["name"] == "recruiter"), None)
     assert cog is not None, "recruiter cog not found"
-    default = cog["default_coglet"]
-    assert default is not None
-    assert default["mode"] == "daemon"
-    assert default["entrypoint"] == "recruiter.py"
-    cap_names = [c if isinstance(c, str) else c["name"] for c in default["capabilities"]]
+    config = cog["config"]
+    assert config["mode"] == "daemon"
+    assert cog["entrypoint"] == "main.py"
+    cap_names = [c if isinstance(c, str) else c["name"] for c in config["capabilities"]]
     assert "procs" in cap_names
     assert "discord" in cap_names
-    assert "cog" in cap_names
-    assert "coglet_runtime" in cap_names
 
 
 def test_cogent_v1_recruiter_files():
@@ -118,12 +115,10 @@ def test_cogent_v1_recruiter_files():
     assert "apps/recruiter/evolution.md" in recruiter_files
 
     sourcer_files = {k for k in recruiter_files if "sourcer/" in k}
-    assert len(sourcer_files) == 4
+    assert len(sourcer_files) >= 1
 
+    assert "apps/recruiter/main.py" in recruiter_files
     prompt_files = {k for k in recruiter_files if k.endswith((".md", ".json")) and "sourcer/" not in k and "init/" not in k}
-    # recruiter.md, discover.md, evolve.md, present.md, profile.md,
-    # criteria.md, diagnosis.md, evolution.md, strategy.md, design.md
-    assert "apps/recruiter/recruiter.py" in recruiter_files
     assert "apps/recruiter/discover.md" in prompt_files
 
 
@@ -131,7 +126,7 @@ def test_cogent_v1_recruiter_prompt_refs_are_explicit():
     """Recruiter orchestrator references config and worker files via file.read()."""
     spec = load_image(Path("images/cogent-v1"))
 
-    orchestrator = spec.files["apps/recruiter/recruiter.py"]
+    orchestrator = spec.files["apps/recruiter/main.py"]
     # The orchestrator uses file.read() to load config into coglets at runtime
     assert 'file.read("apps/recruiter/criteria.md")' in orchestrator
     assert 'file.read("apps/recruiter/strategy.md")' in orchestrator

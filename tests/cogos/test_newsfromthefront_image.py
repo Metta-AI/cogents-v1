@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-from cogos.cog import load_cog_meta, load_coglet_meta
 from cogos.db.local_repository import LocalRepository
 from cogos.files.store import FileStore
 from cogos.image.apply import apply_image
@@ -15,29 +14,27 @@ def test_cogent_v1_newsfromthefront_cog_declared():
 
     cog = next((c for c in spec.cogs if c["name"] == "newsfromthefront"), None)
     assert cog is not None, "newsfromthefront cog not found in spec"
-    assert cog["default_coglet"] is not None, "default_coglet not declared"
+    assert cog["config"] is not None, "config not declared"
+    assert cog["entrypoint"] == "main.py"
 
 
-def test_cogent_v1_newsfromthefront_default_coglet_is_daemon():
-    """The default coglet should be a daemon with cog + coglet_runtime capabilities."""
+def test_cogent_v1_newsfromthefront_config_is_daemon():
+    """The cog config should be a daemon with proper capabilities."""
     spec = load_image(Path("images/cogent-v1"))
 
     cog = next(c for c in spec.cogs if c["name"] == "newsfromthefront")
-    default = cog["default_coglet"]
-    assert default["mode"] == "daemon"
-    assert default["entrypoint"] == "newsfromthefront.py"
-    cap_names = [c if isinstance(c, str) else c["name"] for c in default["capabilities"]]
-    assert "cog" in cap_names
-    assert "coglet_runtime" in cap_names
+    config = cog["config"]
+    assert config["mode"] == "daemon"
+    cap_names = [c if isinstance(c, str) else c["name"] for c in config["capabilities"]]
     assert "discord" in cap_names
 
 
-def test_cogent_v1_newsfromthefront_default_coglet_has_handlers():
-    """The default coglet should subscribe to all NFF channels."""
+def test_cogent_v1_newsfromthefront_has_handlers():
+    """The cog should subscribe to all NFF channels."""
     spec = load_image(Path("images/cogent-v1"))
 
     cog = next(c for c in spec.cogs if c["name"] == "newsfromthefront")
-    default = cog["default_coglet"]
+    handlers = cog["config"]["handlers"]
     expected_handlers = [
         "newsfromthefront:tick",
         "newsfromthefront:findings-ready",
@@ -45,7 +42,7 @@ def test_cogent_v1_newsfromthefront_default_coglet_has_handlers():
         "newsfromthefront:run-requested",
     ]
     for h in expected_handlers:
-        assert h in default["handlers"]
+        assert h in handlers
 
 
 def test_cogent_v1_newsfromthefront_prompt_files_exist():
@@ -53,7 +50,7 @@ def test_cogent_v1_newsfromthefront_prompt_files_exist():
     spec = load_image(Path("images/cogent-v1"))
 
     expected_files = [
-        "apps/newsfromthefront/newsfromthefront.py",
+        "apps/newsfromthefront/main.py",
         "apps/newsfromthefront/researcher.md",
         "apps/newsfromthefront/analyst.md",
         "apps/newsfromthefront/test.md",
@@ -72,29 +69,23 @@ def test_cogent_v1_newsfromthefront_whoami_is_app_scoped():
 
 
 def test_cogent_v1_newsfromthefront_cog_apply(tmp_path):
-    """Cog should be persisted to the repo on apply with default coglet + process."""
+    """Cog manifest should be written to FileStore on apply."""
+    import json
+
     spec = load_image(Path("images/cogent-v1"))
     repo = LocalRepository(str(tmp_path))
     apply_image(spec, repo)
 
     store = FileStore(repo)
 
-    # Cog meta should exist
-    cog_meta = load_cog_meta(store, "newsfromthefront")
-    assert cog_meta is not None
-    assert cog_meta.name == "newsfromthefront"
-
-    # Default coglet should exist
-    coglet_meta = load_coglet_meta(store, "newsfromthefront", "newsfromthefront")
-    assert coglet_meta is not None
-    assert coglet_meta.entrypoint == "newsfromthefront.py"
-    assert coglet_meta.mode == "daemon"
-
-    # Process creation is deferred to init.py — verify boot manifest instead
-    raw = store.get_content("_boot/cog_processes.json")
+    # Verify manifest is written
+    raw = store.get_content("_boot/cog_manifests.json")
     assert raw is not None
-    import json
-    manifest = json.loads(raw)
-    entry = next((e for e in manifest if e["name"] == "newsfromthefront"), None)
+    manifests = json.loads(raw)
+    entry = next((e for e in manifests if e["name"] == "newsfromthefront"), None)
     assert entry is not None
-    assert entry["mode"] == "daemon"
+    assert entry["config"]["mode"] == "daemon"
+
+    # Content file should be in FileStore
+    content = store.get_content("apps/newsfromthefront/main.py")
+    assert content is not None

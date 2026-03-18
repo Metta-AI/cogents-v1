@@ -1,25 +1,136 @@
-"""CogRuntime — spawns cogs and coglets from directory structure."""
+"""CogRuntime — spawns cogs and coglets from directory structure.
+
+Works with two kinds of cog data:
+- Filesystem ``Cog`` objects (used by load_image at build time)
+- Manifest dicts from FileStore (used by init.py at runtime)
+"""
 
 from __future__ import annotations
 
+import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
-from cogos.cog.cog import Cog, CogConfig, CogletRef
+from cogos.cog.cog import Cog, CogConfig
 
 logger = logging.getLogger(__name__)
 
 
-class CogRuntime:
-    """Spawns cog main coglets and child coglets with scoped capabilities."""
+# ---------------------------------------------------------------------------
+# CogManifest — lightweight data object for runtime (no filesystem needed)
+# ---------------------------------------------------------------------------
 
-    def __init__(self, cog: Cog, cap_objects: dict[str, Any]) -> None:
+@dataclass
+class CogletManifest:
+    """A child coglet's manifest data."""
+    name: str
+    config: CogConfig
+    content: str
+    entrypoint: str
+
+
+@dataclass
+class CogManifest:
+    """A cog's manifest — all data needed to spawn it at runtime."""
+    name: str
+    config: CogConfig
+    content: str
+    entrypoint: str
+    coglets: dict[str, CogletManifest] = field(default_factory=dict)
+
+    @classmethod
+    def from_cog(cls, cog: Cog) -> CogManifest:
+        """Build a manifest from a filesystem Cog."""
+        coglets = {}
+        for coglet_name in cog.coglets:
+            ref = cog.get_coglet(coglet_name)
+            coglets[coglet_name] = CogletManifest(
+                name=ref.name,
+                config=ref.config,
+                content=ref.content,
+                entrypoint=ref.entrypoint,
+            )
+        return cls(
+            name=cog.name,
+            config=cog.config,
+            content=cog.main_content,
+            entrypoint=cog.main_entrypoint,
+            coglets=coglets,
+        )
+
+    def to_dict(self, *, content_prefix: str = "apps") -> dict:
+        """Serialize to a dict for JSON storage.
+
+        *content_prefix* is the FileStore key prefix where this cog's files
+        are stored (e.g. ``"apps"`` for ``apps/mycog/main.py``).
         """
-        cog: a loaded Cog instance
-        cap_objects: dict of capability name -> capability object
+        return {
+            "name": self.name,
+            "config": self.config.model_dump(),
+            "entrypoint": self.entrypoint,
+            "content_prefix": content_prefix,
+            "coglets": {
+                name: {
+                    "name": cl.name,
+                    "config": cl.config.model_dump(),
+                    "entrypoint": cl.entrypoint,
+                }
+                for name, cl in self.coglets.items()
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, file_reader) -> CogManifest:
+        """Reconstruct from a serialized dict + a file reader callable.
+
+        ``file_reader(key)`` should return file content as a string.
         """
-        self.cog = cog
+        config = CogConfig(**data["config"])
+        prefix = data.get("content_prefix", "apps")
+        # Read main content from FileStore
+        content_key = f"{prefix}/{data['name']}/{data['entrypoint']}"
+        content = file_reader(content_key)
+
+        coglets = {}
+        for cl_name, cl_data in data.get("coglets", {}).items():
+            cl_config = CogConfig(**cl_data["config"])
+            cl_content_key = f"{prefix}/{data['name']}/{cl_name}/{cl_data['entrypoint']}"
+            cl_content = file_reader(cl_content_key)
+            coglets[cl_name] = CogletManifest(
+                name=cl_name,
+                config=cl_config,
+                content=cl_content,
+                entrypoint=cl_data["entrypoint"],
+            )
+
+        return cls(
+            name=data["name"],
+            config=config,
+            content=content,
+            entrypoint=data["entrypoint"],
+            coglets=coglets,
+        )
+
+
+# ---------------------------------------------------------------------------
+# CogRuntime
+# ---------------------------------------------------------------------------
+
+class CogRuntime:
+    """Spawns cog main coglets and child coglets with scoped capabilities.
+
+    Accepts either a filesystem ``Cog`` or a ``CogManifest``.
+    """
+
+    def __init__(self, manifest: CogManifest, cap_objects: dict[str, Any]) -> None:
+        self.manifest = manifest
         self.cap_objects = cap_objects
+
+    @classmethod
+    def from_cog(cls, cog: Cog, cap_objects: dict[str, Any]) -> CogRuntime:
+        """Create from a filesystem Cog object."""
+        return cls(CogManifest.from_cog(cog), cap_objects)
 
     # ------------------------------------------------------------------
     # Public API
@@ -27,51 +138,47 @@ class CogRuntime:
 
     def run_cog(self, procs: Any) -> Any:
         """Spawn the main coglet for this cog. Returns ProcessHandle."""
-        cog = self.cog
-        config = cog.config
-        caps = self._build_capabilities(config)
-
-        # Scoped dir and data
-        self._add_scoped_dir_and_data(caps, cog.name)
-
-        # Main coglet gets runtime so it can launch children
+        m = self.manifest
+        caps = self._build_capabilities(m.config)
+        self._add_scoped_dir_and_data(caps, m.name)
         caps["runtime"] = self
 
         return procs.spawn(
-            name=cog.name,
-            content=cog.main_content,
-            mode=config.mode,
-            priority=config.priority,
-            executor=config.executor,
-            model=config.model,
-            runner=config.runner,
-            idle_timeout_ms=config.idle_timeout_ms,
+            name=m.name,
+            content=m.content,
+            mode=m.config.mode,
+            priority=m.config.priority,
+            executor=m.config.executor,
+            model=m.config.model,
+            runner=m.config.runner,
+            idle_timeout_ms=m.config.idle_timeout_ms,
             capabilities=caps,
-            subscribe=config.handlers if config.handlers else None,
+            subscribe=m.config.handlers if m.config.handlers else None,
             detached=True,
         )
 
     def run_coglet(self, name: str, procs: Any) -> Any:
         """Spawn a child coglet by name. Returns ProcessHandle."""
-        cog = self.cog
-        ref: CogletRef = cog.get_coglet(name)
-        config = ref.config
-        caps = self._build_capabilities(config)
-
-        # Same scoped dir and data as the parent cog
-        self._add_scoped_dir_and_data(caps, cog.name)
+        m = self.manifest
+        cl = m.coglets.get(name)
+        if cl is None:
+            raise FileNotFoundError(
+                f"Coglet '{name}' not found in cog '{m.name}'"
+            )
+        caps = self._build_capabilities(cl.config)
+        self._add_scoped_dir_and_data(caps, m.name)
 
         return procs.spawn(
-            name=f"{cog.name}/{name}",
-            content=ref.content,
-            mode=config.mode,
-            priority=config.priority,
-            executor=config.executor,
-            model=config.model,
-            runner=config.runner,
-            idle_timeout_ms=config.idle_timeout_ms,
+            name=f"{m.name}/{name}",
+            content=cl.content,
+            mode=cl.config.mode,
+            priority=cl.config.priority,
+            executor=cl.config.executor,
+            model=cl.config.model,
+            runner=cl.config.runner,
+            idle_timeout_ms=cl.config.idle_timeout_ms,
             capabilities=caps,
-            subscribe=config.handlers if config.handlers else None,
+            subscribe=cl.config.handlers if cl.config.handlers else None,
             detached=True,
         )
 

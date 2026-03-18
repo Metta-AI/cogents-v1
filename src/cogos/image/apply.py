@@ -168,108 +168,12 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
 
         counts["coglets"] += 1
 
-    # 8. Cogs — save metadata + file trees, write boot manifest for init.py
-    # Process creation is deferred to init.py so it can pass the supervisor
-    # channel to every child process at spawn time.
+    # 8. Cog manifests — write the manifest JSON for init.py to read at runtime.
     # IMPORTANT: The manifest must be written BEFORE creating the init process
     # (section 9) to avoid a race where the dispatcher picks up init before
     # the manifest is ready.
-    from cogos.cog import (
-        CogMeta as CogMetaModel,
-        save_cog_meta as _save_cog_meta,
-        load_coglet_meta as _load_cog_coglet_meta,
-        save_coglet_meta as _save_cog_coglet_meta,
-        write_file_tree as _write_cog_file_tree,
-    )
-    counts["cogs"] = 0
-    cog_process_names: set[str] = set()
-    boot_manifest: list[dict] = []
-    for cog_dict in spec.cogs:
-        cog_name = cog_dict["name"]
-        _save_cog_meta(fs, cog_name, CogMetaModel(name=cog_name))
-
-        default = cog_dict.get("default_coglet")
-        if default is None:
-            counts["cogs"] += 1
-            continue
-
-        coglet_name = cog_name
-        existing_meta = _load_cog_coglet_meta(fs, cog_name, coglet_name)
-        if existing_meta is not None:
-            existing_meta.test_command = default.get("test_command", "true")
-            existing_meta.entrypoint = default["entrypoint"]
-            existing_meta.mode = default["mode"]
-            existing_meta.model = default.get("model")
-            existing_meta.capabilities = default.get("capabilities") or []
-            existing_meta.idle_timeout_ms = default.get("idle_timeout_ms")
-            _write_cog_file_tree(fs, cog_name, coglet_name, "main", default["files"])
-            _save_cog_coglet_meta(fs, cog_name, coglet_name, existing_meta)
-        else:
-            meta = CogletMeta(
-                name=coglet_name,
-                test_command=default.get("test_command", "true"),
-                entrypoint=default["entrypoint"],
-                mode=default["mode"],
-                model=default.get("model"),
-                capabilities=default.get("capabilities") or [],
-                idle_timeout_ms=default.get("idle_timeout_ms"),
-            )
-            _write_cog_file_tree(fs, cog_name, coglet_name, "main", default["files"])
-            _save_cog_coglet_meta(fs, cog_name, coglet_name, meta)
-
-        proc_name = cog_name
-        cog_process_names.add(proc_name)
-
-        manifest_entry: dict = {
-            "name": proc_name,
-            "cog_name": cog_name,
-            "mode": default["mode"],
-            "content_file": f"cogs/{cog_name}/coglets/{coglet_name}/main/{default['entrypoint']}",
-            "executor": default.get("executor", "llm"),
-            "model": default.get("model"),
-            "runner": default.get("runner", "lambda"),
-            "priority": float(default.get("priority", 0.0)),
-            "idle_timeout_ms": default.get("idle_timeout_ms"),
-            "capabilities": default.get("capabilities") or [],
-            "handlers": default.get("handlers") or [],
-            "children": [],
-        }
-
-        for child in cog_dict.get("coglets") or []:
-            child_name = child["name"]
-            coglet_proc_name = f"{cog_name}/{child_name}"
-            cog_process_names.add(coglet_proc_name)
-
-            child_meta = CogletMeta(
-                name=child_name,
-                test_command=child.get("test_command", "true"),
-                entrypoint=child["entrypoint"],
-                mode=child["mode"],
-                model=child.get("model"),
-                capabilities=child.get("capabilities") or [],
-                idle_timeout_ms=child.get("idle_timeout_ms"),
-            )
-            _write_cog_file_tree(fs, cog_name, child_name, "main", child["files"])
-            _save_cog_coglet_meta(fs, cog_name, child_name, child_meta)
-
-            manifest_entry["children"].append({
-                "name": coglet_proc_name,
-                "cog_name": cog_name,
-                "mode": child["mode"],
-                "content_file": f"cogs/{cog_name}/coglets/{child_name}/main/{child['entrypoint']}",
-                "executor": child.get("executor", "llm"),
-                "model": child.get("model"),
-                "runner": child.get("runner", "lambda"),
-                "priority": float(child.get("priority", 0.0)),
-                "idle_timeout_ms": child.get("idle_timeout_ms"),
-                "capabilities": child.get("capabilities") or [],
-                "handlers": child.get("handlers") or [],
-            })
-
-        boot_manifest.append(manifest_entry)
-        counts["cogs"] += 1
-
-    fs.upsert("_boot/cog_processes.json", json.dumps(boot_manifest, indent=2))
+    counts["cogs"] = len(spec.cogs)
+    fs.upsert("_boot/cog_manifests.json", json.dumps(spec.cogs, indent=2))
 
     # 9. Processes (with capability bindings and handlers)
     # IMPORTANT: This must come AFTER the boot manifest is written (section 8)
@@ -333,23 +237,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
 
         counts["processes"] += 1
 
-    # 10. Disable stale top-level processes not in this image
-    image_process_names = {p["name"] for p in spec.processes} | cog_process_names
-    all_procs = repo.list_processes(limit=500)
-    stale_count = 0
-    for proc in all_procs:
-        if proc.name in image_process_names:
-            continue
-        if proc.parent_process is not None:
-            continue  # spawned child — not managed by image boot
-        if proc.status in (ProcessStatus.DISABLED, ProcessStatus.COMPLETED):
-            continue
-        logger.info("Disabling stale process %s (not in image)", proc.name)
-        repo.update_process_status(proc.id, ProcessStatus.DISABLED)
-        stale_count += 1
-    counts["stale_disabled"] = stale_count
-
-    # 11. Ensure io channels exist
+    # 10. Ensure io channels exist
     for io_name in ("io:stdin", "io:stdout", "io:stderr"):
         if repo.get_channel_by_name(io_name) is None:
             repo.upsert_channel(Channel(name=io_name, channel_type=ChannelType.NAMED))

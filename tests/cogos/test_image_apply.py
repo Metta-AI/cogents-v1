@@ -180,8 +180,8 @@ def test_spawn_with_scoped_config(tmp_path):
     assert pcs[0].config == {"prefix": "/readonly/", "ops": ["list", "read"]}
 
 
-def test_apply_disables_stale_processes(tmp_path):
-    """Processes from previous images that are no longer in the spec should be disabled."""
+def test_apply_does_not_disable_stale_processes(tmp_path):
+    """Stale process cleanup is now owned by init.py, not apply_image."""
     repo = LocalRepository(str(tmp_path))
     spec = _make_spec()
     apply_image(spec, repo)
@@ -193,14 +193,15 @@ def test_apply_disables_stale_processes(tmp_path):
     repo.upsert_process(stale)
     assert repo.get_process_by_name("old-daemon").status == ProcessStatus.WAITING
 
-    # Re-apply the image — stale process should be disabled
+    # Re-apply the image — stale process cleanup is NOT done by apply_image
     counts = apply_image(spec, repo)
-    assert counts["stale_disabled"] == 1
-    assert repo.get_process_by_name("old-daemon").status == ProcessStatus.DISABLED
+    assert "stale_disabled" not in counts
+    # Process stays in its original state
+    assert repo.get_process_by_name("old-daemon").status == ProcessStatus.WAITING
 
 
 def test_apply_preserves_spawned_children(tmp_path):
-    """Spawned child processes (with parent) should NOT be disabled by image boot."""
+    """Spawned child processes should not be touched by apply_image."""
     repo = LocalRepository(str(tmp_path))
     spec = _make_spec()
     apply_image(spec, repo)
@@ -215,7 +216,7 @@ def test_apply_preserves_spawned_children(tmp_path):
 
     # Re-apply — spawned child should be preserved
     counts = apply_image(spec, repo)
-    assert counts["stale_disabled"] == 0
+    assert "stale_disabled" not in counts
     assert repo.get_process_by_name("spawned-child").status == ProcessStatus.RUNNABLE
 
 
