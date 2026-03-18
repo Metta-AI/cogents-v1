@@ -133,7 +133,7 @@ class FileCapability(Capability):
         self._check("append", key=k)
 
         store = FileStore(self.repo)
-        result = store.append(k, content, source=source)
+        result = store.append(k, content, source=source, run_id=self.run_id)
 
         if result is None:
             return FileWriteResult(
@@ -192,7 +192,7 @@ class FileCapability(Capability):
         self, key: str, content: str, source: str
     ) -> FileWriteResult | FileError:
         store = FileStore(self.repo)
-        result = store.upsert(key, content, source=source)
+        result = store.upsert(key, content, source=source, run_id=self.run_id)
 
         if result is None:
             return FileWriteResult(
@@ -264,7 +264,7 @@ class FileVersionCapability(Capability):
     def add(self, key: str, content: str, source: str = "agent"):
         self._check("add", key=key)
         store = FileStore(self.repo)
-        return store.upsert(key, content, source=source)
+        return store.upsert(key, content, source=source, run_id=self.run_id)
 
     def list(self, key: str, limit: int = 50):
         self._check("list", key=key)

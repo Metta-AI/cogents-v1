@@ -135,7 +135,7 @@ class FilesCapability(Capability):
         self._check("write", key=key)
 
         store = FileStore(self.repo)
-        result = store.upsert(key, content, source=source, read_only=read_only)
+        result = store.upsert(key, content, source=source, read_only=read_only, run_id=self.run_id)
 
         if result is None:
             return FileWriteResult(id="", key=key, version=0, created=False, changed=False)

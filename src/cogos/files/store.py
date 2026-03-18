@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from uuid import UUID
 
 from cogos.db.models import File, FileVersion
 from cogos.files.references import extract_file_references
@@ -27,6 +28,7 @@ class FileStore:
         *,
         source: str = "cogent",
         read_only: bool = False,
+        run_id: UUID | None = None,
     ) -> File:
         """Create a new file with version 1."""
         f = File(key=key, includes=extract_file_references(content, exclude_key=key))
@@ -38,6 +40,7 @@ class FileStore:
             source=source,
             read_only=read_only,
             is_active=True,
+            run_id=run_id,
         )
         self._repo.insert_file_version(fv)
         return f
@@ -49,6 +52,7 @@ class FileStore:
         *,
         source: str = "cogent",
         read_only: bool = False,
+        run_id: UUID | None = None,
     ) -> FileVersion | None:
         """Add a new version if content changed. Returns None if unchanged or not found."""
         f = self._repo.get_file_by_key(key)
@@ -71,6 +75,7 @@ class FileStore:
             source=source,
             read_only=read_only,
             is_active=True,
+            run_id=run_id,
         )
         self._repo.insert_file_version(fv)
         self._repo.update_file_includes(f.id, derived_includes)
@@ -83,12 +88,13 @@ class FileStore:
         *,
         source: str = "cogent",
         read_only: bool = False,
+        run_id: UUID | None = None,
     ) -> File | FileVersion | None:
         """Create or update a file. Returns File on create, FileVersion on update, None if unchanged."""
         f = self._repo.get_file_by_key(key)
         if f is None:
-            return self.create(key, content, source=source, read_only=read_only)
-        return self.new_version(key, content, source=source, read_only=read_only)
+            return self.create(key, content, source=source, read_only=read_only, run_id=run_id)
+        return self.new_version(key, content, source=source, read_only=read_only, run_id=run_id)
 
     def append(
         self,
@@ -96,11 +102,12 @@ class FileStore:
         content: str,
         *,
         source: str = "cogent",
+        run_id: UUID | None = None,
     ) -> File | FileVersion | None:
         """Append content to a file's active version in-place. Creates the file if it doesn't exist."""
         f = self._repo.get_file_by_key(key)
         if f is None:
-            return self.create(key, content, source=source)
+            return self.create(key, content, source=source, run_id=run_id)
         fv = self._repo.get_active_file_version(f.id)
         if fv is None:
             return self.create(key, content, source=source)

@@ -1065,7 +1065,16 @@ class LocalRepository:
             if run:
                 run.metadata = metadata
 
-    def list_runs(self, *, process_id: UUID | None = None, limit: int = 50, epoch: int | None = None) -> list[Run]:
+    def list_runs(
+        self,
+        *,
+        process_id: UUID | None = None,
+        process_ids: list[UUID] | None = None,
+        status: str | None = None,
+        since: str | None = None,
+        limit: int = 50,
+        epoch: int | None = None,
+    ) -> list[Run]:
         self._maybe_reload()
         effective_epoch = self._reboot_epoch if epoch is None else epoch
         runs = list(self._runs.values())
@@ -1073,8 +1082,52 @@ class LocalRepository:
             runs = [r for r in runs if r.epoch == effective_epoch]
         if process_id:
             runs = [r for r in runs if r.process == process_id]
+        if process_ids:
+            pid_set = set(process_ids)
+            runs = [r for r in runs if r.process in pid_set]
+        if status:
+            runs = [r for r in runs if (r.status.value if hasattr(r.status, "value") else r.status) == status]
+        if since:
+            from datetime import datetime as dt
+            cutoff = dt.fromisoformat(since.replace("Z", "+00:00"))
+            runs = [r for r in runs if r.created_at and r.created_at >= cutoff]
         runs.sort(key=lambda r: r.created_at or datetime.min, reverse=True)
         return runs[:limit]
+
+    def list_file_mutations(self, run_id: UUID) -> list[dict]:
+        """List file versions created by a specific run."""
+        self._maybe_reload()
+        results = []
+        for file_id, versions in self._file_versions.items():
+            for fv in versions:
+                if fv.run_id == run_id:
+                    f = self._files.get(file_id)
+                    if f:
+                        results.append({
+                            "key": f.key,
+                            "version": fv.version,
+                            "created_at": fv.created_at,
+                        })
+        results.sort(key=lambda r: r.get("created_at") or datetime.min)
+        return results
+
+    def list_runs_by_process_glob(
+        self,
+        name_pattern: str,
+        *,
+        status: str | None = None,
+        since: str | None = None,
+        limit: int = 50,
+    ) -> list[Run]:
+        """List runs for processes whose name matches a glob pattern."""
+        import fnmatch
+        self._maybe_reload()
+        # Build name->id map
+        matching_pids = set()
+        for proc in self._processes.values():
+            if fnmatch.fnmatch(proc.name, name_pattern):
+                matching_pids.add(proc.id)
+        return self.list_runs(process_ids=list(matching_pids), status=status, since=since, limit=limit)
 
     # ── Meta ────────────────────────────────────────────────
 

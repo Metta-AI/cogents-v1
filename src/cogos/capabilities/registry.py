@@ -278,6 +278,86 @@ BUILTIN_CAPABILITIES: list[dict] = [
         },
     },
     {
+        "name": "history",
+        "description": "Run history, file mutation tracking, and cross-process audit queries.",
+        "handler": "cogos.capabilities.history.HistoryCapability",
+        "instructions": (
+            "Use history to query run history and file mutations.\n"
+            "- h = history.process(name) — get handle for one process\n"
+            "- h.runs(limit=10) — recent runs\n"
+            "- h.files(run_id) — files mutated by a run\n"
+            "- history.query(status?, process_name?, since?, limit=50) — cross-process query\n"
+            "- history.failed(since?, limit=20) — shorthand for failed runs"
+        ),
+        "schema": {
+            "scope": {
+                "properties": {
+                    "ops": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["query", "process"]},
+                    },
+                    "process_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Restrict to these process IDs. Empty = all.",
+                    },
+                },
+            },
+            "process": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Process name"},
+                        "id": {"type": "string", "description": "Process UUID"},
+                    },
+                },
+                "output": {"type": "object", "description": "ProcessHistory handle or HistoryError"},
+            },
+            "query": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string", "description": "Filter by run status"},
+                        "process_name": {"type": "string", "description": "Glob pattern on process name"},
+                        "since": {"type": "string", "description": "ISO timestamp or duration"},
+                        "limit": {"type": "integer", "default": 50},
+                    },
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "process_id": {"type": "string"},
+                            "process_name": {"type": "string"},
+                            "status": {"type": "string"},
+                            "duration_ms": {"type": "integer"},
+                            "tokens_in": {"type": "integer"},
+                            "tokens_out": {"type": "integer"},
+                            "cost_usd": {"type": "string"},
+                            "error": {"type": "string"},
+                            "result": {"type": "object"},
+                            "model_version": {"type": "string"},
+                            "created_at": {"type": "string"},
+                            "completed_at": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            "failed": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "since": {"type": "string"},
+                        "limit": {"type": "integer", "default": 20},
+                    },
+                },
+                "output": {"type": "array"},
+            },
+        },
+    },
+    {
         "name": "resources",
         "description": "Resource pool management — check availability before resource-gated operations.",
         "handler": "cogos.capabilities.resources.ResourcesCapability",

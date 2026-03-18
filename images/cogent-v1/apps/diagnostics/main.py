@@ -260,6 +260,33 @@ def diag_alerts():
     checks.append(check("wired", test_wired))
     return checks
 
+def diag_history():
+    """Test history capability — query, failed, process history."""
+    checks = []
+
+    def test_query():
+        results = history.query(limit=5)
+        if not isinstance(results, list):
+            raise Exception("query returned " + str(type(results)))
+    checks.append(check("query", test_query))
+
+    def test_failed():
+        results = history.failed(limit=5)
+        if not isinstance(results, list):
+            raise Exception("failed returned " + str(type(results)))
+    checks.append(check("failed", test_failed))
+
+    def test_process_history():
+        h = history.process("init")
+        if hasattr(h, "error"):
+            raise Exception(str(h.error))
+        runs = h.runs(limit=3)
+        if not isinstance(runs, list):
+            raise Exception("runs returned " + str(type(runs)))
+    checks.append(check("process_history", test_process_history))
+
+    return checks
+
 # ═══════════════════════════════════════════════════════════
 # RUNNER
 # ═══════════════════════════════════════════════════════════
@@ -279,6 +306,7 @@ ALL_DIAGNOSTICS = {
     "asana": diag_asana,
     "github": diag_github,
     "alerts": diag_alerts,
+    "history": diag_history,
 }
 
 timestamp = _now()

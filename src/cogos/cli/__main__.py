@@ -289,12 +289,15 @@ def process_get(name: str, use_json: bool):
 @click.option("--mode", type=click.Choice(["daemon", "one_shot"]), default="one_shot")
 @click.option("--content", default="")
 @click.option("--runner", type=click.Choice(["lambda", "ecs"]), default="lambda")
+@click.option("--executor", type=click.Choice(["llm", "python"]), default="llm")
 @click.option("--model", default=None)
 @click.option("--priority", type=float, default=0.0)
+@click.option("--capability", "-cap", multiple=True, help="Capability name to grant (repeatable)")
 def process_create(name: str, mode: str, content: str,
-                   runner: str, model: str | None, priority: float):
+                   runner: str, executor: str, model: str | None,
+                   priority: float, capability: tuple[str, ...]):
     """Create a new process."""
-    from cogos.db.models import Process, ProcessMode, ProcessStatus
+    from cogos.db.models import Process, ProcessCapability, ProcessMode, ProcessStatus
     repo = _repo()
 
     p = Process(
@@ -302,11 +305,22 @@ def process_create(name: str, mode: str, content: str,
         mode=ProcessMode(mode),
         content=content,
         runner=runner,
+        executor=executor,
         model=model,
         priority=priority,
         status=ProcessStatus.RUNNABLE,
     )
     pid = repo.upsert_process(p)
+
+    for cap_name in capability:
+        cap = repo.get_capability_by_name(cap_name)
+        if cap:
+            pc = ProcessCapability(process=pid, capability=cap.id, name=cap_name)
+            repo.create_process_capability(pc)
+            click.echo(f"  granted: {cap_name}")
+        else:
+            click.echo(f"  warning: capability '{cap_name}' not found")
+
     click.echo(f"Process created: {name} ({pid})")
 
 

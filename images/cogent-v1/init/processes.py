@@ -10,7 +10,7 @@ add_process(
     priority=200.0,
     capabilities=[
         "me", "procs", "dir", "file", "discord", "channels",
-        "secrets", "stdlib", "alerts",
+        "secrets", "stdlib", "alerts", "history",
         "blob", "image",
         # Delegatable to supervisor → helpers:
         "asana", "email", "github", "web_search", "web_fetch", "web",

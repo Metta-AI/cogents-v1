@@ -75,7 +75,7 @@ class TestFileHandle:
 
         assert result.key == "/proc/abc/scratch"
         assert result.version == 3
-        mock_store.upsert.assert_called_once_with("/proc/abc/scratch", "data", source="process")
+        mock_store.upsert.assert_called_once_with("/proc/abc/scratch", "data", source="process", run_id=None)
 
     def test_write_none_result(self, mock_store, mock_repo):
         mock_store.upsert.return_value = None
@@ -126,7 +126,7 @@ class TestDirHandle:
         dh = DirHandle("/proc/abc/tmp/", mock_store, mock_repo)
         result = dh.write("foo", "bar")
         assert result.key == "/proc/abc/tmp/foo"
-        mock_store.upsert.assert_called_with("/proc/abc/tmp/foo", "bar", source="process")
+        mock_store.upsert.assert_called_with("/proc/abc/tmp/foo", "bar", source="process", run_id=None)
 
     def test_file(self, mock_store, mock_repo):
         dh = DirHandle("/proc/abc/tmp/", mock_store, mock_repo)

@@ -27,10 +27,11 @@ class FileWriteResult(BaseModel):
 class FileHandle:
     """A scoped file handle that supports read/write on a fixed key."""
 
-    def __init__(self, key: str, store: FileStore, repo):
+    def __init__(self, key: str, store: FileStore, repo, run_id: UUID | None = None):
         self._key = key
         self._store = store
         self._repo = repo
+        self._run_id = run_id
 
     @property
     def key(self) -> str:
@@ -44,7 +45,7 @@ class FileHandle:
         return fv.content if fv else None
 
     def write(self, content: str) -> FileWriteResult:
-        result = self._store.upsert(self._key, content, source="process")
+        result = self._store.upsert(self._key, content, source="process", run_id=self._run_id)
         if result is None:
             return FileWriteResult(key=self._key, version=0)
         if hasattr(result, "version"):
@@ -58,10 +59,11 @@ class FileHandle:
 class DirHandle:
     """A scoped directory handle that supports list/read/write under a prefix."""
 
-    def __init__(self, prefix: str, store: FileStore, repo):
+    def __init__(self, prefix: str, store: FileStore, repo, run_id: UUID | None = None):
         self._prefix = prefix
         self._store = store
         self._repo = repo
+        self._run_id = run_id
 
     @property
     def key(self) -> str:
@@ -72,15 +74,15 @@ class DirHandle:
         return [f.key for f in files]
 
     def read(self, name: str) -> str | None:
-        fh = FileHandle(self._prefix + name, self._store, self._repo)
+        fh = FileHandle(self._prefix + name, self._store, self._repo, run_id=self._run_id)
         return fh.read()
 
     def write(self, name: str, content: str) -> FileWriteResult:
-        fh = FileHandle(self._prefix + name, self._store, self._repo)
+        fh = FileHandle(self._prefix + name, self._store, self._repo, run_id=self._run_id)
         return fh.write(content)
 
     def file(self, name: str) -> FileHandle:
-        return FileHandle(self._prefix + name, self._store, self._repo)
+        return FileHandle(self._prefix + name, self._store, self._repo, run_id=self._run_id)
 
     def __repr__(self) -> str:
         return f"<Dir {self._prefix}>"
@@ -92,25 +94,26 @@ class DirHandle:
 class Scope:
     """Base for scoped file/dir access under a key prefix."""
 
-    def __init__(self, base: str, store: FileStore, repo):
+    def __init__(self, base: str, store: FileStore, repo, run_id: UUID | None = None):
         self._base = base
         self._store = store
         self._repo = repo
+        self._run_id = run_id
 
     def tmp(self) -> FileHandle:
-        return FileHandle(f"{self._base}/tmp", self._store, self._repo)
+        return FileHandle(f"{self._base}/tmp", self._store, self._repo, run_id=self._run_id)
 
     def tmp_dir(self) -> DirHandle:
-        return DirHandle(f"{self._base}/tmp/", self._store, self._repo)
+        return DirHandle(f"{self._base}/tmp/", self._store, self._repo, run_id=self._run_id)
 
     def log(self) -> FileHandle:
-        return FileHandle(f"{self._base}/log", self._store, self._repo)
+        return FileHandle(f"{self._base}/log", self._store, self._repo, run_id=self._run_id)
 
     def scratch(self) -> FileHandle:
-        return FileHandle(f"{self._base}/scratch", self._store, self._repo)
+        return FileHandle(f"{self._base}/scratch", self._store, self._repo, run_id=self._run_id)
 
     def scratch_dir(self) -> DirHandle:
-        return DirHandle(f"{self._base}/scratch/", self._store, self._repo)
+        return DirHandle(f"{self._base}/scratch/", self._store, self._repo, run_id=self._run_id)
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} {self._base}>"
@@ -120,14 +123,14 @@ class RunScope(Scope):
     """Scoped access to the current run's scratch/tmp/log."""
 
     def __init__(self, process_id: UUID, run_id: UUID, store: FileStore, repo):
-        super().__init__(f"/proc/{process_id}/runs/{run_id}", store, repo)
+        super().__init__(f"/proc/{process_id}/runs/{run_id}", store, repo, run_id=run_id)
 
 
 class ProcessScope(Scope):
     """Scoped access to the current process's scratch/tmp/log."""
 
-    def __init__(self, process_id: UUID, store: FileStore, repo):
-        super().__init__(f"/proc/{process_id}", store, repo)
+    def __init__(self, process_id: UUID, store: FileStore, repo, run_id: UUID | None = None):
+        super().__init__(f"/proc/{process_id}", store, repo, run_id=run_id)
 
 
 # ── Capability ───────────────────────────────────────────────
@@ -154,7 +157,7 @@ class MeCapability(Capability):
         return RunScope(self.process_id, self.run_id, self._store, self.repo)
 
     def process(self) -> ProcessScope:
-        return ProcessScope(self.process_id, self._store, self.repo)
+        return ProcessScope(self.process_id, self._store, self.repo, run_id=self.run_id)
 
     def _process_name(self) -> str:
         proc = self.repo.get_process(self.process_id)

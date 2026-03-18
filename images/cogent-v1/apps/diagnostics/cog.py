@@ -6,7 +6,7 @@ config = CogConfig(
     priority=1.0,
     capabilities=[
         "me", "procs", "dir", "file",
-        "channels", "stdlib",
+        "channels", "stdlib", "history",
         "discord", "email", "asana", "github",
         "web", "web_search", "web_fetch",
         "blob", "image", "alerts",

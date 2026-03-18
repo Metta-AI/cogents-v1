@@ -1035,12 +1035,13 @@ class Repository:
 
     def insert_file_version(self, fv: FileVersion) -> None:
         self._execute(
-            """INSERT INTO cogos_file_version (id, file_id, version, read_only, content, source, is_active)
-               VALUES (:id, :file_id, :version, :read_only, :content, :source, :is_active)
+            """INSERT INTO cogos_file_version (id, file_id, version, read_only, content, source, is_active, run_id)
+               VALUES (:id, :file_id, :version, :read_only, :content, :source, :is_active, :run_id)
                ON CONFLICT (file_id, version) DO UPDATE SET
                    content = EXCLUDED.content,
                    source = EXCLUDED.source,
-                   is_active = EXCLUDED.is_active""",
+                   is_active = EXCLUDED.is_active,
+                   run_id = COALESCE(EXCLUDED.run_id, cogos_file_version.run_id)""",
             [
                 self._param("id", fv.id),
                 self._param("file_id", fv.file_id),
@@ -1049,6 +1050,7 @@ class Repository:
                 self._param("content", fv.content),
                 self._param("source", fv.source),
                 self._param("is_active", fv.is_active),
+                self._param("run_id", fv.run_id),
             ],
         )
         self._execute(
@@ -1100,6 +1102,7 @@ class Repository:
             content=row.get("content", ""),
             source=row.get("source", "cogent"),
             is_active=row.get("is_active", True),
+            run_id=UUID(row["run_id"]) if row.get("run_id") else None,
             created_at=self._ts(row, "created_at"),
         )
 
@@ -1333,7 +1336,14 @@ class Repository:
         return self._run_from_row(row) if row else None
 
     def list_runs(
-        self, *, process_id: UUID | None = None, limit: int = 50, epoch: int | None = None,
+        self,
+        *,
+        process_id: UUID | None = None,
+        process_ids: list[UUID] | None = None,
+        status: str | None = None,
+        since: str | None = None,
+        limit: int = 50,
+        epoch: int | None = None,
     ) -> list[Run]:
         effective_epoch = self.reboot_epoch if epoch is None else epoch
         conditions = []
@@ -1344,9 +1354,64 @@ class Repository:
         if process_id:
             conditions.append("process = :process")
             params.append(self._param("process", process_id))
+        if process_ids:
+            placeholders = ", ".join(f":pid_{i}" for i in range(len(process_ids)))
+            conditions.append(f"process IN ({placeholders})")
+            for i, pid in enumerate(process_ids):
+                params.append(self._param(f"pid_{i}", pid))
+        if status:
+            conditions.append("status = :status")
+            params.append(self._param("status", status))
+        if since:
+            conditions.append("created_at >= :since::timestamptz")
+            params.append(self._param("since", since))
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         response = self._execute(
             f"SELECT * FROM cogos_run{where} ORDER BY created_at DESC LIMIT :limit",
+            params,
+        )
+        return [self._run_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def list_file_mutations(self, run_id: UUID) -> list[dict]:
+        """List file versions created by a specific run."""
+        response = self._execute(
+            """SELECT f.key, fv.version, fv.created_at
+               FROM cogos_file_version fv
+               JOIN cogos_file f ON f.id = fv.file_id
+               WHERE fv.run_id = :run_id
+               ORDER BY fv.created_at""",
+            [self._param("run_id", run_id)],
+        )
+        return self._rows_to_dicts(response)
+
+    def list_runs_by_process_glob(
+        self,
+        name_pattern: str,
+        *,
+        status: str | None = None,
+        since: str | None = None,
+        limit: int = 50,
+    ) -> list[Run]:
+        """List runs for processes whose name matches a glob pattern."""
+        like_pattern = name_pattern.replace("*", "%").replace("?", "_")
+        conditions = ["p.name LIKE :name_pattern", "r.epoch = :epoch"]
+        params = [
+            self._param("name_pattern", like_pattern),
+            self._param("epoch", self.reboot_epoch),
+            self._param("limit", limit),
+        ]
+        if status:
+            conditions.append("r.status = :status")
+            params.append(self._param("status", status))
+        if since:
+            conditions.append("r.created_at >= :since::timestamptz")
+            params.append(self._param("since", since))
+        where = " AND ".join(conditions)
+        response = self._execute(
+            f"""SELECT r.* FROM cogos_run r
+                JOIN cogos_process p ON p.id = r.process
+                WHERE {where}
+                ORDER BY r.created_at DESC LIMIT :limit""",
             params,
         )
         return [self._run_from_row(r) for r in self._rows_to_dicts(response)]

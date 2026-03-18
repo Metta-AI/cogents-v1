@@ -16,6 +16,7 @@ class FileVersion(BaseModel):
     content: str = ""
     source: str = "cogent"
     is_active: bool = True
+    run_id: UUID | None = None  # FK -> Run.id (which run created this version)
     created_at: datetime | None = None
 
 
