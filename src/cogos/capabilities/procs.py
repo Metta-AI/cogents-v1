@@ -206,30 +206,33 @@ class ProcsCapability(Capability):
             if not cap or not cap.enabled:
                 return ProcessError(error=f"Capability '{grant_name}' not found or disabled")
 
-            parent_grant = next(
-                (pg for pg in parent_grants if pg.capability == cap.id),
-                None,
-            )
-            if parent_grant is None:
+            matching_grants = [pg for pg in parent_grants if pg.capability == cap.id]
+            if not matching_grants:
                 return ProcessError(
                     error=f"Cannot delegate '{grant_name}': parent does not hold capability '{cap_type_name}'"
                 )
 
-            parent_scope = parent_grant.config
-            if parent_scope and child_scope:
-                try:
-                    narrowed = cap_instance._narrow(parent_scope, child_scope)
-                    if narrowed != child_scope:
-                        return ProcessError(
-                            error=f"Cannot delegate '{grant_name}': child scope exceeds parent scope"
-                        )
-                except (ValueError, TypeError):
-                    return ProcessError(
-                        error=f"Cannot delegate '{grant_name}': child scope exceeds parent scope"
-                    )
-            elif parent_scope and not child_scope:
+            # Check if any parent grant allows the requested child scope
+            delegation_ok = False
+            for parent_grant in matching_grants:
+                parent_scope = parent_grant.config
+                if parent_scope and child_scope:
+                    try:
+                        narrowed = cap_instance._narrow(parent_scope, child_scope)
+                        if narrowed == child_scope:
+                            delegation_ok = True
+                            break
+                    except (ValueError, TypeError):
+                        continue
+                elif parent_scope and not child_scope:
+                    continue  # can't widen, try next grant
+                else:
+                    delegation_ok = True
+                    break
+
+            if not delegation_ok:
                 return ProcessError(
-                    error=f"Cannot delegate '{grant_name}': cannot widen parent's scoped grant to unscoped"
+                    error=f"Cannot delegate '{grant_name}': child scope exceeds parent scope"
                 )
 
             validated_caps.append((grant_name, cap.id, child_scope))

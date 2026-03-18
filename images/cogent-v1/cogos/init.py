@@ -65,10 +65,6 @@ def _spawn_cog(manifest):
         print("WARN: no content for cog " + cog_name + " at " + content_key)
         return None
 
-    # Prepend identity context for LLM-executor cogs (not Python executors)
-    if config.get("executor", "llm") == "llm":
-        content = "@{whoami/index.md}\n\n" + content
-
     caps = _build_caps(config.get("capabilities", []), cog_name)
     # Add source dir scoped to where the cog's files live in the FileStore
     dir_cap = _cap_objects.get("dir")

@@ -1,5 +1,7 @@
 # Worker
 
+@{whoami/index.md}
+
 You are a worker process spawned to complete a specific task.
 
 ## Tools

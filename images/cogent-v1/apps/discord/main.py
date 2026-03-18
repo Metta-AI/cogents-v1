@@ -6,7 +6,7 @@ h = procs.get(name="discord/handler")
 has_handler = hasattr(h, 'status') and callable(h.status)
 
 if not has_handler:
-    handler_content = file.read("cogs/discord/coglets/handler/main/main.md")
+    handler_content = file.read("apps/discord/handler/main.md")
     if hasattr(handler_content, 'error'):
         print("WARN: handler content not found: " + str(handler_content.error))
         exit()
@@ -19,7 +19,7 @@ if not has_handler:
             "discord": None, "channels": None, "stdlib": None,
             "procs": None, "file": None,
             "image": None, "blob": None, "secrets": None, "web": None,
-            "data:dir": dir.scope(prefix="data/discord/"),
+            "data:dir": data,
         },
         subscribe=["io:discord:dm", "io:discord:mention", "io:discord:message"],
     )

@@ -143,14 +143,9 @@ class CogletRuntime:
         self._add_scoped_dir_and_data(caps, m.name)
         caps["runtime"] = self
 
-        # Prepend identity context for LLM-executor cogs
-        content = m.content
-        if m.config.executor == "llm":
-            content = "@{whoami/index.md}\n\n" + content
-
         return procs.spawn(
             name=m.name,
-            content=content,
+            content=m.content,
             mode=m.config.mode,
             priority=m.config.priority,
             executor=m.config.executor,
@@ -191,14 +186,9 @@ class CogletRuntime:
             caps = self._build_capabilities(cl.config)
             self._add_scoped_dir_and_data(caps, m.name)
 
-        # Prepend identity context for LLM-executor coglets
-        content = cl.content
-        if cl.config.executor == "llm":
-            content = "@{whoami/index.md}\n\n" + content
-
         return procs.spawn(
             name=f"{m.name}/{name}",
-            content=content,
+            content=cl.content,
             mode=cl.config.mode,
             priority=cl.config.priority,
             executor=cl.config.executor,

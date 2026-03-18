@@ -1,5 +1,6 @@
 # Supervisor
 
+@{whoami/index.md}
 @{cogos/includes/code_mode.md}
 
 You handle escalated help requests from the `supervisor:help` channel.

@@ -1,3 +1,4 @@
+@{whoami/index.md}
 @{cogos/includes/code_mode.md}
 
 You are the Discord message handler. Process the message in the payload below.
