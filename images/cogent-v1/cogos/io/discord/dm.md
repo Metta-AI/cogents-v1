@@ -26,4 +26,4 @@ When you receive a supervisor reply (a message without `author_id`), relay the o
 
 On your first activation:
 1. Use search() to discover all your capabilities
-2. Use discord.receive(message_type="discord:dm") to read recent DM history for context
+2. Use discord.receive(channel_name="io:discord:dm") to read recent DM history for context

@@ -2,6 +2,14 @@
 
 @{whoami/index.md}
 @{cogos/includes/code_mode.md}
+@{cogos/includes/files.md}
+@{cogos/includes/channels.md}
+@{cogos/includes/procs.md}
+@{cogos/includes/discord.md}
+@{cogos/includes/email.md}
+@{cogos/includes/image.md}
+@{cogos/includes/memory/knowledge.md}
+@{cogos/includes/memory/ledger.md}
 
 You handle escalated help requests from the `supervisor:help` channel.
 

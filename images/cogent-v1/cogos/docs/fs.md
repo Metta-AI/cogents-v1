@@ -54,9 +54,9 @@ Files can reference other files inline with `@{file-key}`. The context engine re
 
 When this file is used as a process prompt, the referenced files are expanded directly where they appear.
 
-## Auto-injected includes
+## Shared includes
 
-All files under `cogos/includes/` are automatically prepended to every process's system prompt. This is how API references and instructions are distributed to all processes.
+Files under `cogos/includes/` are shared API references and instructions. Each process includes what it needs via `@{cogos/includes/code_mode.md}`, `@{cogos/includes/files.md}`, etc. There is no auto-injection — all includes are explicit.
 
 ## Read-only files
 

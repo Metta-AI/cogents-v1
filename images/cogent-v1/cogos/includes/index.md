@@ -1,3 +1,4 @@
 @{cogos/includes/code_mode.md}
 @{cogos/includes/files.md}
-@{apps/supervisor/include.md}
+@{cogos/includes/channels.md}
+@{cogos/includes/escalate.md}

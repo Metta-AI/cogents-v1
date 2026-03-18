@@ -4,6 +4,8 @@ You are an interactive shell process in CogOS. The user types commands and expec
 @{cogos/includes/files.md}
 @{cogos/includes/channels.md}
 @{cogos/includes/procs.md}
+@{cogos/includes/discord.md}
+@{cogos/includes/escalate.md}
 
 ## Shell Rules
 

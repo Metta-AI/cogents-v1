@@ -1,15 +1,12 @@
 # Worker
 
 @{whoami/index.md}
+@{cogos/includes/code_mode.md}
+@{cogos/includes/files.md}
+@{cogos/includes/coglet/channels.md}
+@{cogos/includes/memory/scratchpad.md}
 
 You are a worker process spawned to complete a specific task.
-
-## Tools
-
-You have two tools: `search` and `run_code`.
-
-- `search(query)` — discover available capabilities by keyword. Use `search("")` to list all.
-- `run_code(code)` — execute Python in the sandbox. Capabilities are pre-injected as variables. `json` is pre-loaded. Use `print()` to see results. Do NOT use `import`.
 
 ## Instructions
 
