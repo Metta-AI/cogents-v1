@@ -87,6 +87,126 @@ function StepCard({ index, step }: { index: number; step: SetupStep }) {
   );
 }
 
+/** Parse profile markdown into field values. */
+function parseProfile(content: string): { name: string; discordUserId: string; discordUsername: string } {
+  const fields = { name: "", discordUserId: "", discordUsername: "" };
+  for (const line of content.split("\n")) {
+    if (line.includes("**Name:**")) {
+      fields.name = line.split("**Name:**")[1].trim();
+    } else if (line.includes("**Discord User ID:**")) {
+      fields.discordUserId = line.split("**Discord User ID:**")[1].trim();
+    } else if (line.includes("**Discord Username:**")) {
+      fields.discordUsername = line.split("**Discord Username:**")[1].trim();
+    }
+  }
+  return fields;
+}
+
+/** Render profile markdown from field values. */
+function renderProfile(fields: { name: string; discordUserId: string; discordUsername: string }): string {
+  return (
+    "# Profile\n" +
+    "\n" +
+    `- **Name:** ${fields.name}\n` +
+    `- **Discord User ID:** ${fields.discordUserId}\n` +
+    `- **Discord Username:** ${fields.discordUsername}\n`
+  );
+}
+
+function ProfileEditor({ cogentName, step, onSaved }: { cogentName: string; step: SetupStep; onSaved: () => void }) {
+  const initial = parseProfile(step.detail ?? "");
+  const [name, setName] = useState(initial.name);
+  const [discordUserId, setDiscordUserId] = useState(initial.discordUserId);
+  const [discordUsername, setDiscordUsername] = useState(initial.discordUsername);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const isPlaceholder = (v: string) => !v || v.includes("(set on boot)") || v.includes("(set via dashboard)");
+  const hasChanges =
+    name !== initial.name || discordUserId !== initial.discordUserId || discordUsername !== initial.discordUsername;
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const content = renderProfile({ name, discordUserId, discordUsername });
+      await api.updateFile(cogentName, "whoami/profile.md", { content, source: "human" });
+      onSaved();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputClass =
+    "w-full rounded-md border border-[var(--border)] bg-[var(--bg-base)] px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]";
+
+  return (
+    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md p-4">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="inline-flex w-5 h-5 items-center justify-center rounded-full bg-[var(--accent-glow)] text-[var(--accent)] text-[11px] font-semibold">
+          1
+        </span>
+        <h3 className="text-[13px] font-semibold text-[var(--text-primary)]">{step.title}</h3>
+        <Badge variant={statusVariant(step.status)}>{statusLabel(step.status)}</Badge>
+      </div>
+      <p className="text-[13px] leading-6 text-[var(--text-secondary)] mb-4">{step.description}</p>
+
+      <div className="space-y-3 max-w-md">
+        <div>
+          <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. dr.alpha"
+            className={`${inputClass} ${isPlaceholder(initial.name) ? "border-[var(--warning)]" : ""}`}
+          />
+        </div>
+        <div>
+          <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">Discord User ID</label>
+          <input
+            type="text"
+            value={discordUserId}
+            onChange={(e) => setDiscordUserId(e.target.value)}
+            placeholder="e.g. 1234567890"
+            className={`${inputClass} ${isPlaceholder(initial.discordUserId) ? "border-[var(--warning)]" : ""}`}
+          />
+          <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+            The bot&apos;s Discord user ID. Auto-populated when the bridge connects, or set manually.
+          </p>
+        </div>
+        <div>
+          <label className="block text-[12px] font-medium text-[var(--text-secondary)] mb-1">Discord Username</label>
+          <input
+            type="text"
+            value={discordUsername}
+            onChange={(e) => setDiscordUsername(e.target.value)}
+            placeholder="e.g. dr.alpha#1234"
+            className={`${inputClass} ${isPlaceholder(initial.discordUsername) ? "border-[var(--warning)]" : ""}`}
+          />
+        </div>
+      </div>
+
+      {saveError && <p className="mt-3 text-[12px] text-[var(--warning)]">{saveError}</p>}
+
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          onClick={handleSave}
+          disabled={saving || !hasChanges}
+          className="rounded-md bg-[var(--accent)] px-4 py-2 text-[12px] font-medium text-white hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {saving ? "Saving..." : "Save profile"}
+        </button>
+        {!hasChanges && step.status === "ready" && (
+          <span className="text-[12px] text-[var(--text-muted)]">No changes</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SetupPanel({ cogentName }: SetupPanelProps) {
   const [setup, setSetup] = useState<SetupResponse | null>(null);
   const [activeChannelKey, setActiveChannelKey] = useState<string | null>(null);
@@ -195,9 +315,12 @@ export function SetupPanel({ cogentName }: SetupPanelProps) {
           </div>
 
           <div className="space-y-3">
-            {activeChannel.steps.map((step, index) => (
-              <StepCard key={step.key} index={index + 1} step={step} />
-            ))}
+            {activeChannel.steps.map((step, index) => {
+              if (activeChannel.key === "profile" && step.key === "edit-profile") {
+                return <ProfileEditor key={step.key} cogentName={cogentName} step={step} onSaved={refresh} />;
+              }
+              return <StepCard key={step.key} index={index + 1} step={step} />;
+            })}
           </div>
         </>
       )}

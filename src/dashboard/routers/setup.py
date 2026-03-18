@@ -491,7 +491,7 @@ def _build_profile_setup(name: str) -> ChannelSetup:
         edit_step = SetupStep(
             key="edit-profile",
             title="Edit cogent profile",
-            description="Update name, manager, and other identity fields in whoami/profile.md.",
+            description="Update name and Discord identity fields.",
             status=SetupStatus.READY,
             detail=profile_content,
         )
@@ -499,11 +499,13 @@ def _build_profile_setup(name: str) -> ChannelSetup:
         edit_step = SetupStep(
             key="edit-profile",
             title="Edit cogent profile",
-            description="The cogent's name and Discord identity are set automatically when the Discord bridge connects. If the bridge hasn't connected yet, the profile will have placeholder values.",
+            description="Set the cogent's name and Discord identity. These are auto-populated when the bridge connects, or you can set them manually below.",
             status=SetupStatus.NEEDS_ACTION,
-            detail=(
-                "The profile has placeholder values. Start the Discord bridge — it will "
-                "write the cogent's name and Discord user ID to whoami/profile.md automatically."
+            detail=profile_content if profile_content else (
+                "# Profile\n\n"
+                "- **Name:** (set on boot)\n"
+                "- **Discord User ID:** (set on boot)\n"
+                "- **Discord Username:** (set on boot)\n"
             ),
         )
 
