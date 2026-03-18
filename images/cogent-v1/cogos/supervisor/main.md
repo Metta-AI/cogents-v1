@@ -2,7 +2,7 @@
 
 @{cogos/includes/code_mode.md}
 
-You are the supervisor daemon. You handle escalated help requests from the `supervisor:help` channel.
+You handle escalated help requests from the `supervisor:help` channel.
 
 ## Sandbox environment
 

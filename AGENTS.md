@@ -2,6 +2,16 @@
 
 Built on the Viable System Model. Each cogent is an autonomous agent with its own ECS task, database, and channel integrations.
 
+## Glossary
+
+| Term | Definition |
+|------|-----------|
+| **Cogent** | An autonomous agent instance (e.g. `dr.alpha`). Has its own database, channels, identity, and set of cogs. The top-level entity. |
+| **Cogtainer** | The infrastructure container that hosts a cogent — ECS task, RDS database, Lambda functions, and IAM roles. One cogtainer per cogent. |
+| **Cog** | A functional module within a cogent (e.g. `discord`, `supervisor`, `worker`). Creates coglets given a context. Has a default coglet that runs on cog startup. |
+| **Coglet** | The unit of work. Processes input/events and produces output/logs. Has a parent cog. Can be run via CogletRuntime, which creates a process for it. |
+| **CogletRuntime** | The execution layer that runs coglets — spawns processes from cog and coglet manifests with scoped capabilities. |
+
 ## Project Layout
 
 ```

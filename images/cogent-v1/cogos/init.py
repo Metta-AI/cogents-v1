@@ -65,6 +65,9 @@ def _spawn_cog(manifest):
         print("WARN: no content for cog " + cog_name + " at " + content_key)
         return None
 
+    # Prepend identity context so every cog knows who it is
+    content = "@{whoami/index.md}\n\n" + content
+
     caps = _build_caps(config.get("capabilities", []), cog_name)
 
     subscribe = config.get("handlers") if config.get("handlers") else None
@@ -96,6 +99,18 @@ for ch_name in [
     "io:web:request",
 ]:
     channels.create(ch_name)
+
+# ── Write cogent profile (editable via dashboard) ────────────
+_boot_date = stdlib.time.strftime("%Y-%m-%d")
+_profile = file.read("whoami/profile.md")
+if hasattr(_profile, 'error'):
+    file.write("whoami/profile.md",
+        "# Profile\n"
+        "\n"
+        "- **Name:** (set via dashboard)\n"
+        "- **Created:** " + _boot_date + "\n"
+        "- **Manager:** (set via dashboard)\n"
+    )
 
 # ── Read cog manifests ────────────────────────────────────────
 manifest_data = file.read("_boot/cog_manifests.json")

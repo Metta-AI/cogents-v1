@@ -467,9 +467,68 @@ def _build_gemini_setup(name: str) -> ChannelSetup:
     )
 
 
+def _build_profile_setup(name: str) -> ChannelSetup:
+    profile_key = "whoami/profile.md"
+    profile_exists = False
+    profile_content = ""
+
+    try:
+        repo = get_repo()
+        from cogos.files.store import FileStore
+        store = FileStore(repo)
+        f = store.get(profile_key)
+        if f:
+            fv = store.read(profile_key)
+            if fv:
+                profile_exists = True
+                profile_content = fv.content
+    except Exception as exc:
+        logger.warning("Profile check failed for %s: %s", name, exc)
+
+    has_name = profile_exists and "(set via dashboard)" not in profile_content
+
+    if has_name:
+        edit_step = SetupStep(
+            key="edit-profile",
+            title="Edit cogent profile",
+            description="Update name, manager, and other identity fields in whoami/profile.md.",
+            status=SetupStatus.READY,
+            detail=profile_content,
+        )
+    else:
+        edit_step = SetupStep(
+            key="edit-profile",
+            title="Edit cogent profile",
+            description="Set the cogent's name, creation date, and manager in whoami/profile.md.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail=(
+                "The profile has placeholder values. Edit whoami/profile.md via the Files tab "
+                "to set the cogent's name and manager."
+            ),
+        )
+
+    status = SetupStatus.READY if has_name else SetupStatus.NEEDS_ACTION
+    summary = (
+        "Cogent profile is configured."
+        if has_name
+        else "Set the cogent's name and manager in whoami/profile.md."
+    )
+
+    return ChannelSetup(
+        key="profile",
+        title="Profile",
+        description="Configure the cogent's identity — name, manager, and creation date.",
+        status=status,
+        summary=summary,
+        ready_for_test=has_name,
+        steps=[edit_step],
+    )
+
+
 @router.get("/setup", response_model=SetupResponse)
 def get_setup(name: str) -> SetupResponse:
     return SetupResponse(channels=[
+        _build_profile_setup(name),
         _build_discord_setup(name),
         _build_gemini_setup(name),
     ])

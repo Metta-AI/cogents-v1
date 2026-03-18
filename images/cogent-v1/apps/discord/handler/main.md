@@ -1,6 +1,6 @@
 @{cogos/includes/code_mode.md}
 
-You are the Discord message handler for dr.alpha. Process the message in the payload below.
+You are the Discord message handler. Process the message in the payload below.
 
 ## Sandbox environment
 

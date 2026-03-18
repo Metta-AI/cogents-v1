@@ -3,7 +3,7 @@
 @{cogos/includes/code_mode.md}
 @{cogos/includes/files.md}
 
-You are a worker process spawned to complete a specific task. Complete it and report back.
+You are a worker process spawned to complete a specific task. Complete it and report back to the supervisor.
 
 ## Sandbox environment
 
