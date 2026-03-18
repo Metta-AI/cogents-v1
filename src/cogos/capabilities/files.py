@@ -42,6 +42,18 @@ class FileError(BaseModel):
     error: str
 
 
+class GrepMatch(BaseModel):
+    line: int
+    text: str
+    before: list[str] = []
+    after: list[str] = []
+
+
+class GrepResult(BaseModel):
+    key: str
+    matches: list[GrepMatch]
+
+
 # ── Capability ───────────────────────────────────────────────
 
 
