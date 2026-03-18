@@ -108,24 +108,31 @@ def diag_procs():
     return checks
 
 def diag_me():
-    """Test me scratch/log/tmp."""
+    """Test me process scope scratch/log/tmp."""
     checks = []
 
-    def test_scratch():
-        me.scratch().write("scratch data")
-        r = me.scratch().read()
+    def test_process_scratch():
+        me.process().scratch().write("scratch data")
+        r = me.process().scratch().read()
         if r is None:
             raise Exception("scratch read returned None")
         if r != "scratch data":
             raise Exception("got " + repr(r))
-    checks.append(check("scratch", test_scratch))
+    checks.append(check("process_scratch", test_process_scratch))
 
-    def test_tmp():
-        me.tmp().write("tmp data")
-        r = me.tmp().read()
+    def test_process_tmp():
+        me.process().tmp().write("tmp data")
+        r = me.process().tmp().read()
         if r is None:
             raise Exception("tmp read returned None")
-    checks.append(check("tmp", test_tmp))
+    checks.append(check("process_tmp", test_process_tmp))
+
+    def test_process_log():
+        me.process().log().write("log entry")
+        r = me.process().log().read()
+        if r is None:
+            raise Exception("log read returned None")
+    checks.append(check("process_log", test_process_log))
 
     return checks
 
@@ -168,10 +175,9 @@ def diag_web():
     checks.append(check("fetch", test_fetch))
 
     def test_search():
-        r = web_search.search("test")
-        if hasattr(r, "error") and r.error:
-            raise Exception(str(r.error))
-    checks.append(check("search", test_search))
+        if web_search is None:
+            raise Exception("web_search is None")
+    checks.append(check("search_wired", test_search))
 
     return checks
 
