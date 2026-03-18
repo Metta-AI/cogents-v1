@@ -437,6 +437,62 @@ def build_cmd(ctx: click.Context, profile: str | None):
     click.echo(f"Image pushed: {image}")
 
 
+@cogtainer.command("await")
+@click.option("--prefix", default="executor", help="Image tag prefix (executor or dashboard)")
+@click.option("--tag", default=None, help="Exact ECR tag to wait for (overrides --prefix + commit SHA)")
+@click.option("--timeout", default=300, help="Max seconds to wait")
+@click.option("--profile", default=None, help=_PROFILE_HELP)
+def await_cmd(prefix: str, tag: str | None, timeout: int, profile: str | None):
+    """Wait for a CI-built ECR image to be available.
+
+    \b
+    By default waits for an image matching the current git commit:
+      cogent <name> cogtainer await                         # executor-<sha>
+      cogent <name> cogtainer await --prefix dashboard      # dashboard-<sha>
+
+    Or wait for a specific tag:
+      cogent <name> cogtainer await --tag executor-latest
+    """
+    import subprocess
+    import time
+
+    from polis.aws import get_polis_session, set_org_profile
+
+    if tag:
+        expected_tag = tag
+    else:
+        sha_short = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"], text=True
+        ).strip()
+        expected_tag = f"{prefix}-{sha_short}"
+
+    click.echo(f"Waiting for ECR tag '{expected_tag}'...")
+
+    set_org_profile(profile)
+    session, _ = get_polis_session()
+    ecr_client = session.client("ecr", region_name="us-east-1")
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            resp = ecr_client.describe_images(
+                repositoryName="cogent",
+                imageIds=[{"imageTag": expected_tag}],
+            )
+            pushed = resp["imageDetails"][0].get("imagePushedAt", "")
+            click.echo(click.style(f"  Image found: cogent:{expected_tag} (pushed {pushed})", fg="green"))
+            return
+        except Exception:
+            remaining = int(deadline - time.monotonic())
+            click.echo(f"  Not yet ({remaining}s remaining)...", nl=True)
+            time.sleep(10)
+
+    raise click.ClickException(
+        f"Timed out waiting for ECR tag '{expected_tag}' after {timeout}s.\n"
+        f"Check CI: gh run list --repo Metta-AI/cogents-v1 --workflow docker-build-{prefix}.yml"
+    )
+
+
 # Wire in update subcommands
 from cogtainer.update_cli import update  # noqa: E402
 
