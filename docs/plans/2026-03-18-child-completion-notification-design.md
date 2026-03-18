@@ -6,7 +6,7 @@ When the supervisor spawns a helper, it's fire-and-forget. The helper can silent
 
 More broadly, any parent that spawns children has no reliable way to learn the outcome. `handle.wait()` exists as an API but the executor never interprets the return value. `handle.status()` requires the parent to poll. There is no push-based notification on success.
 
-Failure notification partially exists: `_notify_parent_on_failure` sends a `child:failed` message on the spawn channel. But nothing wakes the parent to read it, and no equivalent exists for success.
+Failure notification partially exists: `_notify_parent_on_failure` sends a `child:failed` message on the spawn channel. But nothing wakes the parent to read it, no equivalent exists for success, and the message type splits success/failure into separate events rather than using a unified signal with an exit code.
 
 ## How operating systems solve this
 
@@ -22,23 +22,30 @@ The key insight: the OS doesn't give the parent a way to *inspect* children. It 
 
 Apply the SIGCHLD pattern to CogOS. When a child completes (success or failure), CogOS automatically notifies the parent via the spawn channel and wakes it.
 
-### Change 1: Notify parent on success (not just failure)
+### Change 1: Notify parent on child exit (success and failure)
 
-The executor already calls `_notify_parent_on_failure` in the error path. Add a matching `_notify_parent_on_completion` in the success path that writes to the same spawn channel:
+The executor already calls `_notify_parent_on_failure` in the error path. Replace this with a unified `_notify_parent_on_exit` that fires on both success and failure, with an exit code — mirroring Unix where SIGCHLD fires regardless of how the child exited and `wait()` returns the status.
 
 ```python
 # On spawn:{child_id}→{parent_id}
 {
-    "type": "child:completed",
+    "type": "child:exited",
+    "exit_code": 0,           # 0 = success, 1 = failure, 2 = timeout, 3 = throttled
     "process_name": "helper-task",
     "process_id": "...",
     "run_id": "...",
     "duration_ms": 4500,
-    "result": { ... },  # from run.result, if any
+    "error": null,            # non-null on failure
+    "result": { ... },        # from run.result, if any (null on failure)
 }
 ```
 
-This mirrors the existing `child:failed` message shape. Both success and failure now flow through the same channel.
+Exit codes:
+- `0` — completed successfully
+- `1` — failed (error in `error` field)
+- `2` — timed out
+- `3` — throttled (Bedrock rate limit)
+- `4` — disabled (max retries exceeded)
 
 ### Change 2: Auto-register parent for spawn channel wakeup
 
@@ -62,11 +69,11 @@ This exposes the existing `repo.list_runs(process_id=...)` data through the hand
 
 ## What this means for the supervisor
 
-Today the supervisor wakes only on `supervisor:help` messages. With these changes, it will also wake on spawn channel messages when helpers complete or fail. The message payload includes `"type": "child:completed"` or `"type": "child:failed"`, so the supervisor can distinguish these from help requests.
+Today the supervisor wakes only on `supervisor:help` messages. With these changes, it will also wake on spawn channel messages when helpers exit. The message payload has `"type": "child:exited"` with an `exit_code`, so the supervisor can distinguish these from help requests and branch on the outcome.
 
-The supervisor image needs a new section for handling child notifications:
-- On `child:completed`: log success, optionally notify Discord
-- On `child:failed`: check the error, decide whether to re-spawn or escalate to human
+The supervisor image needs a new section for handling child exit notifications:
+- `exit_code == 0`: success — log it, optionally notify Discord
+- `exit_code != 0`: failure — check the error, decide whether to re-spawn or escalate to human
 
 This eliminates the need for helpers to self-report failure — the OS (CogOS) handles it.
 
@@ -78,7 +85,7 @@ This eliminates the need for helpers to self-report failure — the OS (CogOS) h
 
 ## Files to change
 
-1. `src/cogos/executor/handler.py` — add `_notify_parent_on_completion`, call it in the success path
+1. `src/cogos/executor/handler.py` — replace `_notify_parent_on_failure` with `_notify_parent_on_exit`, call it in both success and failure paths
 2. `src/cogos/capabilities/procs.py` — in `spawn()`, create Handler for parent on recv channel
 3. `src/cogos/capabilities/process_handle.py` — add `runs()` method returning run history
 4. `images/cogent-v1/apps/supervisor/supervisor.md` — add child notification handling section
