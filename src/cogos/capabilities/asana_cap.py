@@ -92,6 +92,7 @@ class AsanaCapability(Capability):
         "get_task", "delete_task", "search_tasks",
         "list_projects", "get_project", "list_workspaces",
         "list_sections", "add_to_section", "add_followers", "set_parent",
+        "find_user", "tasks_for_user",
     }
 
     def __init__(self, repo, process_id) -> None:
@@ -615,6 +616,64 @@ class AsanaCapability(Capability):
             name = data.get("name", "") if isinstance(data, dict) else getattr(data, "name", "")
             url = data.get("permalink_url", "") if isinstance(data, dict) else getattr(data, "permalink_url", "")
             return TaskResult(id=str(gid), name=name, url=url)
+        except Exception as exc:
+            return AsanaError(error=str(exc))
+
+    def find_user(self, workspace: str, query: str) -> list[dict] | AsanaError:
+        """Search for users by name or email in a workspace."""
+        self._check("find_user")
+        try:
+            client = self._get_client()
+            api = asana.TypeaheadApi(client)
+            opts = {"resource_type": "user", "query": query, "count": 10}
+            results = api.typeahead_for_workspace(workspace, opts)
+            items = results.get("data", results) if isinstance(results, dict) else results
+            out = []
+            for u in items:
+                if isinstance(u, dict):
+                    out.append({"id": u["gid"], "name": u.get("name", "")})
+                else:
+                    out.append({"id": str(u.gid), "name": getattr(u, "name", "")})
+            return out
+        except Exception as exc:
+            return AsanaError(error=str(exc))
+
+    def tasks_for_user(self, user_id: str, workspace: str | None = None, limit: int = 50) -> list[TaskSummary] | AsanaError:
+        """List tasks assigned to a specific user by their Asana GID."""
+        self._check("tasks_for_user")
+        try:
+            client = self._get_client()
+            users_api = asana.UserTaskListsApi(client)
+            tasks_api = asana.TasksApi(client)
+            if not workspace:
+                me = asana.UsersApi(client).get_user("me")
+                me_data = me.get("data", me) if isinstance(me, dict) else me
+                if isinstance(me_data, dict):
+                    workspaces = me_data.get("workspaces", [])
+                else:
+                    workspaces = getattr(me_data, "workspaces", [])
+                if workspaces:
+                    ws = workspaces[0]
+                    workspace = ws["gid"] if isinstance(ws, dict) else ws.gid
+                else:
+                    return AsanaError(error="No workspaces found")
+            utl = users_api.get_user_task_list_for_user(user_id, {"workspace": workspace})
+            utl_data = utl.get("data", utl) if isinstance(utl, dict) else utl
+            utl_gid = utl_data["gid"] if isinstance(utl_data, dict) else utl_data.gid
+            opts = {"limit": limit, "opt_fields": "name,completed,assignee.name,due_on"}
+            tasks = tasks_api.get_tasks_for_user_task_list(utl_gid, opts)
+            items = tasks.get("data", tasks) if isinstance(tasks, dict) else tasks
+            result = []
+            for t in items:
+                if isinstance(t, dict):
+                    assignee_obj = t.get("assignee")
+                    assignee_name = assignee_obj.get("name", "") if isinstance(assignee_obj, dict) else ""
+                    result.append(TaskSummary(id=t["gid"], name=t.get("name", ""), assignee=assignee_name, due_on=t.get("due_on") or "", completed=t.get("completed", False)))
+                else:
+                    assignee_obj = getattr(t, "assignee", None)
+                    assignee_name = getattr(assignee_obj, "name", "") if assignee_obj else ""
+                    result.append(TaskSummary(id=str(t.gid), name=getattr(t, "name", ""), assignee=assignee_name, due_on=getattr(t, "due_on", "") or "", completed=getattr(t, "completed", False)))
+            return result
         except Exception as exc:
             return AsanaError(error=str(exc))
 

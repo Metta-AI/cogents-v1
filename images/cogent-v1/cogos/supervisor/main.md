@@ -8,6 +8,7 @@
 @{cogos/includes/discord.md}
 @{cogos/includes/email.md}
 @{cogos/includes/image.md}
+@{cogos/includes/asana.md}
 @{cogos/includes/memory/knowledge.md}
 @{cogos/includes/memory/ledger.md}
 
