@@ -166,6 +166,30 @@ def create_app() -> FastAPI:
     async def web_static(path: str):
         return _serve_web_file(path)
 
+    # --- Blob content serving (images, files uploaded via blob capability) ---
+    @app.get("/web/blobs/{path:path}")
+    async def web_blob(path: str):
+        """Serve blob content from S3 — used for AI-generated images in websites."""
+        import boto3
+        repo = __import__("dashboard.db", fromlist=["get_repo"]).get_repo()
+        bucket = os.environ.get("SESSIONS_BUCKET", "")
+        if not bucket:
+            return JSONResponse(status_code=503, content={"detail": "blob storage not configured"})
+        key = f"blobs/{path}"
+        try:
+            s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+            obj = s3.get_object(Bucket=bucket, Key=key)
+            body = obj["Body"].read()
+            content_type = obj.get("ContentType", "application/octet-stream")
+            return Response(
+                content=body,
+                media_type=content_type,
+                headers={"cache-control": "public, max-age=86400"},
+            )
+        except Exception:
+            logger.debug("Blob not found: %s", key, exc_info=True)
+            return JSONResponse(status_code=404, content={"detail": "blob not found"})
+
     # --- Executor proxy for web API requests ---
     @app.api_route("/web/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
     async def web_api_proxy(request: Request, path: str):

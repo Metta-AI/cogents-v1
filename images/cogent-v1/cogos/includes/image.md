@@ -5,14 +5,15 @@ You can generate, manipulate, and analyze images using the `image` capability. A
 ### Generate an image
 ```python
 ref = image.generate("a cute dog playing in the park")
-# ref.url  — presigned S3 URL (use in HTML <img src=...>)
-# ref.key  — blob storage key (use with discord files=[ref.key])
+# ref.key  — blob storage key (use with discord files= and in web HTML)
+# ref.url  — presigned S3 URL (temporary, use for quick preview only)
 ```
 
 ### Embed in a website
+Use `/web/blobs/{ref.key}` as the image src — this is a permanent URL served by the dashboard.
 ```python
 ref = image.generate("a sunset")
-html = f'<img src="{ref.url}">'  # Use ref.url for HTML img tags
+html = f'<img src="/web/blobs/{ref.key}">'  # permanent URL
 web.publish("page/index.html", html)
 ```
 
