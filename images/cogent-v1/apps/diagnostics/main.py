@@ -54,7 +54,8 @@ _DIAG_TIMEOUT_MS = 30000
 
 def _now():
     """Return current ISO timestamp."""
-    return stdlib.time_iso()
+    t = stdlib.time.gmtime()
+    return str(t.tm_year) + "-" + str(t.tm_mon).zfill(2) + "-" + str(t.tm_mday).zfill(2) + "T" + str(t.tm_hour).zfill(2) + ":" + str(t.tm_min).zfill(2) + ":" + str(t.tm_sec).zfill(2) + "Z"
 
 
 def _caps_for_diagnostic(category, diag_name):
@@ -349,9 +350,9 @@ def run_md_verification(handle, diag, category):
             "error": "verify process spawn failed",
         }
 
-    t0 = time.time()
+    t0 = stdlib.time.time()
     verify_handle.wait()
-    elapsed_ms = int((time.time() - t0) * 1000)
+    elapsed_ms = int((stdlib.time.time() - t0) * 1000)
 
     verify_status = verify_handle.status()
     stderr_raw = verify_handle.stderr(limit=50)
@@ -558,7 +559,7 @@ def write_results(results, current_md, log_entry, changelog_entry):
 
 # ── Main ─────────────────────────────────────────────────────
 
-run_start = 0
+run_start = stdlib.time.time()
 timestamp = _now()
 epoch = me.epoch if hasattr(me, "epoch") else 0
 
@@ -624,7 +625,7 @@ for cat_name in sorted(category_results.keys()):
         "diagnostics": diags,
     }
 
-run_duration = 0
+run_duration = int((stdlib.time.time() - run_start) * 1000)
 
 results = {
     "timestamp": timestamp,

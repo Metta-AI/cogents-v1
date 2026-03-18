@@ -5,9 +5,8 @@ capability works correctly when used by an LLM.
 
 ## Instructions
 
-1. Call `stdlib.time_iso()` and store the result.
-2. Verify the result is a non-empty string that looks like an ISO timestamp
-   (contains "T" or "-").
+1. Call `stdlib.time.time()` and store the result.
+2. Verify the result is a float greater than 1000000000.
 3. Use `json.dumps()` to serialize a dict `{"ts": <the timestamp>, "source": "llm"}`.
 4. Use `json.loads()` to deserialize it back and confirm the values match.
 5. Write the JSON string to `me.scratch("diag_llm_stdlib_result")` using `.write()`.
@@ -16,19 +15,14 @@ capability works correctly when used by an LLM.
 Do exactly the above steps, nothing more.
 
 ```python verify
-import time
-
 checks = []
 
 def check(name, fn):
-    t0 = time.time()
     try:
         fn()
-        ms = int((time.time() - t0) * 1000)
-        checks.append({"name": name, "status": "pass", "ms": ms})
+        checks.append({"name": name, "status": "pass", "ms": 0})
     except Exception as e:
-        ms = int((time.time() - t0) * 1000)
-        checks.append({"name": name, "status": "fail", "ms": ms, "error": str(e)})
+        checks.append({"name": name, "status": "fail", "ms": 0, "error": str(e)})
 
 def verify_result_written():
     result = me.scratch("diag_llm_stdlib_result").read()
@@ -40,13 +34,13 @@ def verify_result_written():
     if data.get("source") != "llm":
         raise Exception("source should be 'llm', got: " + repr(data.get("source")))
 
-def verify_time_iso():
-    ts = stdlib.time_iso()
-    if not isinstance(ts, str) or len(ts) < 10:
-        raise Exception("time_iso returned invalid value: " + repr(ts))
+def verify_time():
+    t = stdlib.time.time()
+    if not isinstance(t, float) or t < 1000000000:
+        raise Exception("stdlib.time.time() returned invalid value: " + repr(t))
 
 check("result_written", verify_result_written)
-check("time_iso_works", verify_time_iso)
+check("time_works", verify_time)
 
 print(json.dumps(checks))
 ```

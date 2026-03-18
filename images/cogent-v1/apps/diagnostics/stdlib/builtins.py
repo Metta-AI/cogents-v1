@@ -19,14 +19,11 @@ def check(name, fn):
 # ── time_iso ─────────────────────────────────────────────────
 
 def test_time_iso():
-    ts = stdlib.time_iso()
-    if not isinstance(ts, str):
-        raise Exception("time_iso() should return str, got: " + str(type(ts)))
-    if len(ts) < 10:
-        raise Exception("time_iso() returned suspiciously short string: " + repr(ts))
-    # Should contain a 'T' separator for ISO format
-    if "T" not in ts and "-" not in ts:
-        raise Exception("time_iso() doesn't look like ISO format: " + repr(ts))
+    t = stdlib.time.time()
+    if not isinstance(t, float):
+        raise Exception("stdlib.time.time() should return float, got: " + str(type(t)))
+    if t < 1000000000:
+        raise Exception("stdlib.time.time() returned suspiciously small value: " + repr(t))
 
 check("time_iso", test_time_iso)
 

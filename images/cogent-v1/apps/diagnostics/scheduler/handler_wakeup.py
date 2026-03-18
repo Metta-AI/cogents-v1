@@ -52,7 +52,7 @@ check("spawn_daemon", test_spawn_daemon)
 # ── send message on channel ──────────────────────────────────
 
 def test_send_message():
-    channels.send(CHAN_NAME, {"type": "wakeup", "ts": stdlib.time_iso()})
+    channels.send(CHAN_NAME, {"type": "wakeup", "ts": str(stdlib.time.time())})
 
 check("send_message", test_send_message)
 
