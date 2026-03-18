@@ -891,6 +891,43 @@ class Repository:
             )
         return [self._file_from_row(r) for r in self._rows_to_dicts(response)]
 
+    def grep_files(
+        self, pattern: str, *, prefix: str | None = None, limit: int = 100
+    ) -> list[tuple[str, str]]:
+        """Search active file versions by regex pattern. Returns (key, content) tuples."""
+        if prefix:
+            response = self._execute(
+                """SELECT f.key, fv.content
+                   FROM cogos_file f
+                   JOIN cogos_file_version fv ON fv.file_id = f.id
+                   WHERE fv.is_active = true
+                     AND f.key LIKE :prefix
+                     AND fv.content ~ :pattern
+                   ORDER BY f.key
+                   LIMIT :limit""",
+                [
+                    self._param("prefix", prefix + "%"),
+                    self._param("pattern", pattern),
+                    self._param("limit", limit),
+                ],
+            )
+        else:
+            response = self._execute(
+                """SELECT f.key, fv.content
+                   FROM cogos_file f
+                   JOIN cogos_file_version fv ON fv.file_id = f.id
+                   WHERE fv.is_active = true
+                     AND fv.content ~ :pattern
+                   ORDER BY f.key
+                   LIMIT :limit""",
+                [
+                    self._param("pattern", pattern),
+                    self._param("limit", limit),
+                ],
+            )
+        rows = self._rows_to_dicts(response)
+        return [(r["key"], r["content"]) for r in rows]
+
     def update_file_version_content(self, file_id: UUID, version: int, content: str) -> bool:
         response = self._execute(
             "UPDATE cogos_file_version SET content = :content WHERE file = :file_id AND version = :version",
