@@ -188,6 +188,15 @@ def boot(ctx: click.Context, name: str, clean: bool):
         f"{counts['processes']} processes, {counts['cron']} cron"
     )
 
+    # Run dispatcher to execute init and any boot-triggered processes
+    from cogos.runtime.local import run_local_loop
+    from cogos.executor.handler import get_config
+    config = get_config()
+    bedrock = _bedrock_client()
+    executed = run_local_loop(repo, config, once=True, bedrock_client=bedrock)
+    if executed:
+        click.echo(f"Dispatch: executed {executed} process(es)")
+
 
 @image.command()
 @click.argument("name")
