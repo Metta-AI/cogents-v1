@@ -175,7 +175,8 @@ def create_app() -> FastAPI:
         bucket = os.environ.get("SESSIONS_BUCKET", "")
         if not bucket:
             return JSONResponse(status_code=503, content={"detail": "blob storage not configured"})
-        key = f"blobs/{path}"
+        # path may already start with "blobs/" (from ref.key) or be bare
+        key = path if path.startswith("blobs/") else f"blobs/{path}"
         try:
             s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
             obj = s3.get_object(Bucket=bucket, Key=key)

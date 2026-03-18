@@ -1,0 +1,14 @@
+-- Add epoch column to tables for reboot tracking.
+ALTER TABLE cogos_process ADD COLUMN IF NOT EXISTS epoch INT NOT NULL DEFAULT 0;
+ALTER TABLE cogos_process_capability ADD COLUMN IF NOT EXISTS epoch INT NOT NULL DEFAULT 0;
+ALTER TABLE cogos_handler ADD COLUMN IF NOT EXISTS epoch INT NOT NULL DEFAULT 0;
+ALTER TABLE cogos_delivery ADD COLUMN IF NOT EXISTS epoch INT NOT NULL DEFAULT 0;
+ALTER TABLE cogos_run ADD COLUMN IF NOT EXISTS epoch INT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS cogos_operation (
+    id UUID PRIMARY KEY,
+    epoch INT NOT NULL DEFAULT 0,
+    type TEXT NOT NULL DEFAULT '',
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

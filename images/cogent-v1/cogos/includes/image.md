@@ -10,10 +10,10 @@ ref = image.generate("a cute dog playing in the park")
 ```
 
 ### Embed in a website
-Use `/web/blobs/{ref.key}` as the image src — this is a permanent URL served by the dashboard.
+Use `/web/blobs/{ref.key}` as the image src — permanent URL served through the dashboard.
 ```python
 ref = image.generate("a sunset")
-html = f'<img src="/web/blobs/{ref.key}">'  # permanent URL
+html = f'<img src="/web/blobs/{ref.key}">'
 web.publish("page/index.html", html)
 ```
 
