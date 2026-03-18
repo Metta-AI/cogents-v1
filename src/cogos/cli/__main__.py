@@ -175,6 +175,8 @@ def boot(ctx: click.Context, name: str, clean: bool):
 
     if clean:
         repo.clear_all()
+        # Reset epoch so new processes match (meta table survives clear_all)
+        repo.set_meta("reboot_epoch", "0")
         click.echo("Tables cleaned.")
 
     spec = load_image(image_dir)
