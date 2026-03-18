@@ -114,61 +114,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
         repo.upsert_channel(ch)
         counts["channels"] += 1
 
-    # 7. Coglets
-    from cogos.capabilities.coglet_factory import _load_meta, _save_meta
-    from cogos.coglet import CogletMeta, write_file_tree
-    counts["coglets"] = 0
-    for coglet_dict in spec.coglets:
-        name = coglet_dict["name"]
-        test_command = coglet_dict["test_command"]
-        files = coglet_dict["files"]
-        executor = coglet_dict.get("executor", "subprocess")
-        timeout_seconds = coglet_dict.get("timeout_seconds", 60)
-
-        # Check if coglet with this name already exists by scanning meta files
-        existing_metas = fs.list_files(prefix="coglets/", limit=1000)
-        existing_id = None
-        for mf in existing_metas:
-            if mf.key.endswith("/meta.json"):
-                content = fs.get_content(mf.key)
-                if content:
-                    try:
-                        m = CogletMeta(**json.loads(content))
-                        if m.name == name:
-                            existing_id = m.id
-                            break
-                    except Exception:
-                        pass
-
-        runtime_fields = {
-            "entrypoint": coglet_dict.get("entrypoint"),
-            "process_executor": coglet_dict.get("process_executor", "llm"),
-            "model": coglet_dict.get("model"),
-            "capabilities": coglet_dict.get("capabilities") or [],
-            "mode": coglet_dict.get("mode", "one_shot"),
-            "idle_timeout_ms": coglet_dict.get("idle_timeout_ms"),
-        }
-
-        if existing_id:
-            meta = _load_meta(fs, existing_id)
-            write_file_tree(fs, existing_id, "main", files)
-            meta.test_command = test_command
-            meta.executor = executor
-            meta.timeout_seconds = timeout_seconds
-            for k, v in runtime_fields.items():
-                setattr(meta, k, v)
-            _save_meta(fs, meta)
-        else:
-            meta = CogletMeta(
-                name=name, test_command=test_command, executor=executor,
-                timeout_seconds=timeout_seconds, **runtime_fields,
-            )
-            write_file_tree(fs, meta.id, "main", files)
-            _save_meta(fs, meta)
-
-        counts["coglets"] += 1
-
-    # 8. Cog manifests — write the manifest JSON for init.py to read at runtime.
+    # 7. Cog manifests — write the manifest JSON for init.py to read at runtime.
     # IMPORTANT: The manifest must be written BEFORE creating the init process
     # (section 9) to avoid a race where the dispatcher picks up init before
     # the manifest is ready.

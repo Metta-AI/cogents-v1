@@ -10,10 +10,8 @@ add_process(
     priority=200.0,
     capabilities=[
         "me", "procs", "dir", "file", "discord", "channels",
-        "secrets", "stdlib", "coglet_factory", "coglet", "alerts",
+        "secrets", "stdlib", "alerts",
         "blob", "image",
-        # Delegatable to cog processes:
-        "cog", "coglet_runtime",
         # Delegatable to supervisor → helpers:
         "asana", "email", "github", "web_search", "web_fetch", "web",
     ],

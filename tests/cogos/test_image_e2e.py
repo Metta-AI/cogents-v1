@@ -98,43 +98,10 @@ def test_boot_cogs_e2e(tmp_path):
         content = fs.get_content(content_key)
         assert content is not None, f"Content missing for {name} at {content_key}"
 
-    # -- Verify runtime cog.make_coglet works --
-    from uuid import uuid4
-
-    from cogos.capabilities.cog import CogCapability
-
-    cog_cap = CogCapability(repo, uuid4())
-    scoped = cog_cap.scope(cog_name="recruiter")
-    child = scoped.make_coglet("discover", entrypoint="main.md",
-                                files={"main.md": "# Discover\n\n## Steps\nDo things."})
-    assert child.cog_name == "recruiter"
-    assert child.name == "discover"
-    assert child.read_file("main.md") == "# Discover\n\n## Steps\nDo things."
-
-    from cogos.cog import load_coglet_meta
-    child_meta = load_coglet_meta(fs, "recruiter", "discover")
-    assert child_meta is not None
-    assert child_meta.entrypoint == "main.md"
-
-    # -- Verify CogletRuntime can run a child coglet --
-    from cogos.capabilities.coglet_runtime import CogletRun, CogletRuntimeCapability
-    from cogos.capabilities.procs import ProcsCapability
-    from cogos.db.models import Process, ProcessCapability, ProcessMode, ProcessStatus
-
-    parent = Process(name="test-parent", mode=ProcessMode.ONE_SHOT,
-                     content="test", status=ProcessStatus.RUNNABLE)
-    parent_id = repo.upsert_process(parent)
-    procs_cap_db = repo.get_capability_by_name("procs")
-    pc = ProcessCapability(process=parent_id, capability=procs_cap_db.id, name="procs")
-    repo.create_process_capability(pc)
-    procs_cap = ProcsCapability(repo, parent_id)
-
-    runtime = CogletRuntimeCapability(repo, parent_id)
-    run = runtime.run(child, procs_cap)
-    assert isinstance(run, CogletRun), f"Expected CogletRun, got {type(run)}: {run}"
-    handle = run.process()
-    assert handle._process.name == "recruiter/discover"
-    assert handle._process.mode.value == "one_shot"
+    # -- Verify CogManifest round-trip for all cogs --
+    for m_dict in manifests:
+        assert "name" in m_dict
+        assert "entrypoint" in m_dict
 
 
 def test_boot_then_snapshot_round_trip(tmp_path):

@@ -963,22 +963,6 @@ BUILTIN_CAPABILITIES: list[dict] = [
         ),
         "schema": {},
     },
-    # ── Coglets ─────────────────────────────────────────────────
-    # cog, coglet, coglet_factory, coglet_runtime
-    {
-        "name": "coglet_factory",
-        "description": "Create and manage coglets — long-lived code+tests containers with PR-style patch workflows.",
-        "handler": "cogos.capabilities.coglet_factory.CogletFactoryCapability",
-        "instructions": (
-            "Use coglet_factory to create and manage coglets.\n"
-            "- coglet_factory.create(name, test_command, files) — create a new coglet\n"
-            "- coglet_factory.list() — list all coglets\n"
-            "- coglet_factory.get(coglet_id) — get coglet metadata\n"
-            "- coglet_factory.delete(coglet_id) — delete a coglet\n"
-            "A coglet wraps code + tests. Use the 'coglet' capability to operate on one."
-        ),
-        "schema": {},
-    },
     {
         "name": "blob",
         "description": "Upload and download files via S3 for cross-capability sharing.",
@@ -1030,47 +1014,6 @@ BUILTIN_CAPABILITIES: list[dict] = [
                 },
             },
         },
-    },
-    {
-        "name": "coglet",
-        "description": "Operate on a single coglet — propose patches, inspect files, merge changes.",
-        "handler": "cogos.capabilities.coglet.CogletCapability",
-        "instructions": (
-            "Use coglet to interact with a specific coglet (must be scoped with coglet_id).\n"
-            "- coglet.propose_patch(diff) — apply a unified diff, run tests, return results\n"
-            "- coglet.merge_patch(patch_id) — promote a passing patch to main (fails if main changed)\n"
-            "- coglet.discard_patch(patch_id) — delete a patch branch\n"
-            "- coglet.read_file(path, patch_id?) — read a file from main or a patch\n"
-            "- coglet.list_files(patch_id?) — list files in main or a patch\n"
-            "- coglet.list_patches() — list pending patches with test results\n"
-            "- coglet.get_status() — current version, patch count\n"
-            "- coglet.run_tests() — run tests on current main\n"
-            "- coglet.get_log() — patch history\n"
-            "Workflow: propose_patch -> review results -> merge_patch or discard_patch"
-        ),
-        "schema": {},
-    },
-    {
-        "name": "cog",
-        "description": "Make coglets within a named cog — scoped factory.",
-        "handler": "cogos.capabilities.cog.CogCapability",
-        "instructions": (
-            "Use cog to create coglets within your cog.\n"
-            "- cog.make_coglet(name, files={...}, entrypoint='main.md', mode='one_shot') — create or update a coglet\n"
-            "Returns a Coglet object with code operations: read_file, propose_patch, merge_patch, etc."
-        ),
-        "schema": {},
-    },
-    {
-        "name": "coglet_runtime",
-        "description": "Run coglets as CogOS processes.",
-        "handler": "cogos.capabilities.coglet_runtime.CogletRuntimeCapability",
-        "instructions": (
-            "Use coglet_runtime to run coglets.\n"
-            "- coglet_runtime.run(coglet, procs, capability_overrides={...}) — run a coglet, returns CogletRun\n"
-            "- run.process() — get the ProcessHandle for the running coglet"
-        ),
-        "schema": {},
     },
     # ── Image ───────────────────────────────────────────────────
     # image
