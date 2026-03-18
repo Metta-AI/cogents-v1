@@ -485,7 +485,7 @@ def _build_profile_setup(name: str) -> ChannelSetup:
     except Exception as exc:
         logger.warning("Profile check failed for %s: %s", name, exc)
 
-    has_name = profile_exists and "(set via dashboard)" not in profile_content
+    has_name = profile_exists and "(set on boot)" not in profile_content and "(set via dashboard)" not in profile_content
 
     if has_name:
         edit_step = SetupStep(
@@ -499,11 +499,11 @@ def _build_profile_setup(name: str) -> ChannelSetup:
         edit_step = SetupStep(
             key="edit-profile",
             title="Edit cogent profile",
-            description="Set the cogent's name, creation date, and manager in whoami/profile.md.",
+            description="The cogent's name and Discord identity are set automatically when the Discord bridge connects. If the bridge hasn't connected yet, the profile will have placeholder values.",
             status=SetupStatus.NEEDS_ACTION,
             detail=(
-                "The profile has placeholder values. Edit whoami/profile.md via the Files tab "
-                "to set the cogent's name and manager."
+                "The profile has placeholder values. Start the Discord bridge — it will "
+                "write the cogent's name and Discord user ID to whoami/profile.md automatically."
             ),
         )
 
@@ -511,7 +511,7 @@ def _build_profile_setup(name: str) -> ChannelSetup:
     summary = (
         "Cogent profile is configured."
         if has_name
-        else "Set the cogent's name and manager in whoami/profile.md."
+        else "Start the Discord bridge to populate the cogent's name and Discord identity."
     )
 
     return ChannelSetup(
