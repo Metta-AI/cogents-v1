@@ -164,6 +164,10 @@ class ProcsCapability(Capability):
             ProcessStatus.WAITING if proc_mode == ProcessMode.DAEMON
             else ProcessStatus.RUNNABLE
         )
+        # Inherit epoch from parent process
+        parent_proc = self.repo.get_process(self.process_id)
+        child_epoch = parent_proc.epoch if parent_proc else 0
+
         child = Process(
             name=name,
             mode=proc_mode,
@@ -176,6 +180,7 @@ class ProcsCapability(Capability):
             model=model,
             idle_timeout_ms=idle_timeout_ms,
             tty=tty,
+            epoch=child_epoch,
         )
 
         # Validate all capabilities before creating the process

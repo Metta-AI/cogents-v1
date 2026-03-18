@@ -138,6 +138,7 @@ class Repository:
             param["typeHint"] = "UUID"
         elif isinstance(value, datetime):
             param["value"] = {"stringValue": value.strftime("%Y-%m-%d %H:%M:%S.%f")}
+            param["typeHint"] = "TIMESTAMP"
         elif isinstance(value, (dict, list)):
             param["value"] = {"stringValue": json.dumps(value)}
         else:
