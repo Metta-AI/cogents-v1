@@ -429,15 +429,6 @@ class LocalRepository:
             self._cron_rules.clear()
             self._schemas.clear()
 
-    def clear_process_tables(self) -> None:
-        """Clear process-related tables only: runs, deliveries, handlers, process_capabilities, processes."""
-        with self._writing(force=True):
-            self._runs.clear()
-            self._deliveries.clear()
-            self._handlers.clear()
-            self._process_capabilities.clear()
-            self._processes.clear()
-
     def delete_files_by_prefixes(self, prefixes: list[str]) -> int:
         """Delete all files whose key starts with any of the given prefixes. Returns count deleted."""
         count = 0

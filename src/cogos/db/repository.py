@@ -222,19 +222,6 @@ class Repository:
         for table in self._CONFIG_TABLES_FINAL:
             self.execute(f"DELETE FROM {table}")
 
-    _PROCESS_TABLES = [
-        "cogos_trace", "cogos_delivery", "cogos_run",
-        "cogos_handler", "cogos_process_capability", "cogos_process",
-    ]
-
-    def clear_process_tables(self) -> None:
-        """Clear process-related tables only: traces, deliveries, runs, handlers, process_capabilities, processes."""
-        for table in self._PROCESS_TABLES:
-            try:
-                self.execute(f"DELETE FROM {table}")
-            except Exception:
-                logger.warning("Failed to clear table %s during process table reset", table, exc_info=True)
-
     def delete_files_by_prefixes(self, prefixes: list[str]) -> int:
         """Delete files whose key starts with any of the given prefixes."""
         total = 0
