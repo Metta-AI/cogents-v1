@@ -189,13 +189,16 @@ def boot(ctx: click.Context, name: str, clean: bool):
     )
 
     # Run dispatcher to execute init and any boot-triggered processes
-    from cogos.runtime.local import run_local_loop
-    from cogos.executor.handler import get_config
-    config = get_config()
-    bedrock = _bedrock_client()
-    executed = run_local_loop(repo, config, once=True, bedrock_client=bedrock)
-    if executed:
-        click.echo(f"Dispatch: executed {executed} process(es)")
+    try:
+        from cogos.runtime.local import run_local_loop
+        from cogos.executor.handler import get_config
+        config = get_config()
+        bedrock = _bedrock_client()
+        executed = run_local_loop(repo, config, once=True, bedrock_client=bedrock)
+        if executed:
+            click.echo(f"Dispatch: executed {executed} process(es)")
+    except Exception as e:
+        click.echo(f"Dispatch warning: {e}")
 
 
 @image.command()
