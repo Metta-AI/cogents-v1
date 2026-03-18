@@ -311,6 +311,8 @@ class Repository:
     # ═══════════════════════════════════════════════════════════
 
     def upsert_process(self, p: Process) -> UUID:
+        if not p.epoch:
+            p.epoch = self.reboot_epoch
         response = self._execute(
             """INSERT INTO cogos_process
                    (id, name, mode, content, priority, resources, runner, executor,
@@ -1212,6 +1214,8 @@ class Repository:
     # ═══════════════════════════════════════════════════════════
 
     def create_run(self, run: Run) -> UUID:
+        if not run.epoch:
+            run.epoch = self.reboot_epoch
         response = self._execute(
             """INSERT INTO cogos_run
                    (id, process, message, conversation, status,
