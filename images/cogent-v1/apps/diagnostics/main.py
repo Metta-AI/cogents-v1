@@ -308,7 +308,7 @@ def collect_result(handle, diag, category):
     else:
         if proc_status == "completed":
             result["status"] = "pass"
-            result["checks"] = [{"name": "run", "status": "pass", "ms": elapsed_ms}]
+            result["checks"] = [{"name": "run", "status": "pass", "ms": 0}]
         else:
             result["status"] = "fail"
             error_msg = "process status: " + str(proc_status)
@@ -318,7 +318,7 @@ def collect_result(handle, diag, category):
             result["checks"] = [{
                 "name": "run",
                 "status": "fail",
-                "ms": elapsed_ms,
+                "ms": 0,
                 "error": error_msg,
             }]
 
