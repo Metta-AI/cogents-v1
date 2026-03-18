@@ -122,6 +122,23 @@ class Cog:
             raise FileNotFoundError(f"Coglet '{name}' not found in {self.path}")
         return CogletRef(sub)
 
+    def make_coglet(self, reason: str) -> tuple:
+        """Create a dynamic coglet via the cog's make_coglet.py.
+
+        Returns (CogletManifest, required_capabilities).
+        """
+        make_py = self.path / "make_coglet.py"
+        if not make_py.exists():
+            raise FileNotFoundError(
+                f"Cog '{self.name}' does not support make_coglet (no make_coglet.py)"
+            )
+        ns: dict = {}
+        exec(compile(make_py.read_text(), str(make_py), "exec"), ns)  # noqa: S102
+        fn = ns.get("make_coglet")
+        if fn is None:
+            raise ValueError(f"{make_py} does not define a 'make_coglet' function")
+        return fn(reason, cog_dir=self.path)
+
     def __repr__(self) -> str:
         return f"Cog({self.name!r})"
 
