@@ -153,6 +153,23 @@ cd dashboard/frontend && npm run dev
 
 ## Remote Deployment and Testing
 
+### Deploying polis (shared infrastructure)
+
+Polis manages shared resources (ECS cluster, ECR, Route53, DynamoDB, OIDC, secrets). Deploy via the `polis` CLI, **not** `cogtainer`:
+
+```bash
+polis create                    # First-time: create polis account + deploy all CDK stacks
+polis update                    # Update CDK stacks with code changes
+polis status                    # Check infrastructure health
+polis destroy                   # Tear down (prompts for confirmation)
+```
+
+The CDK app is at `src/polis/cdk/app.py` and deploys two stacks:
+- `cogent-polis` — ECS cluster, ECR repo, Route53, DynamoDB, watcher Lambda, GitHub Actions OIDC
+- `cogent-secrets` — Rotation Lambda, cross-account SecretsReaderRole
+
+See [docs/polis/cli.md](docs/polis/cli.md) for full reference.
+
 ### Deploying the dashboard
 
 ```bash

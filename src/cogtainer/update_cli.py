@@ -206,9 +206,16 @@ def update_lambda(ctx: click.Context, profile: str | None):
 @update.command("ecs")
 @click.option("--profile", default=None, help=_PROFILE_HELP)
 @click.option("--skip-health", is_flag=True, help="Skip waiting for service stability")
+@click.option("--tag", default=None, help="ECR image tag to deploy (e.g. executor-abc1234, executor-latest)")
 @click.pass_context
-def update_ecs(ctx: click.Context, profile: str | None, skip_health: bool):
-    """Force new ECS deployment (new container)."""
+def update_ecs(ctx: click.Context, profile: str | None, skip_health: bool, tag: str | None):
+    """Force new ECS deployment (new container).
+
+    \b
+    Use --tag to deploy a specific CI-built image:
+      cogent <name> cogtainer update ecs --tag executor-abc1234
+      cogent <name> cogtainer update ecs --tag executor-latest
+    """
     name = get_cogent_name(ctx)
     session = _get_session(profile)
     safe_name = name.replace(".", "-")
@@ -239,11 +246,46 @@ def update_ecs(ctx: click.Context, profile: str | None, skip_health: bool):
     click.echo(f"  Cluster: {cluster_name}")
     click.echo(f"  Service: {service_arn}")
 
-    ecs_client.update_service(
-        cluster=cluster_name,
-        service=service_arn,
-        forceNewDeployment=True,
-    )
+    update_kwargs: dict = {
+        "cluster": cluster_name,
+        "service": service_arn,
+        "forceNewDeployment": True,
+    }
+
+    # If --tag specified, update the task definition to use that image
+    if tag:
+        from polis.aws import POLIS_ACCOUNT_ID
+
+        repo_uri = f"{POLIS_ACCOUNT_ID}.dkr.ecr.{DEFAULT_REGION}.amazonaws.com/cogent"
+        new_image = f"{repo_uri}:{tag}"
+        click.echo(f"  Image: {new_image}")
+
+        svc_desc = ecs_client.describe_services(cluster=cluster_name, services=[service_arn])["services"][0]
+        task_def_arn = svc_desc["taskDefinition"]
+        task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)["taskDefinition"]
+
+        containers = task_def["containerDefinitions"]
+        containers[0]["image"] = new_image
+
+        register_kwargs = {
+            "family": task_def["family"],
+            "containerDefinitions": containers,
+            "taskRoleArn": task_def.get("taskRoleArn", ""),
+            "executionRoleArn": task_def.get("executionRoleArn", ""),
+            "networkMode": task_def.get("networkMode", "awsvpc"),
+            "requiresCompatibilities": task_def.get("requiresCompatibilities", ["FARGATE"]),
+            "cpu": task_def.get("cpu", "256"),
+            "memory": task_def.get("memory", "512"),
+        }
+        if "runtimePlatform" in task_def:
+            register_kwargs["runtimePlatform"] = task_def["runtimePlatform"]
+
+        new_td = ecs_client.register_task_definition(**register_kwargs)
+        new_td_arn = new_td["taskDefinition"]["taskDefinitionArn"]
+        click.echo(f"  Task definition: {new_td_arn.split('/')[-1]}")
+        update_kwargs["taskDefinition"] = new_td_arn
+
+    ecs_client.update_service(**update_kwargs)
 
     if not skip_health:
         click.echo("  Waiting for service to stabilize...")

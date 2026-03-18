@@ -430,7 +430,42 @@ class PolisStack(cdk.Stack):
             auth_type=lambda_.FunctionUrlAuthType.NONE,
         )
 
+        # --- GitHub Actions OIDC (for CI Docker builds) ---
+        github_oidc_provider = iam.OpenIdConnectProvider(
+            self,
+            "GitHubOIDC",
+            url="https://token.actions.githubusercontent.com",
+            client_ids=["sts.amazonaws.com"],
+        )
+
+        self.github_actions_role = iam.Role(
+            self,
+            "GitHubActionsRole",
+            role_name="github-actions-cogents",
+            assumed_by=iam.WebIdentityPrincipal(
+                github_oidc_provider.open_id_connect_provider_arn,
+                conditions={
+                    "StringEquals": {
+                        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+                    },
+                    "StringLike": {
+                        "token.actions.githubusercontent.com:sub": "repo:Metta-AI/cogents-v1:*",
+                    },
+                },
+            ),
+            max_session_duration=Duration.hours(1),
+        )
+
+        self.ecr_repo.grant_push(self.github_actions_role)
+        self.github_actions_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ecr:GetAuthorizationToken"],
+                resources=["*"],
+            )
+        )
+
         # --- Outputs ---
+        cdk.CfnOutput(self, "GitHubActionsRoleArn", value=self.github_actions_role.role_arn)
         cdk.CfnOutput(self, "ECRRepositoryUri", value=self.ecr_repo.repository_uri)
         cdk.CfnOutput(self, "ClusterArn", value=self.cluster.cluster_arn)
         cdk.CfnOutput(self, "HostedZoneId", value=self.hosted_zone.hosted_zone_id)

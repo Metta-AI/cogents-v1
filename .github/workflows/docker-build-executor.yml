@@ -1,0 +1,44 @@
+name: Build Executor Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/cogtainer/docker/**"
+      - "src/cogos/**"
+      - "src/cogents/**"
+      - "pyproject.toml"
+      - ".github/workflows/docker-build-executor.yml"
+      - ".github/actions/ecr-build/**"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and push executor image
+        id: build
+        uses: ./.github/actions/ecr-build
+        with:
+          image_name: cogent
+          dockerfile: src/cogtainer/docker/Dockerfile
+          context: .
+          aws_role: ${{ vars.AWS_ROLE }}
+          tag_prefix: executor
+
+      - name: Summary
+        run: |
+          echo "### Executor Image Built" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Tags:**" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.build.outputs.image_uri }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Deploy:** \`cogent <name> cogtainer update ecs --tag executor-${{ steps.build.outputs.short_sha }}\`" >> "$GITHUB_STEP_SUMMARY"

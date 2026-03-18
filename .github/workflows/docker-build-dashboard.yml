@@ -1,0 +1,43 @@
+name: Build Dashboard Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dashboard/**"
+      - "src/dashboard/**"
+      - "pyproject.toml"
+      - ".github/workflows/docker-build-dashboard.yml"
+      - ".github/actions/ecr-build/**"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and push dashboard image
+        id: build
+        uses: ./.github/actions/ecr-build
+        with:
+          image_name: cogent
+          dockerfile: dashboard/Dockerfile
+          context: .
+          aws_role: ${{ vars.AWS_ROLE }}
+          tag_prefix: dashboard
+
+      - name: Summary
+        run: |
+          echo "### Dashboard Image Built" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Tags:**" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.build.outputs.image_uri }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Deploy:** \`cogent <name> dashboard deploy --docker --tag dashboard-${{ steps.build.outputs.short_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
