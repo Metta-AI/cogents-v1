@@ -76,7 +76,7 @@ class TestFileCapabilityScoping:
             assert isinstance(result, FileError)
 
     def test_all_ops(self):
-        assert FileCapability.ALL_OPS == {"read", "write", "append"}
+        assert FileCapability.ALL_OPS == {"read", "write", "append", "edit"}
 
 
 # ── FileVersionCapability ───────────────────────────────────
@@ -328,3 +328,75 @@ class TestFileSlicedRead:
             lines = result.content.split("\n")
             assert len(lines) == 5
             assert lines[-1] == "line 99"
+
+
+# ── FileCapability edit ────────────────────────────────────
+
+
+class TestFileEdit:
+    def _setup_file(self, repo, key="test.py", content="hello world\nfoo bar\nbaz"):
+        f = File(key=key)
+        fv = FileVersion(
+            file_id=f.id, version=1, content=content, source="agent", is_active=True
+        )
+        repo.get_active_file_version.return_value = fv
+        return f, fv
+
+    def test_edit_replaces_unique_match(self, repo, pid):
+        cap = FileCapability(repo, pid)
+        f, fv = self._setup_file(repo)
+        with patch("cogos.capabilities.file_cap.FileStore") as mock_cls:
+            store = mock_cls.return_value
+            store.get.return_value = f
+            store.upsert.return_value = fv
+            result = cap.edit("test.py", "foo bar", "replaced")
+            store.upsert.assert_called_once()
+            new_content = store.upsert.call_args[0][1]
+            assert "replaced" in new_content
+            assert "foo bar" not in new_content
+
+    def test_edit_fails_if_not_found(self, repo, pid):
+        cap = FileCapability(repo, pid)
+        f, fv = self._setup_file(repo)
+        with patch("cogos.capabilities.file_cap.FileStore") as mock_cls:
+            store = mock_cls.return_value
+            store.get.return_value = f
+            result = cap.edit("test.py", "nonexistent", "replaced")
+            assert isinstance(result, FileError)
+            assert "not found" in result.error
+
+    def test_edit_fails_if_not_unique(self, repo, pid):
+        cap = FileCapability(repo, pid)
+        f, fv = self._setup_file(repo, content="aaa\naaa\nbbb")
+        with patch("cogos.capabilities.file_cap.FileStore") as mock_cls:
+            store = mock_cls.return_value
+            store.get.return_value = f
+            result = cap.edit("test.py", "aaa", "replaced")
+            assert isinstance(result, FileError)
+            assert "not unique" in result.error
+
+    def test_edit_replace_all(self, repo, pid):
+        cap = FileCapability(repo, pid)
+        f, fv = self._setup_file(repo, content="aaa\naaa\nbbb")
+        with patch("cogos.capabilities.file_cap.FileStore") as mock_cls:
+            store = mock_cls.return_value
+            store.get.return_value = f
+            store.upsert.return_value = fv
+            result = cap.edit("test.py", "aaa", "xxx", replace_all=True)
+            new_content = store.upsert.call_args[0][1]
+            assert new_content == "xxx\nxxx\nbbb"
+
+    def test_edit_replace_all_zero_matches(self, repo, pid):
+        cap = FileCapability(repo, pid)
+        f, fv = self._setup_file(repo)
+        with patch("cogos.capabilities.file_cap.FileStore") as mock_cls:
+            store = mock_cls.return_value
+            store.get.return_value = f
+            result = cap.edit("test.py", "nonexistent", "xxx", replace_all=True)
+            assert isinstance(result, FileError)
+
+    def test_edit_denied_without_op(self, repo, pid):
+        cap = FileCapability(repo, pid)
+        scoped = cap.scope(key="test.py", ops={"read"})
+        with pytest.raises(PermissionError):
+            scoped.edit("test.py", "old", "new")

@@ -31,7 +31,7 @@ class FileCapability(Capability):
         f.append(text)   -> FileWriteResult
     """
 
-    ALL_OPS = {"read", "write", "append"}
+    ALL_OPS = {"read", "write", "append", "edit"}
 
     def _narrow(self, existing: dict, requested: dict) -> dict:
         merged = {**existing, **requested}
@@ -151,6 +151,43 @@ class FileCapability(Capability):
             id=str(result.file_id), key=k, version=result.version, created=False
         )
 
+    def edit(
+        self,
+        key: str | None = None,
+        old: str = "",
+        new: str = "",
+        replace_all: bool = False,
+        source: str = "agent",
+    ) -> FileWriteResult | FileError:
+        """Surgical string replacement. Fails if old not found or not unique (unless replace_all)."""
+        k = self._resolve_key(key)
+        self._check("edit", key=k)
+
+        store = FileStore(self.repo)
+        f = store.get(k)
+        if f is None:
+            return FileError(error=f"file '{k}' not found")
+
+        fv = self.repo.get_active_file_version(f.id)
+        if fv is None:
+            return FileError(error=f"no active version for '{k}'")
+
+        content = fv.content
+        count = content.count(old)
+
+        if count == 0:
+            return FileError(error=f"old string not found in '{k}'")
+
+        if not replace_all and count > 1:
+            return FileError(error=f"old string not unique in '{k}' ({count} occurrences)")
+
+        if replace_all:
+            new_content = content.replace(old, new)
+        else:
+            new_content = content.replace(old, new, 1)
+
+        return self._do_write(k, new_content, source)
+
     def _do_write(
         self, key: str, content: str, source: str
     ) -> FileWriteResult | FileError:
@@ -176,8 +213,8 @@ class FileCapability(Capability):
     def __repr__(self) -> str:
         k = self._scope.get("key", "")
         if k:
-            return f"<File '{k}' read() write() append()>"
-        return "<FileCapability read(key) write(content, key) append(content, key)>"
+            return f"<File '{k}' read() write() append() edit()>"
+        return "<FileCapability read(key) write(content, key) append(content, key) edit(key, old, new)>"
 
 
 # ── FileVersionCapability ───────────────────────────────────
