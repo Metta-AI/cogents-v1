@@ -26,7 +26,11 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "read": {
                 "input": {
                     "type": "object",
-                    "properties": {"key": {"type": "string", "description": "File key"}},
+                    "properties": {
+                        "key": {"type": "string", "description": "File key"},
+                        "offset": {"type": "integer", "description": "Start line (0-indexed, negative from end)"},
+                        "limit": {"type": "integer", "description": "Number of lines to return"},
+                    },
                     "required": ["key"],
                 },
                 "output": {
@@ -35,6 +39,27 @@ BUILTIN_CAPABILITIES: list[dict] = [
                         "id": {"type": "string"}, "key": {"type": "string"},
                         "version": {"type": "integer"}, "content": {"type": "string"},
                         "read_only": {"type": "boolean"}, "source": {"type": "string"},
+                        "total_lines": {"type": "integer"},
+                    },
+                },
+            },
+            "edit": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "string", "description": "File key"},
+                        "old": {"type": "string", "description": "Exact string to find"},
+                        "new": {"type": "string", "description": "Replacement string"},
+                        "replace_all": {"type": "boolean", "default": False},
+                    },
+                    "required": ["key", "old", "new"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "key": {"type": "string"},
+                        "version": {"type": "integer"}, "created": {"type": "boolean"},
+                        "changed": {"type": "boolean"},
                     },
                 },
             },
@@ -76,10 +101,13 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "Use dir to access files under a directory prefix.\n"
             "- dir.list(prefix?) — list files\n"
             "- f = dir.get(key) — get a file handle\n"
-            "- f.read() — read file content\n"
+            "- dir.grep(pattern, prefix?, limit=20, context=0) — regex search file contents\n"
+            "- dir.glob(pattern, limit=50) — match file keys by glob\n"
+            "- dir.tree(prefix?, depth=3) — compact directory tree\n"
+            "- f.read(offset?, limit?) — read file (line-sliced)\n"
             "- f.write(content) — overwrite file\n"
-            "- f.append(content) — append to file (creates if missing)\n"
-            "Example: f = dir.get('log.txt'); f.append('\\nnew line'); print(f.read().content)"
+            "- f.append(content) — append to file\n"
+            "- f.edit(old, new, replace_all=False) — surgical string replacement"
         ),
         "schema": {
             "scope": {
@@ -107,6 +135,60 @@ BUILTIN_CAPABILITIES: list[dict] = [
                     "required": ["key"],
                 },
                 "output": {"type": "string", "description": "FileCapability with read(), write(content), append(content)"},
+            },
+            "grep": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": {"type": "string", "description": "Regex pattern to search"},
+                        "prefix": {"type": "string", "description": "Narrow search prefix"},
+                        "limit": {"type": "integer", "default": 20},
+                        "context": {"type": "integer", "default": 0, "description": "Lines before/after match"},
+                    },
+                    "required": ["pattern"],
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "key": {"type": "string"},
+                            "matches": {"type": "array", "items": {
+                                "type": "object",
+                                "properties": {
+                                    "line": {"type": "integer"},
+                                    "text": {"type": "string"},
+                                    "before": {"type": "array", "items": {"type": "string"}},
+                                    "after": {"type": "array", "items": {"type": "string"}},
+                                },
+                            }},
+                        },
+                    },
+                },
+            },
+            "glob": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": {"type": "string", "description": "Glob pattern (* = segment, ** = any depth, ? = char)"},
+                        "limit": {"type": "integer", "default": 50},
+                    },
+                    "required": ["pattern"],
+                },
+                "output": {
+                    "type": "array",
+                    "items": {"type": "object", "properties": {"key": {"type": "string"}}},
+                },
+            },
+            "tree": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "prefix": {"type": "string", "description": "Subtree prefix"},
+                        "depth": {"type": "integer", "default": 3},
+                    },
+                },
+                "output": {"type": "string", "description": "Tree-formatted string"},
             },
         },
     },
