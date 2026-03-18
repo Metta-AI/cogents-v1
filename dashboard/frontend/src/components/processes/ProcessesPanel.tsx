@@ -2002,6 +2002,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
   const [detailHandlers, setDetailHandlers] = useState<Array<{ id: string; channel?: string; event_pattern?: string; enabled: boolean }>>([]);
   const [editingFileKey, setEditingFileKey] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"tree" | "status">("tree");
   const [sessionLogRunId, setSessionLogRunId] = useState<string | null>(null);
 
@@ -2246,11 +2247,13 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
           }
         }
         // Flatten a process and its descendants into an ordered list with depth
-        function flattenTree(proc: CogosProcess, depth: number): { proc: CogosProcess; depth: number }[] {
-          const result: { proc: CogosProcess; depth: number }[] = [{ proc, depth }];
+        function flattenTree(proc: CogosProcess, depth: number): { proc: CogosProcess; depth: number; hasChildren: boolean }[] {
           const children = childrenByParent.get(proc.id) || [];
-          for (const child of children) {
-            result.push(...flattenTree(child, depth + 1));
+          const result: { proc: CogosProcess; depth: number; hasChildren: boolean }[] = [{ proc, depth, hasChildren: children.length > 0 }];
+          if (!collapsedNodes.has(proc.id)) {
+            for (const child of children) {
+              result.push(...flattenTree(child, depth + 1));
+            }
           }
           return result;
         }
@@ -2268,7 +2271,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
 
         const STATUS_ORDER = ["running", "runnable", "waiting", "blocked", "suspended", "completed", "disabled"];
 
-        type GroupEntry = { proc: CogosProcess; depth: number; ancestors?: string[] };
+        type GroupEntry = { proc: CogosProcess; depth: number; ancestors?: string[]; hasChildren?: boolean };
 
         let grouped: { label: string; variant: string; entries: GroupEntry[] }[];
 
@@ -2318,11 +2321,12 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
           <span className="ml-2 text-[var(--text-muted)]">({group.entries.length})</span>
         </div>
         )}
-        {!collapsedGroups.has(group.label) && group.entries.map(({ proc, depth, ancestors }) => {
+        {!collapsedGroups.has(group.label) && group.entries.map(({ proc, depth, ancestors, hasChildren }) => {
           const isSelected = selectedId === proc.id;
           const isEditing = editingId === proc.id;
           const lastRun = lastRunByProcess[proc.id];
           const sessionConfig = readSessionConfig(proc.metadata);
+          const isCollapsed = collapsedNodes.has(proc.id);
 
           return (
             <div key={proc.id}>
@@ -2346,7 +2350,27 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                 onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "var(--bg-surface)"; }}
               >
                 <span className="inline-flex items-center gap-1.5 text-[var(--text-primary)] font-medium text-[12px] truncate">
-                  {depth > 0 && <span className="text-[var(--text-muted)] text-[10px]">└</span>}
+                  {viewMode === "tree" && hasChildren ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCollapsedNodes((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(proc.id)) next.delete(proc.id);
+                          else next.add(proc.id);
+                          return next;
+                        });
+                      }}
+                      className="text-[10px] text-[var(--text-muted)] bg-transparent border-0 cursor-pointer p-0 w-3 flex-shrink-0 hover:text-[var(--text-primary)]"
+                      title={isCollapsed ? "Expand children" : "Collapse children"}
+                    >
+                      {isCollapsed ? "▶" : "▼"}
+                    </button>
+                  ) : depth > 0 ? (
+                    <span className="text-[var(--text-muted)] text-[10px]">└</span>
+                  ) : (
+                    <span className="w-3 flex-shrink-0" />
+                  )}
                   <span className="text-[var(--text-muted)]" title={proc.mode}>
                     {proc.mode === "daemon" ? "⟳" : "→"}
                   </span>
