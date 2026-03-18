@@ -24,18 +24,19 @@ _CAPS = {
 
 _SKIP = {"main.py", "cog.py"}
 
-# Capture all names available in runner scope for passing to diagnostic exec
+# Capture sandbox builtins + capabilities for passing to diagnostic exec.
+# Only reference names that _SAFE_BUILTINS actually provides.
 _RUNNER_NS = {
     "json": json, "print": print, "exit": exit,
     "len": len, "range": range, "str": str, "int": int,
     "float": float, "bool": bool, "list": list, "dict": dict,
-    "tuple": tuple, "set": set, "type": type,
+    "tuple": tuple, "set": set,
     "isinstance": isinstance, "hasattr": hasattr, "getattr": getattr,
-    "setattr": setattr, "repr": repr, "sorted": sorted,
+    "repr": repr, "sorted": sorted,
     "enumerate": enumerate, "zip": zip, "map": map, "filter": filter,
     "min": min, "max": max, "sum": sum, "abs": abs, "round": round,
     "True": True, "False": False, "None": None,
-    "Exception": Exception, "AssertionError": AssertionError,
+    "Exception": Exception,
     "ValueError": ValueError, "TypeError": TypeError, "KeyError": KeyError,
     "me": me, "stdlib": stdlib, "data": data,
     "procs": procs, "dir": dir, "file": file, "channels": channels,
