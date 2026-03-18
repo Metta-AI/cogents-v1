@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
+import pytest
 
 from cogos.db.local_repository import LocalRepository
 from cogos.db.models import Channel, ChannelType
@@ -19,6 +20,7 @@ def _make_bridge() -> DiscordBridge:
     return bridge
 
 
+@pytest.mark.anyio
 async def test_handle_dm_stops_typing_on_dm_channel():
     bridge = _make_bridge()
     bridge._stop_typing = MagicMock()
@@ -49,6 +51,7 @@ def test_reply_queue_latency_ms_uses_enqueued_timestamp():
         assert _reply_queue_latency_ms({"_meta": {"queued_at_ms": "9500"}}) == 500
 
 
+@pytest.mark.anyio
 async def test_relay_to_db_recreates_missing_system_channel():
     bridge = _make_bridge()
     bridge.client.user = None

@@ -17,6 +17,13 @@ from cogos.capabilities.github_cap import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _mock_auth():
+    """Patch Auth so tests work without PyGithub installed."""
+    with patch("cogos.capabilities.github_cap.Auth", new_callable=MagicMock):
+        yield
+
+
 @pytest.fixture
 def repo():
     return MagicMock()

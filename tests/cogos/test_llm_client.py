@@ -282,13 +282,20 @@ def test_llm_client_falls_back_on_service_unavailable():
 # ── Anthropic-primary mode ──────────────────────────────────
 
 
+def _make_anthropic_primary_client(fake_bedrock, fake_anthropic_client):
+    """Create an LLMClient in anthropic-primary mode without requiring the anthropic package."""
+    client = LLMClient(bedrock_client=fake_bedrock)
+    client._provider = "anthropic"
+    client._anthropic = fake_anthropic_client
+    return client
+
+
 def test_anthropic_primary_uses_anthropic_first():
     fake_bedrock = MagicMock()
     fake_anthropic_client = MagicMock()
     fake_anthropic_client.messages.create.return_value = _FakeResponse()
 
-    client = LLMClient(bedrock_client=fake_bedrock, anthropic_api_key="sk-test", provider="anthropic")
-    client._anthropic = fake_anthropic_client
+    client = _make_anthropic_primary_client(fake_bedrock, fake_anthropic_client)
 
     result = client.converse(
         modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",
@@ -308,8 +315,7 @@ def test_anthropic_primary_falls_back_to_bedrock_on_error():
     fake_anthropic_client = MagicMock()
     fake_anthropic_client.messages.create.side_effect = Exception("rate limit")
 
-    client = LLMClient(bedrock_client=fake_bedrock, anthropic_api_key="sk-test", provider="anthropic")
-    client._anthropic = fake_anthropic_client
+    client = _make_anthropic_primary_client(fake_bedrock, fake_anthropic_client)
 
     result = client.converse(
         modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",
