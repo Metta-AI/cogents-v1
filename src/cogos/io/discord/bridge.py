@@ -88,6 +88,16 @@ def _make_message_payload(
         "reference_message_id": (
             str(message.reference.message_id) if message.reference else None
         ),
+        "reference_message_content": (
+            message.reference.resolved.content
+            if message.reference and getattr(message.reference, "resolved", None)
+            else None
+        ),
+        "reference_message_author": (
+            str(message.reference.resolved.author)
+            if message.reference and getattr(message.reference, "resolved", None)
+            else None
+        ),
     }
 
 

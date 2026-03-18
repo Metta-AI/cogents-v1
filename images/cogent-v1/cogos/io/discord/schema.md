@@ -13,3 +13,5 @@ fields:
   parent_channel_id: string
   embeds: list
   reference_message_id: string
+  reference_message_content: string
+  reference_message_author: string

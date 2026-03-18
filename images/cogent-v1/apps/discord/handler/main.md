@@ -37,6 +37,8 @@ content = "..."
 message_id = "..."
 is_dm = True  # or False
 is_mention = False  # or True
+reference_message_content = None  # from payload, set if this is a reply
+reference_message_author = None   # from payload, set if this is a reply
 
 # 2. Read identity from profile
 profile_data = file.read("whoami/profile.md")
@@ -108,6 +110,8 @@ elif not is_dm and not is_mention:
         else:
             history = log_content
         print(f"HISTORY:\n{history}")
+        if reference_message_content:
+            print(f"\nREPLYING TO: {reference_message_author}: {reference_message_content}")
         print(f"\nNEW: {author}: {content}")
 else:
     # DM or @mention — always respond. Load history, refetch from Discord API if stale.
@@ -137,6 +141,8 @@ else:
     else:
         history = log_content
     print(f"HISTORY:\n{history}")
+    if reference_message_content:
+        print(f"\nREPLYING TO: {reference_message_author}: {reference_message_content}")
     print(f"\nNEW: {author}: {content}")
 ```
 
