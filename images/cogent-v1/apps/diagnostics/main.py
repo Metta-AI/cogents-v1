@@ -309,100 +309,105 @@ ALL_DIAGNOSTICS = {
     "history": diag_history,
 }
 
-timestamp = _now()
-print("Diagnostics starting at " + timestamp)
+# Only run when triggered via system:diagnostics channel
+_channel = event.get("channel_name", "") if event else ""
+if _channel != "system:diagnostics":
+    print("Ignoring wakeup from " + _channel)
+else:
+    timestamp = _now()
+    print("Diagnostics starting at " + timestamp)
 
-total = 0
-passed = 0
-categories = {}
+    total = 0
+    passed = 0
+    categories = {}
 
-for cat in sorted(ALL_DIAGNOSTICS):
-    fn = ALL_DIAGNOSTICS[cat]
-    try:
-        checks = fn()
-    except Exception as e:
-        checks = [{"name": "run", "status": "fail", "ms": 0, "error": str(e)[:300]}]
+    for cat in sorted(ALL_DIAGNOSTICS):
+        fn = ALL_DIAGNOSTICS[cat]
+        try:
+            checks = fn()
+        except Exception as e:
+            checks = [{"name": "run", "status": "fail", "ms": 0, "error": str(e)[:300]}]
 
-    cat_pass = all(c.get("status") == "pass" for c in checks)
-    categories[cat] = {
-        "status": "pass" if cat_pass else "fail",
-        "diagnostics": [{"name": cat, "status": "pass" if cat_pass else "fail", "checks": checks}],
+        cat_pass = all(c.get("status") == "pass" for c in checks)
+        categories[cat] = {
+            "status": "pass" if cat_pass else "fail",
+            "diagnostics": [{"name": cat, "status": "pass" if cat_pass else "fail", "checks": checks}],
+        }
+        for c in checks:
+            total += 1
+            if c.get("status") == "pass":
+                passed += 1
+
+    results = {
+        "timestamp": timestamp,
+        "summary": {"total": total, "pass": passed, "fail": total - passed},
+        "categories": categories,
     }
-    for c in checks:
-        total += 1
-        if c.get("status") == "pass":
-            passed += 1
 
-results = {
-    "timestamp": timestamp,
-    "summary": {"total": total, "pass": passed, "fail": total - passed},
-    "categories": categories,
-}
+    # Read previous results for diffing
+    prev = None
+    prev_raw = data.get("current.json").read()
+    if not hasattr(prev_raw, "error"):
+        try:
+            prev = json.loads(prev_raw.content)
+        except (ValueError, TypeError):
+            pass
 
-# Read previous results for diffing
-prev = None
-prev_raw = data.get("current.json").read()
-if not hasattr(prev_raw, "error"):
-    try:
-        prev = json.loads(prev_raw.content)
-    except (ValueError, TypeError):
-        pass
+    # Diff
+    def _flat(r):
+        d = {}
+        for cat in r.get("categories", {}):
+            for diag in r["categories"][cat]["diagnostics"]:
+                for ck in diag.get("checks", []):
+                    d[cat + ":" + ck.get("name", "?")] = ck.get("status")
+        return d
 
-# Diff
-def _flat(r):
-    d = {}
-    for cat in r.get("categories", {}):
-        for diag in r["categories"][cat]["diagnostics"]:
-            for ck in diag.get("checks", []):
-                d[cat + ":" + ck.get("name", "?")] = ck.get("status")
-    return d
+    changes = []
+    if prev:
+        p = _flat(prev)
+        c = _flat(results)
+        for k in sorted(set(list(p.keys()) + list(c.keys()))):
+            if k in c and k not in p:
+                changes.append("- ADDED: " + k)
+            elif k in p and k not in c:
+                changes.append("- REMOVED: " + k)
+            elif p.get(k) == "pass" and c.get(k) != "pass":
+                changes.append("- FAILING: " + k)
+            elif p.get(k) != "pass" and c.get(k) == "pass":
+                changes.append("- FIXED: " + k)
 
-changes = []
-if prev:
-    p = _flat(prev)
-    c = _flat(results)
-    for k in sorted(set(list(p.keys()) + list(c.keys()))):
-        if k in c and k not in p:
-            changes.append("- ADDED: " + k)
-        elif k in p and k not in c:
-            changes.append("- REMOVED: " + k)
-        elif p.get(k) == "pass" and c.get(k) != "pass":
-            changes.append("- FAILING: " + k)
-        elif p.get(k) != "pass" and c.get(k) == "pass":
-            changes.append("- FIXED: " + k)
+    # Write reports
+    data.get("current.json").write(json.dumps(results))
 
-# Write reports
-data.get("current.json").write(json.dumps(results))
+    # current.md
+    md = ["# Diagnostics — " + timestamp, "**" + str(passed) + "/" + str(total) + " PASS**", ""]
+    for cat in sorted(categories):
+        c = categories[cat]
+        diags = c["diagnostics"]
+        p = sum(1 for d in diags if d["status"] == "pass")
+        md.append("## " + cat + " (" + str(p) + "/" + str(len(diags)) + " " + ("PASS" if c["status"] == "pass" else "FAIL") + ")")
+        for d in diags:
+            for ck in d.get("checks", []):
+                mark = "[x]" if ck.get("status") == "pass" else "[ ]"
+                line = "- " + mark + " " + ck.get("name", "?")
+                if ck.get("error"):
+                    line += " — " + str(ck["error"])[:150]
+                md.append(line)
+        md.append("")
+    data.get("current.md").write("\n".join(md))
 
-# current.md
-md = ["# Diagnostics — " + timestamp, "**" + str(passed) + "/" + str(total) + " PASS**", ""]
-for cat in sorted(categories):
-    c = categories[cat]
-    diags = c["diagnostics"]
-    p = sum(1 for d in diags if d["status"] == "pass")
-    md.append("## " + cat + " (" + str(p) + "/" + str(len(diags)) + " " + ("PASS" if c["status"] == "pass" else "FAIL") + ")")
-    for d in diags:
-        for ck in d.get("checks", []):
-            mark = "[x]" if ck.get("status") == "pass" else "[ ]"
-            line = "- " + mark + " " + ck.get("name", "?")
-            if ck.get("error"):
-                line += " — " + str(ck["error"])[:150]
-            md.append(line)
-    md.append("")
-data.get("current.md").write("\n".join(md))
+    # log.md (prepend)
+    log_line = "## " + timestamp + " — " + str(passed) + "/" + str(total) + " PASS"
+    log_prev = data.get("log.md").read()
+    log_content = log_prev.content if hasattr(log_prev, "content") else ""
+    data.get("log.md").write(log_line + "\n" + log_content)
 
-# log.md (prepend)
-log_line = "## " + timestamp + " — " + str(passed) + "/" + str(total) + " PASS"
-log_prev = data.get("log.md").read()
-log_content = log_prev.content if hasattr(log_prev, "content") else ""
-data.get("log.md").write(log_line + "\n" + log_content)
+    # changelog
+    if changes:
+        cl_prev = data.get("changelog.md").read()
+        cl_content = cl_prev.content if hasattr(cl_prev, "content") else ""
+        data.get("changelog.md").write("## " + timestamp + "\n" + "\n".join(changes) + "\n\n" + cl_content)
 
-# changelog
-if changes:
-    cl_prev = data.get("changelog.md").read()
-    cl_content = cl_prev.content if hasattr(cl_prev, "content") else ""
-    data.get("changelog.md").write("## " + timestamp + "\n" + "\n".join(changes) + "\n\n" + cl_content)
-
-print(str(passed) + "/" + str(total) + " passed")
-for c in changes:
-    print("  " + c)
+    print(str(passed) + "/" + str(total) + " passed")
+    for c in changes:
+        print("  " + c)
