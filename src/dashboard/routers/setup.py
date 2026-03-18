@@ -616,12 +616,10 @@ def _build_profile_setup(name: str) -> ChannelSetup:
         repo = get_repo()
         from cogos.files.store import FileStore
         store = FileStore(repo)
-        f = store.get(profile_key)
-        if f:
-            fv = store.read(profile_key)
-            if fv:
-                profile_exists = True
-                profile_content = fv.content
+        content = store.get_content(profile_key)
+        if content is not None:
+            profile_exists = True
+            profile_content = content
     except Exception as exc:
         logger.warning("Profile check failed for %s: %s", name, exc)
 
