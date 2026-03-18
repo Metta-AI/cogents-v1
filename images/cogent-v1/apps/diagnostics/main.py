@@ -67,18 +67,10 @@ def run_one(cat, diag):
 
     code = content_result.content
 
-    # Build namespace with category-scoped capabilities
-    ns = {"json": json, "print": print, "exit": exit,
-          "len": len, "range": range, "str": str, "int": int,
-          "float": float, "bool": bool, "list": list, "dict": dict,
-          "type": type, "isinstance": isinstance, "hasattr": hasattr,
-          "getattr": getattr, "setattr": setattr, "repr": repr,
-          "sorted": sorted, "enumerate": enumerate, "zip": zip,
-          "min": min, "max": max, "sum": sum, "abs": abs,
-          "True": True, "False": False, "None": None,
-          "Exception": Exception, "AssertionError": AssertionError,
-          # Always available
-          "me": me, "stdlib": stdlib, "data": data}
+    # Build namespace — inherit runner's globals for builtins access
+    ns = dict(globals())
+    # Override with category-scoped capabilities
+    ns.update({"me": me, "stdlib": stdlib, "data": data})
 
     # Add category-specific caps
     caps = _CAPS.get(cat, {})
