@@ -5,7 +5,7 @@ config = CogConfig(
     model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
     emoji="💬",
     capabilities=[
-        "discord", "channels", "stdlib", "procs", "file",
+        "cogent", "discord", "channels", "stdlib", "procs", "file",
         "image", "blob", "secrets", "web",
     ],
     handlers=[

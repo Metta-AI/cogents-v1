@@ -1235,4 +1235,15 @@ BUILTIN_CAPABILITIES: list[dict] = [
             },
         },
     },
+    # ── Identity ──────────────────────────────────────────────────
+    {
+        "name": "cogent",
+        "description": "Cogent identity — name and profile metadata.",
+        "handler": "cogos.capabilities.cogent.CogentCapability",
+        "instructions": (
+            "Use cogent to access this cogent's identity.\n"
+            "- cogent.name — the cogent's name (e.g. 'dr.alpha')\n"
+            "- cogent.profile() — markdown string with identity fields\n"
+        ),
+    },
 ]

@@ -64,6 +64,23 @@ class AsanaCapability(Capability):
         super().__init__(repo, process_id)
         self._api_key: str | None = None
         self._client = None
+        self._username: str | None = None
+
+    def username(self) -> str:
+        """The Asana username for this cogent."""
+        if self._username is None:
+            try:
+                self._username = fetch_secret("cogent/{cogent}/asana", field="username") or ""
+            except Exception:
+                self._username = ""
+        return self._username
+
+    def profile(self) -> str:
+        """Return Asana identity as markdown for prompt injection."""
+        name = self.username()
+        if name:
+            return f"- **Asana Username:** {name}\n"
+        return ""
 
     def _get_client(self):
         if self._client is None:

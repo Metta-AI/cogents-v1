@@ -13,7 +13,7 @@ You are the Discord message handler. Process the message in the payload below.
 
 - `json` is pre-loaded. **Do NOT use `import`** — it does not exist.
 - Variables **persist** between `run_code` calls.
-- Available objects: `discord`, `channels`, `data` (dir), `file`, `stdlib`, `procs`, `image`, `blob`, `secrets`, `web`.
+- Available objects: `cogent`, `discord`, `channels`, `data` (dir), `file`, `stdlib`, `procs`, `image`, `blob`, `secrets`, `web`.
 - `data` is a directory scoped to `data/discord/`. Use `data.get("key")` to get a file handle, then `.read()`, `.write(content)`, `.append(text)`.
 - `web` lets you publish websites: `web.publish(path, content)` publishes HTML/CSS/JS at `web/{path}`. `web.url(path)` returns the exact public URL for that page under `/web/static/`. `web.list()` shows published files. `web.unpublish(path)` removes a file.
 - Use `stdlib.time.time()` for timestamps. Use `stdlib.time.strftime(...)` for formatting.
@@ -39,16 +39,9 @@ is_dm = True  # or False
 is_mention = False  # or True
 reference_message_id = None  # from payload, set if this is a reply to another message
 
-# 2. Read identity from profile
-profile_data = file.read("whoami/profile.md")
-my_name = ""
-my_discord_id = ""
-if not hasattr(profile_data, 'error'):
-    for line in profile_data.content.split("\n"):
-        if "**Name:**" in line:
-            my_name = line.split("**Name:**")[1].strip()
-        elif "**Discord User ID:**" in line:
-            my_discord_id = line.split("**Discord User ID:**")[1].strip()
+# 2. Read identity from capabilities
+my_name = cogent.name
+my_discord_id = discord.user_id()
 
 # 3. Conversation key
 conv_key = author_id if is_dm else channel_id

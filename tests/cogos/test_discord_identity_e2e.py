@@ -95,8 +95,8 @@ def test_handler_prompt_expands_profile_identity(repo, file_store):
 # ── Test 2: Boot produces init.py with secrets reads ──────
 
 
-def test_boot_image_init_reads_identity_from_secrets(tmp_path):
-    """Booting cogent-v1 image creates init.py that reads identity from secrets."""
+def test_boot_image_init_uses_capability_profiles(tmp_path):
+    """Booting cogent-v1 image creates init.py that uses cogent/discord/email profiles."""
     repo_root = Path(__file__).resolve().parents[2]
     image_dir = repo_root / "images" / "cogent-v1"
     assert image_dir.is_dir()
@@ -108,8 +108,9 @@ def test_boot_image_init_reads_identity_from_secrets(tmp_path):
     fs = FileStore(repo)
     init_content = fs.get_content("cogos/init.py")
     assert init_content is not None
-    assert "identity/name" in init_content
-    assert "discord/handle" in init_content
+    assert "cogent.profile()" in init_content
+    assert "discord.profile()" in init_content
+    assert "email.profile()" in init_content
 
 
 # ── Test 3: Handler has filtering instructions ────────────

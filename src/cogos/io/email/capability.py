@@ -85,6 +85,22 @@ class EmailCapability(Capability):
 
     ALL_OPS = {"send", "receive"}
 
+    def __init__(self, repo, process_id, **kwargs):
+        super().__init__(repo, process_id)
+        cogent_name = os.environ.get("COGENT_NAME", "")
+        domain = os.environ.get("EMAIL_DOMAIN", "softmax-cogents.com")
+        self._from_address = f"{cogent_name}@{domain}" if cogent_name else ""
+
+    def addresses(self) -> str:
+        """The cogent's email address."""
+        return self._from_address
+
+    def profile(self) -> str:
+        """Return email identity as markdown for prompt injection."""
+        if self._from_address:
+            return f"- **Email:** {self._from_address}\n"
+        return ""
+
     def _narrow(self, existing: dict, requested: dict) -> dict:
         result: dict = {}
 

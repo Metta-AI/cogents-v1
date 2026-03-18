@@ -96,6 +96,40 @@ class DiscordCapability(Capability):
 
     ALL_OPS = {"send", "react", "create_thread", "dm", "receive", "list_channels", "list_guilds", "history"}
 
+    def __init__(self, repo, process_id, **kwargs):
+        super().__init__(repo, process_id)
+        cogent_name = os.environ.get("COGENT_NAME", "")
+        # Read discord identity from secrets
+        self._bot_user_id = ""
+        self._bot_handle = ""
+        try:
+            from cogos.capabilities._secrets_helper import fetch_secret
+            self._bot_user_id = fetch_secret(f"cogent/{cogent_name}/discord/user_id")
+        except Exception:
+            pass
+        try:
+            from cogos.capabilities._secrets_helper import fetch_secret
+            self._bot_handle = fetch_secret(f"cogent/{cogent_name}/discord/handle")
+        except Exception:
+            pass
+
+    def handle(self) -> str:
+        """The bot's Discord handle (e.g. 'dr.alpha')."""
+        return self._bot_handle
+
+    def user_id(self) -> str:
+        """The bot's Discord user ID (numeric string)."""
+        return self._bot_user_id
+
+    def profile(self) -> str:
+        """Return Discord identity as markdown for prompt injection."""
+        lines = []
+        if self._bot_handle:
+            lines.append(f"- **Discord Handle:** {self._bot_handle}")
+        if self._bot_user_id:
+            lines.append(f"- **Discord User ID:** {self._bot_user_id}")
+        return "\n".join(lines) + "\n" if lines else ""
+
     def _narrow(self, existing: dict, requested: dict) -> dict:
         result: dict = {}
 
