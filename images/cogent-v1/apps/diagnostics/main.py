@@ -41,7 +41,7 @@ def diag_files():
 
     def test_edit():
         data.get("_diag/edit.txt").write("the quick brown fox")
-        data.get("_diag/edit.txt").edit("brown", "red")
+        data.get("_diag/edit.txt").edit(old="brown", new="red")
         r = data.get("_diag/edit.txt").read()
         if "red fox" not in r.content:
             raise Exception("got " + repr(r.content))
@@ -112,19 +112,19 @@ def diag_me():
     checks = []
 
     def test_scratch():
-        me.scratch("_diag_test.txt").write("scratch data")
-        r = me.scratch("_diag_test.txt").read()
-        if hasattr(r, "error"):
-            raise Exception(str(r.error))
-        if r.content != "scratch data":
-            raise Exception("got " + repr(r.content))
+        me.scratch().write("scratch data")
+        r = me.scratch().read()
+        if r is None:
+            raise Exception("scratch read returned None")
+        if r != "scratch data":
+            raise Exception("got " + repr(r))
     checks.append(check("scratch", test_scratch))
 
     def test_tmp():
-        me.tmp("_diag_test.txt").write("tmp data")
-        r = me.tmp("_diag_test.txt").read()
-        if hasattr(r, "error"):
-            raise Exception(str(r.error))
+        me.tmp().write("tmp data")
+        r = me.tmp().read()
+        if r is None:
+            raise Exception("tmp read returned None")
     checks.append(check("tmp", test_tmp))
 
     return checks
