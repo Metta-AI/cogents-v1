@@ -111,11 +111,14 @@ else:
         print("WARN: supervisor spawn failed: " + str(r.error))
 
 # ── Cog processes (from boot manifest) ───────────────────────
+# Only top-level cog processes are spawned here. Child processes
+# (e.g. discord/handler) are the responsibility of their parent cog.
 
 for proc_spec in manifest:
     _spawn_from_spec(proc_spec)
-    for child_spec in proc_spec.get("children", []):
-        _spawn_from_spec(child_spec)
+
+# Kick cog orchestrators so they can set up child processes.
+channels.send("discord-cog:review", {"reason": "boot"})
 
 # ── Coglets ──────────────────────────────────────────────────
 

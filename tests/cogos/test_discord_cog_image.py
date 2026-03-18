@@ -43,10 +43,28 @@ class TestDiscordCogImage:
         assert 'procs.spawn("scheduler"' not in init_py
 
     def test_init_spawns_cog_processes_from_manifest(self):
-        """Init reads _boot/cog_processes.json and spawns all cog processes."""
+        """Init reads _boot/cog_processes.json and spawns top-level cog processes."""
         init_py = Path("images/cogent-v1/cogos/init.py").read_text()
         assert "_boot/cog_processes.json" in init_py
         assert "_spawn_from_spec" in init_py
+
+    def test_init_kicks_discord_review_after_boot(self):
+        """Init sends discord-cog:review so discord can spawn its handler."""
+        init_py = Path("images/cogent-v1/cogos/init.py").read_text()
+        assert 'channels.send("discord-cog:review"' in init_py
+
+    def test_discord_orchestrator_spawns_handler_if_missing(self):
+        """Discord orchestrator should spawn handler when it doesn't exist."""
+        discord_py = Path("images/cogent-v1/apps/discord/discord.py").read_text()
+        assert 'procs.spawn("discord/handler"' in discord_py
+
+    def test_discord_orchestrator_has_web_capability(self):
+        """Discord orchestrator needs web to delegate to handler."""
+        spec = load_image(Path("images/cogent-v1"))
+        discord_cog = next(c for c in spec.cogs if c["name"] == "discord")
+        caps = discord_cog["default_coglet"]["capabilities"]
+        cap_names = [c if isinstance(c, str) else c["name"] for c in caps]
+        assert "web" in cap_names
 
     def test_discord_handler_prompt_uses_web_url_helper(self):
         prompt = Path("images/cogent-v1/apps/discord/handler/main.md").read_text()
