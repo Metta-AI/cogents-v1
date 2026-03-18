@@ -94,6 +94,7 @@ def _spawn_cog(manifest):
 # ── Channels (created at boot so handlers can subscribe) ──────
 for ch_name in [
     "io:discord:dm", "io:discord:mention", "io:discord:message",
+    "io:discord:api:request", "io:discord:api:response",
     "discord-cog:review",
     "system:tick:minute", "system:tick:hour",
     "supervisor:help",

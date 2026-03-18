@@ -53,6 +53,21 @@ mentions = discord.receive(channel_name="io:discord:mention")
 
 Returns `list[DiscordMessage]` — content, author, author_id, channel_id, message_id, is_dm, is_mention, thread_id.
 
+## history(channel_id, limit?, before?, after?)
+
+```python
+# Fetch recent channel history from the Discord API
+messages = discord.history("123456789", limit=50)
+for m in messages:
+    print(f"{m['author']}: {m['content']}")
+
+# Paginate with before/after message IDs
+older = discord.history("123456789", limit=50, before="last_message_id")
+```
+
+Returns `list[dict]` — content, author, author_id, channel_id, message_id, timestamp, is_dm, is_mention, attachments, thread_id.
+Results ordered oldest-first. Fetches from the Discord API via the bridge (may take a few seconds).
+
 ## Scoping
 
 ```python

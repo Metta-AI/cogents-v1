@@ -80,17 +80,40 @@ elif not is_dm and not is_mention:
         wl.write(json.dumps(waterline))
         print("SKIP: channel message not addressed to me")
     else:
-        # Mentions us — proceed
+        # Mentions us — proceed. Backfill from Discord API if log empty.
         log_handle = data.get(f"{conv_key}/recent.log")
         log_data = log_handle.read()
-        history = log_data.content if not hasattr(log_data, 'error') else ""
+        if hasattr(log_data, 'error') or not log_data.content.strip():
+            history_msgs = discord.history(channel_id=channel_id, limit=50)
+            if isinstance(history_msgs, list) and history_msgs:
+                lines = []
+                for msg in history_msgs:
+                    lines.append(msg.get("author", "?") + ": " + msg.get("content", ""))
+                history = "\n".join(lines)
+                log_handle.write(history)
+            else:
+                history = ""
+        else:
+            history = log_data.content
         print(f"HISTORY:\n{history}")
         print(f"\nNEW: {author}: {content}")
 else:
-    # DM or @mention — always respond
+    # DM or @mention — always respond. Backfill from Discord API if log empty.
     log_handle = data.get(f"{conv_key}/recent.log")
     log_data = log_handle.read()
-    history = log_data.content if not hasattr(log_data, 'error') else ""
+    if hasattr(log_data, 'error') or not log_data.content.strip():
+        # No local log — backfill from Discord API
+        history_msgs = discord.history(channel_id=channel_id, limit=50)
+        if isinstance(history_msgs, list) and history_msgs:
+            lines = []
+            for msg in history_msgs:
+                lines.append(msg.get("author", "?") + ": " + msg.get("content", ""))
+            history = "\n".join(lines)
+            log_handle.write(history)
+        else:
+            history = ""
+    else:
+        history = log_data.content
     print(f"HISTORY:\n{history}")
     print(f"\nNEW: {author}: {content}")
 ```

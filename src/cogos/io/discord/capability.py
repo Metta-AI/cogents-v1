@@ -92,7 +92,7 @@ class DiscordCapability(Capability):
         messages = discord.receive(limit=10)
     """
 
-    ALL_OPS = {"send", "react", "create_thread", "dm", "receive", "list_channels", "list_guilds"}
+    ALL_OPS = {"send", "react", "create_thread", "dm", "receive", "list_channels", "list_guilds", "history"}
 
     def _narrow(self, existing: dict, requested: dict) -> dict:
         result: dict = {}
@@ -295,8 +295,75 @@ class DiscordCapability(Capability):
             channels = [ch for ch in channels if ch.channel_id in allowed]
         return channels
 
+    def history(
+        self,
+        channel_id: str,
+        limit: int = 50,
+        before: str | None = None,
+        after: str | None = None,
+        *,
+        _timeout: float = 15.0,
+        _poll_interval: float = 0.5,
+    ) -> list[dict] | DiscordError:
+        """Fetch message history for a Discord channel.
+
+        Sends a request to the Discord API bridge and polls for the response.
+
+        Args:
+            channel_id: The Discord channel ID to fetch history from.
+            limit: Maximum number of messages to return (default 50).
+            before: Fetch messages before this message ID.
+            after: Fetch messages after this message ID.
+            _timeout: How long to wait for a response (seconds).
+            _poll_interval: How often to poll for a response (seconds).
+
+        Returns:
+            A list of message dicts on success, or a DiscordError on failure/timeout.
+        """
+        self._check("history", channel=channel_id)
+
+        request_id = str(uuid4())
+
+        # Write request to the API request channel
+        req_channel = self.repo.get_channel_by_name("io:discord:api:request")
+        if req_channel is None:
+            return DiscordError(error="Discord API request channel not found")
+
+        from cogos.db.models import ChannelMessage
+
+        self.repo.append_channel_message(
+            ChannelMessage(
+                channel=req_channel.id,
+                sender_process=self.process_id,
+                payload={
+                    "request_id": request_id,
+                    "method": "history",
+                    "channel_id": channel_id,
+                    "limit": limit,
+                    "before": before,
+                    "after": after,
+                },
+            )
+        )
+
+        # Poll the response channel for a matching response
+        resp_channel = self.repo.get_channel_by_name("io:discord:api:response")
+        if resp_channel is None:
+            return DiscordError(error="Discord API response channel not found")
+
+        deadline = time.time() + _timeout
+        while time.time() < deadline:
+            for msg in self.repo.list_channel_messages(resp_channel.id, limit=20):
+                if msg.payload.get("request_id") == request_id:
+                    if "error" in msg.payload:
+                        return DiscordError(error=msg.payload["error"])
+                    return msg.payload.get("messages", [])
+            time.sleep(_poll_interval)
+
+        return DiscordError(error="Timeout waiting for history response")
+
     def __repr__(self) -> str:
-        return "<DiscordCapability send() react() create_thread() dm() receive() list_channels() list_guilds()>"
+        return "<DiscordCapability send() react() create_thread() dm() receive() list_channels() list_guilds() history()>"
 
 
 def _message_from_event(e) -> DiscordMessage:
