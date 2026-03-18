@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -62,6 +63,22 @@ class Repository:
         self._secret_arn = secret_arn
         self._database = database
         self._region = region
+        self._ingress_queue_url = os.environ.get("COGOS_INGRESS_QUEUE_URL", "")
+
+    def _nudge_ingress(self) -> None:
+        """Send a message to the ingress SQS queue to trigger immediate dispatch."""
+        if not self._ingress_queue_url:
+            return
+        try:
+            sqs = boto3.client("sqs", region_name=self._region)
+            sqs.send_message(
+                QueueUrl=self._ingress_queue_url,
+                MessageBody='{"source": "channel_message"}',
+                MessageGroupId="ingress-wake",
+                MessageDeduplicationId=str(int(time.time())),
+            )
+        except Exception:
+            logger.debug("Failed to nudge ingress queue", exc_info=True)
 
     @classmethod
     def create(
@@ -1479,6 +1496,7 @@ class Repository:
                 proc = self.get_process(handler.process)
                 if proc and proc.status == ProcessStatus.WAITING:
                     self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
+                    self._nudge_ingress()
 
         return msg_id
 
