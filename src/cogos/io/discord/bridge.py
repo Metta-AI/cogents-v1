@@ -156,29 +156,6 @@ class DiscordBridge:
             )
         return token
 
-    def _update_profile_identity(self):
-        """Write cogent name and Discord bot user ID to whoami/profile.md."""
-        bot_user = self.client.user
-        if not bot_user:
-            return
-        try:
-            from cogos.files.store import FileStore
-            repo = self._get_repo()
-            store = FileStore(repo)
-            discord_user_id = str(bot_user.id)
-            discord_username = str(bot_user)
-            profile = (
-                "# Profile\n"
-                "\n"
-                f"- **Name:** {self.cogent_name}\n"
-                f"- **Discord User ID:** {discord_user_id}\n"
-                f"- **Discord Username:** {discord_username}\n"
-            )
-            store.upsert("whoami/profile.md", profile, source="system")
-            logger.info("Updated whoami/profile.md: name=%s discord_user_id=%s", self.cogent_name, discord_user_id)
-        except Exception:
-            logger.exception("Failed to update profile identity")
-
     MAX_ATTACHMENT_SIZE = 25 * 1024 * 1024  # 25MB
 
     async def _upload_attachment_to_s3(self, attachment) -> dict | None:
@@ -256,7 +233,6 @@ class DiscordBridge:
         @self.client.event
         async def on_ready():
             logger.info("Discord bridge connected as %s", self.client.user)
-            self._update_profile_identity()
             for guild in self.client.guilds:
                 await self._sync_guild(guild)
             self.client.loop.create_task(self._poll_replies())

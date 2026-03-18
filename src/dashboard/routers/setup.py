@@ -623,7 +623,7 @@ def _build_profile_setup(name: str) -> ChannelSetup:
     except Exception as exc:
         logger.warning("Profile check failed for %s: %s", name, exc)
 
-    has_name = profile_exists and "(set on boot)" not in profile_content and "(set via dashboard)" not in profile_content
+    has_name = profile_exists and "(set " not in profile_content
 
     if has_name:
         edit_step = SetupStep(

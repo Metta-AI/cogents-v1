@@ -103,17 +103,23 @@ for ch_name in [
 ]:
     channels.create(ch_name)
 
-# ── Write cogent profile (editable via dashboard) ────────────
-_boot_date = stdlib.time.strftime("%Y-%m-%d")
-_profile = file.read("whoami/profile.md")
-if hasattr(_profile, 'error'):
-    file.write("whoami/profile.md",
-        "# Profile\n"
-        "\n"
-        "- **Name:** (set on boot)\n"
-        "- **Discord User ID:** (set on boot)\n"
-        "- **Discord Username:** (set on boot)\n"
-    )
+# ── Write cogent profile from secrets ─────────────────────────
+_cogent_name = ""
+_discord_handle = ""
+_name_secret = secrets.get("cogent/{cogent}/identity/name")
+if hasattr(_name_secret, 'value') and _name_secret.value:
+    _cogent_name = str(_name_secret.value)
+_discord_secret = secrets.get("cogent/{cogent}/discord/handle")
+if hasattr(_discord_secret, 'value') and _discord_secret.value:
+    _discord_handle = str(_discord_secret.value)
+
+file.write("whoami/profile.md",
+    "# Profile\n"
+    "\n"
+    "- **Name:** " + (_cogent_name if _cogent_name else "(set in secrets: cogent/{cogent}/identity/name)") + "\n"
+    "- **Discord User ID:** " + (_discord_handle if _discord_handle else "(set in secrets: cogent/{cogent}/discord/handle)") + "\n"
+)
+print("Profile: name=" + _cogent_name + " discord=" + _discord_handle)
 
 # ── Read cog manifests ────────────────────────────────────────
 manifest_data = file.read("_boot/cog_manifests.json")
