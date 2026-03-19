@@ -36,12 +36,16 @@ from cogos.db.models import (
     ProcessCapability,
     ProcessMode,
     ProcessStatus,
+    RequestTrace,
     Resource,
     ResourceType,
     ResourceUsage,
     Run,
     RunStatus,
     Schema,
+    Span,
+    SpanEvent,
+    SpanStatus,
     Trace,
 )
 from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
@@ -189,6 +193,7 @@ class Repository:
 
     # Deletion order respects FK constraints: children before parents.
     _ALL_TABLES = [
+        "cogos_span_event", "cogos_span", "cogos_request_trace",
         "cogos_trace", "cogos_delivery", "cogos_channel_message",
         "cogos_run", "cogos_handler", "cogos_process_capability",
         "alerts", "cron",
@@ -198,6 +203,7 @@ class Repository:
     ]
 
     _CONFIG_TABLES = [
+        "cogos_span_event", "cogos_span", "cogos_request_trace",
         "cogos_trace", "cogos_delivery", "cogos_channel_message",
         "cogos_run", "cogos_handler", "cogos_process_capability",
         "cron",
@@ -1526,6 +1532,152 @@ class Repository:
             trace.created_at = self._ts(row, "created_at")
             return UUID(row["id"])
         return trace.id
+
+    # ═══════════════════════════════════════════════════════════
+    # REQUEST TRACES & SPANS
+    # ═══════════════════════════════════════════════════════════
+
+    def create_request_trace(self, trace: RequestTrace) -> UUID:
+        response = self._execute(
+            """INSERT INTO cogos_request_trace (id, cogent_id, source, source_ref)
+               VALUES (:id, :cogent_id, :source, :source_ref)
+               RETURNING id, created_at""",
+            [
+                self._param("id", trace.id),
+                self._param("cogent_id", trace.cogent_id),
+                self._param("source", trace.source),
+                self._param("source_ref", trace.source_ref),
+            ],
+        )
+        row = self._first_row(response)
+        if row:
+            trace.created_at = self._ts(row, "created_at")
+            return UUID(row["id"])
+        raise RuntimeError("Failed to create request trace")
+
+    def get_request_trace(self, trace_id: UUID) -> RequestTrace | None:
+        response = self._execute(
+            "SELECT * FROM cogos_request_trace WHERE id = :id",
+            [self._param("id", trace_id)],
+        )
+        row = self._first_row(response)
+        if not row:
+            return None
+        return RequestTrace(
+            id=UUID(row["id"]),
+            cogent_id=row.get("cogent_id", ""),
+            source=row.get("source", ""),
+            source_ref=row.get("source_ref"),
+            created_at=self._ts(row, "created_at"),
+        )
+
+    def create_span(self, span: Span) -> UUID:
+        response = self._execute(
+            """INSERT INTO cogos_span
+                   (id, trace_id, parent_span_id, name, coglet, status, metadata)
+               VALUES (:id, :trace_id, :parent_span_id, :name, :coglet, :status, :metadata::jsonb)
+               RETURNING id, started_at""",
+            [
+                self._param("id", span.id),
+                self._param("trace_id", span.trace_id),
+                self._param("parent_span_id", span.parent_span_id),
+                self._param("name", span.name),
+                self._param("coglet", span.coglet),
+                self._param("status", span.status.value),
+                self._param("metadata", span.metadata),
+            ],
+        )
+        row = self._first_row(response)
+        if row:
+            span.started_at = self._ts(row, "started_at")
+            return UUID(row["id"])
+        raise RuntimeError("Failed to create span")
+
+    def complete_span(self, span_id: UUID, *, status: str = "completed", metadata: dict | None = None) -> bool:
+        if metadata:
+            response = self._execute(
+                """UPDATE cogos_span SET status = :status, ended_at = now(),
+                       metadata = metadata || :metadata::jsonb
+                   WHERE id = :id""",
+                [
+                    self._param("id", span_id),
+                    self._param("status", status),
+                    self._param("metadata", metadata),
+                ],
+            )
+        else:
+            response = self._execute(
+                "UPDATE cogos_span SET status = :status, ended_at = now() WHERE id = :id",
+                [self._param("id", span_id), self._param("status", status)],
+            )
+        return response.get("numberOfRecordsUpdated", 0) == 1
+
+    def list_spans(self, trace_id: UUID) -> list[Span]:
+        response = self._execute(
+            "SELECT * FROM cogos_span WHERE trace_id = :trace_id ORDER BY started_at",
+            [self._param("trace_id", trace_id)],
+        )
+        return [self._span_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def create_span_event(self, event: SpanEvent) -> UUID:
+        response = self._execute(
+            """INSERT INTO cogos_span_event (id, span_id, event, message, metadata)
+               VALUES (:id, :span_id, :event, :message, :metadata::jsonb)
+               RETURNING id, timestamp""",
+            [
+                self._param("id", event.id),
+                self._param("span_id", event.span_id),
+                self._param("event", event.event),
+                self._param("message", event.message),
+                self._param("metadata", event.metadata),
+            ],
+        )
+        row = self._first_row(response)
+        if row:
+            event.timestamp = self._ts(row, "timestamp")
+            return UUID(row["id"])
+        raise RuntimeError("Failed to create span event")
+
+    def list_span_events(self, span_id: UUID) -> list[SpanEvent]:
+        response = self._execute(
+            "SELECT * FROM cogos_span_event WHERE span_id = :span_id ORDER BY timestamp",
+            [self._param("span_id", span_id)],
+        )
+        return [self._span_event_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def list_span_events_for_trace(self, trace_id: UUID) -> list[SpanEvent]:
+        response = self._execute(
+            """SELECT e.* FROM cogos_span_event e
+               JOIN cogos_span s ON s.id = e.span_id
+               WHERE s.trace_id = :trace_id
+               ORDER BY e.timestamp""",
+            [self._param("trace_id", trace_id)],
+        )
+        return [self._span_event_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def _span_from_row(self, row: dict) -> Span:
+        from cogos.db.models.span import SpanStatus
+        return Span(
+            id=UUID(row["id"]),
+            trace_id=UUID(row["trace_id"]),
+            parent_span_id=UUID(row["parent_span_id"]) if row.get("parent_span_id") else None,
+            name=row["name"],
+            coglet=row.get("coglet"),
+            status=SpanStatus(row["status"]),
+            started_at=self._ts(row, "started_at"),
+            ended_at=self._ts(row, "ended_at"),
+            metadata=self._json_field(row, "metadata", {}),
+        )
+
+    def _span_event_from_row(self, row: dict) -> SpanEvent:
+        return SpanEvent(
+            id=UUID(row["id"]),
+            span_id=UUID(row["span_id"]),
+            event=row["event"],
+            message=row.get("message"),
+            timestamp=self._ts(row, "timestamp"),
+            metadata=self._json_field(row, "metadata", {}),
+        )
 
     # ═══════════════════════════════════════════════════════════
     # META (key-value)
