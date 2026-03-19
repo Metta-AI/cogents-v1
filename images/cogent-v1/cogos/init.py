@@ -3,18 +3,49 @@
 # Uses raw manifest dicts since the sandbox cannot import Python modules.
 
 # ── Capability lookup for dynamic spawning ────────────────────
-# All capabilities are optional — only add those injected into init's sandbox.
-_cap_objects = {}
-for _name in [
-    "me", "procs", "dir", "file", "discord", "channels", "secrets",
-    "stdlib", "alerts", "blob", "image", "asana", "email", "github",
-    "web_search", "web_fetch", "web", "cogent", "cog_registry",
-    "coglet_runtime", "history",
-]:
-    try:
-        _cap_objects[_name] = eval(_name)
-    except NameError:
-        pass
+_cap_objects = {
+    "me": me, "procs": procs, "dir": dir, "file": file,
+    "channels": channels, "secrets": secrets,
+    "stdlib": stdlib, "blob": blob, "image": image,
+    "web_search": web_search, "web_fetch": web_fetch, "web": web,
+}
+# Capabilities that may not be injected into init's sandbox
+try:
+    _cap_objects["discord"] = discord
+except NameError:
+    pass
+try:
+    _cap_objects["alerts"] = alerts
+except NameError:
+    pass
+try:
+    _cap_objects["asana"] = asana
+except NameError:
+    pass
+try:
+    _cap_objects["email"] = email
+except NameError:
+    pass
+try:
+    _cap_objects["github"] = github
+except NameError:
+    pass
+try:
+    _cap_objects["cogent"] = cogent
+except NameError:
+    pass
+try:
+    _cap_objects["cog_registry"] = cog_registry
+except NameError:
+    pass
+try:
+    _cap_objects["coglet_runtime"] = coglet_runtime
+except NameError:
+    pass
+try:
+    _cap_objects["history"] = history
+except NameError:
+    pass
 
 def _build_caps(cap_list, cog_name):
     """Build capabilities dict from a CogConfig capabilities list.
@@ -106,11 +137,16 @@ for ch_name in [
 
 # ── Write cogent profile from capabilities ────────────────────
 _profile_lines = ["# Profile\n"]
-_profile_lines.append(cogent.profile())
-_profile_lines.append(discord.profile())
-_profile_lines.append(email.profile())
+for _pname in ["cogent", "discord", "email"]:
+    _pcap = _cap_objects.get(_pname)
+    if _pcap is not None and hasattr(_pcap, "profile"):
+        _profile_lines.append(_pcap.profile())
 file.write("whoami/profile.md", "\n".join(_profile_lines))
-print("Profile: name=" + cogent.name)
+_cogent_cap = _cap_objects.get("cogent")
+if _cogent_cap is not None and hasattr(_cogent_cap, "name"):
+    print("Profile: name=" + _cogent_cap.name)
+else:
+    print("Profile: written (no cogent capability)")
 
 # ── Read cog manifests ────────────────────────────────────────
 manifest_data = file.read("_boot/cog_manifests.json")
