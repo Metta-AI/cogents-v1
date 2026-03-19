@@ -108,9 +108,8 @@ def test_boot_image_init_uses_capability_profiles(tmp_path):
     fs = FileStore(repo)
     init_content = fs.get_content("cogos/init.py")
     assert init_content is not None
-    assert "cogent.profile()" in init_content
-    assert "discord.profile()" in init_content
-    assert "email.profile()" in init_content
+    assert ".profile()" in init_content
+    assert "whoami/profile.md" in init_content
 
 
 # ── Test 3: Handler has filtering instructions ────────────

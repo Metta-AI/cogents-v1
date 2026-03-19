@@ -97,7 +97,7 @@ class DiscordCapability(Capability):
     ALL_OPS = {"send", "react", "create_thread", "dm", "receive", "list_channels", "list_guilds", "history"}
 
     def __init__(self, repo, process_id, **kwargs):
-        super().__init__(repo, process_id)
+        super().__init__(repo, process_id, **kwargs)
         cogent_name = os.environ.get("COGENT_NAME", "")
         # Read discord identity from secrets
         self._bot_user_id = ""

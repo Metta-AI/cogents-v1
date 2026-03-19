@@ -70,7 +70,7 @@ class TestGuildSync:
         bridge._get_repo = MagicMock(return_value=repo)
 
         ch = _make_text_channel(channel_id=201, name="deleted")
-        bridge._on_channel_delete(ch)
+        await bridge._on_channel_delete(ch)
 
         repo.delete_discord_channel.assert_called_once_with("201")
 

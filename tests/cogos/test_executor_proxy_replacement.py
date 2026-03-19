@@ -12,6 +12,11 @@ from cogos.io.discord.capability import DiscordCapability
 from cogos.sandbox.executor import VariableTable
 
 
+def _unwrap(obj):
+    """Unwrap TracingProxy to get the underlying capability."""
+    return getattr(obj, '_target', obj)
+
+
 def _make_process():
     return Process(
         id=uuid4(),
@@ -67,14 +72,14 @@ class TestBoundCapabilities:
         pc = _make_pc(cap)
         vt = VariableTable()
         _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]))
-        assert isinstance(vt.get("files"), FilesCapability)
+        assert isinstance(_unwrap(vt.get("files")), FilesCapability)
 
     def test_procs_from_binding(self):
         cap = _make_cap_model("procs", "cogos.capabilities.procs.ProcsCapability")
         pc = _make_pc(cap)
         vt = VariableTable()
         _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]))
-        assert isinstance(vt.get("procs"), ProcsCapability)
+        assert isinstance(_unwrap(vt.get("procs")), ProcsCapability)
 
     def test_channels_from_binding(self):
         from cogos.capabilities.channels import ChannelsCapability
@@ -82,7 +87,7 @@ class TestBoundCapabilities:
         pc = _make_pc(cap)
         vt = VariableTable()
         _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]))
-        assert isinstance(vt.get("channels"), ChannelsCapability)
+        assert isinstance(_unwrap(vt.get("channels")), ChannelsCapability)
 
     def test_me_from_binding(self):
         cap = _make_cap_model("me", "cogos.capabilities.me.MeCapability")
@@ -91,7 +96,7 @@ class TestBoundCapabilities:
         vt = VariableTable()
         _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]), run_id=run_id)
         me = vt.get("me")
-        assert isinstance(me, MeCapability)
+        assert isinstance(_unwrap(me), MeCapability)
         assert me.run_id == run_id
 
     def test_discord_from_binding_receives_run_id(self):
@@ -101,7 +106,7 @@ class TestBoundCapabilities:
         vt = VariableTable()
         _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]), run_id=run_id)
         discord = vt.get("discord")
-        assert isinstance(discord, DiscordCapability)
+        assert isinstance(_unwrap(discord), DiscordCapability)
         assert discord.run_id == run_id
 
     def test_scoped_capability_from_config(self):
@@ -112,5 +117,5 @@ class TestBoundCapabilities:
         _setup_capability_proxies(vt, _make_process(), _make_repo([cap], [pc]))
 
         workspace = vt.get("workspace")
-        assert isinstance(workspace, FilesCapability)
+        assert isinstance(_unwrap(workspace), FilesCapability)
         assert workspace._scope == {"prefix": "/workspace/", "ops": ["list", "read"]}

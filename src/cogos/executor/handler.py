@@ -1215,10 +1215,11 @@ def _setup_capability_proxies(vt: VariableTable, process: Process, repo: Reposit
                 vt.set(ns, handler_cls)
                 continue
             init_params = inspect.signature(handler_cls.__init__).parameters
+            has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in init_params.values())
             kwargs = {}
-            if "run_id" in init_params:
+            if "run_id" in init_params or has_var_keyword:
                 kwargs["run_id"] = run_id
-            if "trace_id" in init_params:
+            if "trace_id" in init_params or has_var_keyword:
                 kwargs["trace_id"] = trace_id
             instance = handler_cls(repo, process.id, **kwargs)
             # Apply scope from config if present

@@ -58,7 +58,7 @@ class TestScoping:
 
 
 class TestGetUser:
-    @patch("cogos.capabilities.github_cap.fetch_secret", return_value="ghp_test")
+    @patch("cogos.capabilities.github_cap.fetch_secret", return_value='{"type":"token","token":"ghp_test"}')
     def test_get_user_success(self, mock_secret, repo, pid):
         cap = GitHubCapability(repo, pid)
         mock_user = MagicMock()
@@ -89,7 +89,7 @@ class TestGetUser:
 
 
 class TestSearchRepos:
-    @patch("cogos.capabilities.github_cap.fetch_secret", return_value="ghp_test")
+    @patch("cogos.capabilities.github_cap.fetch_secret", return_value='{"type":"token","token":"ghp_test"}')
     def test_search_repos_success(self, mock_secret, repo, pid):
         cap = GitHubCapability(repo, pid)
         mock_repo = MagicMock()
@@ -111,7 +111,7 @@ class TestSearchRepos:
 
 
 class TestGetRepo:
-    @patch("cogos.capabilities.github_cap.fetch_secret", return_value="ghp_test")
+    @patch("cogos.capabilities.github_cap.fetch_secret", return_value='{"type":"token","token":"ghp_test"}')
     def test_get_repo_success(self, mock_secret, repo, pid):
         cap = GitHubCapability(repo, pid)
         mock_repo = MagicMock()
@@ -139,7 +139,7 @@ class TestGetRepo:
 
 
 class TestListOrgRepos:
-    @patch("cogos.capabilities.github_cap.fetch_secret", return_value="ghp_test")
+    @patch("cogos.capabilities.github_cap.fetch_secret", return_value='{"type":"token","token":"ghp_test"}')
     def test_list_org_repos_success(self, mock_secret, repo, pid):
         cap = GitHubCapability(repo, pid)
         mock_repo = MagicMock()
@@ -162,7 +162,7 @@ class TestListOrgRepos:
             assert results[0].full_name == "metta-ai/metta"
             mock_org.get_repos.assert_called_once_with(sort="pushed", direction="desc")
 
-    @patch("cogos.capabilities.github_cap.fetch_secret", return_value="ghp_test")
+    @patch("cogos.capabilities.github_cap.fetch_secret", return_value='{"type":"token","token":"ghp_test"}')
     def test_list_org_repos_error(self, mock_secret, repo, pid):
         cap = GitHubCapability(repo, pid)
         with patch("cogos.capabilities.github_cap.Github") as MockGithub:
@@ -180,7 +180,7 @@ class TestListOrgRepos:
 
 
 class TestListContributions:
-    @patch("cogos.capabilities.github_cap.fetch_secret", return_value="ghp_test")
+    @patch("cogos.capabilities.github_cap.fetch_secret", return_value='{"type":"token","token":"ghp_test"}')
     def test_list_contributions_success(self, mock_secret, repo, pid):
         cap = GitHubCapability(repo, pid)
         mock_event = MagicMock()
