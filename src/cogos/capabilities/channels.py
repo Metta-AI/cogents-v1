@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from cogos.capabilities.base import Capability
 from cogos.channels.schema_validator import SchemaValidationError, SchemaValidator
 from cogos.db.models import Channel, ChannelMessage, ChannelType, Handler, Schema
+from cogos.trace import current_trace
 
 logger = logging.getLogger(__name__)
 
@@ -176,10 +177,13 @@ class ChannelsCapability(Capability):
             except SchemaValidationError as e:
                 return ChannelError(error=f"Schema validation failed: {e}")
 
+        ctx = current_trace()
         msg = ChannelMessage(
             channel=ch.id,
             sender_process=self.process_id,
             payload=payload,
+            trace_id=ctx.trace_id if ctx else None,
+            trace_meta=ctx.serialize() if ctx else None,
         )
         msg_id = self.repo.append_channel_message(msg)
         return SendResult(id=str(msg_id), channel=name)
