@@ -83,7 +83,11 @@ def _get_session(profile: str | None = None) -> boto3.Session:
 
 
 def _ensure_db_env(name: str, profile: str | None = None) -> None:
-    """Ensure DB_CLUSTER_ARN and DB_SECRET_ARN are set from the shared polis Aurora cluster."""
+    """Ensure DB_CLUSTER_ARN, DB_SECRET_ARN, and DB_NAME are set from the shared polis Aurora cluster."""
+    safe_name = name.replace(".", "-")
+    db_name = f"cogent_{safe_name.replace('-', '_')}"
+    os.environ["DB_NAME"] = db_name
+
     if os.environ.get("DB_CLUSTER_ARN") and os.environ.get("DB_SECRET_ARN"):
         return
 
@@ -93,17 +97,14 @@ def _ensure_db_env(name: str, profile: str | None = None) -> None:
     session, _ = get_polis_session()
 
     cf = session.client("cloudformation", region_name=DEFAULT_REGION)
-
     resp = cf.describe_stacks(StackName=naming.polis_stack_name())
     outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
 
     if "SharedDbClusterArn" in outputs:
         os.environ["DB_CLUSTER_ARN"] = outputs["SharedDbClusterArn"]
+        os.environ["DB_RESOURCE_ARN"] = outputs["SharedDbClusterArn"]
     if "SharedDbSecretArn" in outputs:
         os.environ["DB_SECRET_ARN"] = outputs["SharedDbSecretArn"]
-
-    safe_name = name.replace(".", "-").replace("-", "_")
-    os.environ.setdefault("DB_NAME", f"cogent_{safe_name}")
 
     creds = session.get_credentials().get_frozen_credentials()
     os.environ["AWS_ACCESS_KEY_ID"] = creds.access_key
@@ -445,7 +446,7 @@ def update_rds(ctx: click.Context, profile: str | None, force: bool):
     repo = Repository.create(
         resource_arn=os.environ.get("DB_CLUSTER_ARN") or os.environ.get("DB_RESOURCE_ARN"),
         secret_arn=os.environ.get("DB_SECRET_ARN"),
-        database=os.environ.get("DB_NAME", "cogent"),
+        database=os.environ.get("DB_NAME"),
         region=os.environ.get("AWS_DEFAULT_REGION", DEFAULT_REGION),
     )
     statements = apply_cogos_sql_migrations(repo)

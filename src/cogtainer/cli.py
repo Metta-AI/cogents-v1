@@ -88,8 +88,13 @@ def status_cmd(ctx: click.Context):
             else:
                 table.add_row(f"Lambda ({suffix})", "[red]error[/red]", err[:60])
 
-    # Aurora Serverless
-    cluster_arn = outputs.get("ClusterArn", "")
+    # Aurora Serverless (shared cluster from polis stack)
+    try:
+        polis_resp = cf.describe_stacks(StackName="cogent-polis")
+        polis_outputs = {o["OutputKey"]: o["OutputValue"] for o in polis_resp["Stacks"][0].get("Outputs", [])}
+        cluster_arn = polis_outputs.get("SharedDbClusterArn", "")
+    except Exception:
+        cluster_arn = ""
     if cluster_arn:
         try:
             cluster_id = cluster_arn.split(":")[-1]
@@ -101,11 +106,12 @@ def status_cmd(ctx: click.Context):
                 style = "green" if db_status == "available" else "yellow"
                 capacity = c.get("ServerlessV2ScalingConfiguration", {})
                 cap_str = f"min={capacity.get('MinCapacity', '?')} max={capacity.get('MaxCapacity', '?')}" if capacity else ""
-                table.add_row("Aurora", f"[{style}]{db_status}[/{style}]", cap_str)
+                db_name = f"cogent_{safe_name.replace('-', '_')}"
+                table.add_row("Aurora", f"[{style}]{db_status}[/{style}]", f"db={db_name} {cap_str}")
         except Exception as e:
             table.add_row("Aurora", "[red]error[/red]", str(e)[:60])
     else:
-        table.add_row("Aurora", "[dim]no output[/dim]", "ClusterArn not in stack outputs")
+        table.add_row("Aurora", "[dim]no output[/dim]", "SharedDbClusterArn not in polis stack outputs")
 
     # ECR — latest image for this cogent
     try:
@@ -270,31 +276,27 @@ def create_cmd(ctx: click.Context, profile: str | None):
         raise click.ClickException("CDK deploy failed")
     click.echo(f"Cogtainer infrastructure for cogent-{name} deployed in polis account.")
 
-    # Re-assume role with full admin to read stack outputs (cogent-polis-admin lacks CF perms)
+    # Read shared DB connection info from the polis stack
+    db_name = f"cogent_{safe_name.replace('-', '_')}"
+    os.environ["DB_NAME"] = db_name
     try:
         admin_session = _get_polis_admin_session(profile)
         admin_creds = admin_session.get_credentials().get_frozen_credentials()
         cf = admin_session.client("cloudformation", region_name="us-east-1")
-        resp = cf.describe_stacks(StackName=f"cogent-{safe_name}-cogtainer")
+        resp = cf.describe_stacks(StackName="cogent-polis")
         outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
-        if "ClusterArn" in outputs:
-            os.environ["DB_CLUSTER_ARN"] = outputs["ClusterArn"]
-        if "SecretArn" in outputs:
-            os.environ["DB_SECRET_ARN"] = outputs["SecretArn"]
-        else:
-            resources = cf.list_stack_resources(StackName=f"cogent-{safe_name}-cogtainer")
-            for r in resources.get("StackResourceSummaries", []):
-                if "Secret" in r["LogicalResourceId"] and "Attachment" not in r["LogicalResourceId"]:
-                    if r["PhysicalResourceId"].startswith("arn:aws:secretsmanager:"):
-                        os.environ["DB_SECRET_ARN"] = r["PhysicalResourceId"]
-                        break
+        if "SharedDbClusterArn" in outputs:
+            os.environ["DB_CLUSTER_ARN"] = outputs["SharedDbClusterArn"]
+            os.environ["DB_RESOURCE_ARN"] = outputs["SharedDbClusterArn"]
+        if "SharedDbSecretArn" in outputs:
+            os.environ["DB_SECRET_ARN"] = outputs["SharedDbSecretArn"]
         # Set AWS credentials so apply_schema() can access RDS Data API in polis account
         os.environ["AWS_ACCESS_KEY_ID"] = admin_creds.access_key
         os.environ["AWS_SECRET_ACCESS_KEY"] = admin_creds.secret_key
         if admin_creds.token:
             os.environ["AWS_SESSION_TOKEN"] = admin_creds.token
     except Exception as e:
-        click.echo(f"Warning: could not read stack outputs: {e}")
+        click.echo(f"Warning: could not read polis stack outputs: {e}")
 
     # Apply database schema
     click.echo("Applying database schema...")
