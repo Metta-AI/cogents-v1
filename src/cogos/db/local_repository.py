@@ -34,6 +34,8 @@ from cogos.db.models import (
     Schema,
 )
 from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
+from cogos.db.models.span import Span, SpanEvent, SpanStatus
+from cogos.db.models.trace import RequestTrace
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,9 @@ class LocalRepository:
         self._meta: dict[str, dict[str, str]] = {}
         self._alerts: dict[UUID, Any] = {}
         self._operations: dict[UUID, CogosOperation] = {}
+        self._request_traces: dict[UUID, RequestTrace] = {}
+        self._spans: dict[UUID, Span] = {}
+        self._span_events: dict[UUID, SpanEvent] = {}
         self._reboot_epoch: int = 0
 
         self._load()
@@ -1335,3 +1340,57 @@ class LocalRepository:
         if not resolved:
             alerts = [a for a in alerts if a.resolved_at is None]
         return sorted(alerts, key=lambda a: a.created_at or datetime.min, reverse=True)[:limit]
+
+    # ── Request Traces & Spans ────────────────────────────────
+
+    def create_request_trace(self, trace: RequestTrace) -> UUID:
+        with self._writing():
+            trace.created_at = datetime.now(UTC)
+            self._request_traces[trace.id] = trace
+            return trace.id
+
+    def get_request_trace(self, trace_id: UUID) -> RequestTrace | None:
+        self._maybe_reload()
+        return self._request_traces.get(trace_id)
+
+    def create_span(self, span: Span) -> UUID:
+        with self._writing():
+            span.started_at = datetime.now(UTC)
+            self._spans[span.id] = span
+            return span.id
+
+    def complete_span(self, span_id: UUID, *, status: str = "completed", metadata: dict | None = None) -> bool:
+        with self._writing():
+            span = self._spans.get(span_id)
+            if span is None:
+                return False
+            span.status = SpanStatus(status)
+            span.ended_at = datetime.now(UTC)
+            if metadata:
+                span.metadata = {**(span.metadata or {}), **metadata}
+            return True
+
+    def list_spans(self, trace_id: UUID) -> list[Span]:
+        self._maybe_reload()
+        spans = [s for s in self._spans.values() if s.trace_id == trace_id]
+        spans.sort(key=lambda s: s.started_at or datetime.min)
+        return spans
+
+    def create_span_event(self, event: SpanEvent) -> UUID:
+        with self._writing():
+            event.timestamp = datetime.now(UTC)
+            self._span_events[event.id] = event
+            return event.id
+
+    def list_span_events(self, span_id: UUID) -> list[SpanEvent]:
+        self._maybe_reload()
+        events = [e for e in self._span_events.values() if e.span_id == span_id]
+        events.sort(key=lambda e: e.timestamp or datetime.min)
+        return events
+
+    def list_span_events_for_trace(self, trace_id: UUID) -> list[SpanEvent]:
+        self._maybe_reload()
+        span_ids = {s.id for s in self._spans.values() if s.trace_id == trace_id}
+        events = [e for e in self._span_events.values() if e.span_id in span_ids]
+        events.sort(key=lambda e: e.timestamp or datetime.min)
+        return events
