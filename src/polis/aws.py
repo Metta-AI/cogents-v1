@@ -8,13 +8,16 @@ import time
 
 import boto3
 
+from polis.config import deploy_config
+
 logger = logging.getLogger(__name__)
 
-POLIS_ACCOUNT_NAME = "cogent-polis"
-POLIS_ACCOUNT_ID = "901289084804"
-DEFAULT_REGION = "us-east-1"
-DEFAULT_ORG_PROFILE = "softmax-org"
+POLIS_ACCOUNT_NAME = deploy_config("account_name", "cogent-polis")
+POLIS_ACCOUNT_ID = deploy_config("account_id", "901289084804")
+DEFAULT_REGION = deploy_config("region", "us-east-1")
+DEFAULT_ORG_PROFILE = deploy_config("org_profile", "softmax-org")
 ORG_PROFILE_ENV = "COGENT_ORG_PROFILE"
+ORG_EMAIL_DOMAIN = deploy_config("org_email_domain", "softmax.com")
 
 # Module-level profile override, set by CLI --profile
 _profile: str | None = None
@@ -72,7 +75,7 @@ def create_polis_account(session: boto3.Session | None = None) -> str:
     session = session or get_org_session()
     org = session.client("organizations")
     tag = os.urandom(3).hex()
-    email = f"cogent-polis+{tag}@softmax.com"
+    email = f"cogent-polis+{tag}@{ORG_EMAIL_DOMAIN}"
 
     resp = org.create_account(Email=email, AccountName=POLIS_ACCOUNT_NAME)
     request_id = resp["CreateAccountStatus"]["Id"]
@@ -88,7 +91,7 @@ def create_polis_account(session: boto3.Session | None = None) -> str:
             reason = status.get("FailureReason", "unknown")
             if reason == "EMAIL_ALREADY_EXISTS":
                 tag = os.urandom(3).hex()
-                email = f"cogent-polis+{tag}@softmax.com"
+                email = f"cogent-polis+{tag}@{ORG_EMAIL_DOMAIN}"
                 resp = org.create_account(Email=email, AccountName=POLIS_ACCOUNT_NAME)
                 request_id = resp["CreateAccountStatus"]["Id"]
                 continue

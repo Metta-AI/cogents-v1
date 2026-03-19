@@ -2,7 +2,30 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
+import yaml
 from pydantic import BaseModel, Field
+
+_CONFIG_PATH = Path.home() / ".cogos" / "config.yml"
+_config_cache: dict[str, Any] | None = None
+
+
+def _load_deploy_config() -> dict[str, Any]:
+    global _config_cache
+    if _config_cache is not None:
+        return _config_cache
+    if _CONFIG_PATH.is_file():
+        with open(_CONFIG_PATH) as f:
+            _config_cache = yaml.safe_load(f) or {}
+    else:
+        _config_cache = {}
+    return _config_cache
+
+
+def deploy_config(key: str, default: str) -> str:
+    return str(_load_deploy_config().get(key, default))
 
 
 class CogentMeta(BaseModel):
@@ -75,10 +98,10 @@ def _default_bedrock_quotas() -> list[ServiceQuotaTarget]:
 
 
 class PolisConfig(BaseModel):
-    name: str = "softmax-polis"
-    organization: str = "Softmax"
+    name: str = Field(default_factory=lambda: deploy_config("polis_name", "softmax-polis"))
+    organization: str = Field(default_factory=lambda: deploy_config("organization", "Softmax"))
     owner: str = "daveey"
-    domain: str = "softmax-cogents.com"
+    domain: str = Field(default_factory=lambda: deploy_config("domain", "softmax-cogents.com"))
     cogents: dict[str, CogentMeta] = {}
     bedrock_quotas: list[ServiceQuotaTarget] = Field(default_factory=_default_bedrock_quotas)
 

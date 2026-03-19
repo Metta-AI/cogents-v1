@@ -820,7 +820,7 @@ def _scan_table_items(table_resource) -> list[dict]:
         params["ExclusiveStartKey"] = last_key
 
 
-def _ensure_cloudflare_access(session, domain: str = "softmax-cogents.com") -> None:
+def _ensure_cloudflare_access(session, domain: str) -> None:
     """Ensure Cloudflare Access Application exists for cogent dashboards."""
     from polis.cloudflare import ensure_access
 

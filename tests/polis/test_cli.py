@@ -7,7 +7,11 @@ from click.testing import CliRunner
 from rich.console import Console
 
 import polis.cli as cli_mod
+from polis.aws import DEFAULT_ORG_PROFILE, POLIS_ACCOUNT_ID
 from polis.cli import polis
+from polis.config import PolisConfig
+
+_DEFAULT_DOMAIN = PolisConfig().domain
 
 
 def test_update_ensures_polis_quotas(monkeypatch):
@@ -15,7 +19,7 @@ def test_update_ensures_polis_quotas(monkeypatch):
 
     monkeypatch.setattr("polis.cli.get_org_id", lambda: "o-test")
     monkeypatch.setattr("polis.cli._cdk_deploy", lambda org_id, profile=None: calls.append(("deploy", org_id, profile)))
-    monkeypatch.setattr("polis.cli.get_polis_session", lambda: ("session", "901289084804"))
+    monkeypatch.setattr("polis.cli.get_polis_session", lambda: ("session", POLIS_ACCOUNT_ID))
     monkeypatch.setattr(
         "polis.cli._ensure_polis_quotas",
         lambda session, config, **kwargs: calls.append(("quotas", session, config.domain)),
@@ -30,16 +34,16 @@ def test_update_ensures_polis_quotas(monkeypatch):
 
     assert result.exit_code == 0
     assert calls == [
-        ("deploy", "o-test", "softmax-org"),
-        ("quotas", "session", "softmax-cogents.com"),
-        ("cloudflare", "session", "softmax-cogents.com"),
+        ("deploy", "o-test", DEFAULT_ORG_PROFILE),
+        ("quotas", "session", _DEFAULT_DOMAIN),
+        ("cloudflare", "session", _DEFAULT_DOMAIN),
     ]
 
 
 def test_quotas_ensure_runs_quota_helper(monkeypatch):
     calls: list[tuple] = []
 
-    monkeypatch.setattr("polis.cli.get_polis_session", lambda: ("session", "901289084804"))
+    monkeypatch.setattr("polis.cli.get_polis_session", lambda: ("session", POLIS_ACCOUNT_ID))
     monkeypatch.setattr(
         "polis.cli._ensure_polis_quotas",
         lambda session, config, **kwargs: calls.append(("quotas", session, config.domain, kwargs.get("fail_on_error"))),
@@ -49,7 +53,7 @@ def test_quotas_ensure_runs_quota_helper(monkeypatch):
     result = runner.invoke(polis, ["quotas", "ensure"])
 
     assert result.exit_code == 0
-    assert calls == [("quotas", "session", "softmax-cogents.com", True)]
+    assert calls == [("quotas", "session", _DEFAULT_DOMAIN, True)]
 
 class FakePaginator:
     def __init__(self, pages):
@@ -61,7 +65,7 @@ class FakePaginator:
 
 class FakeEcrClient:
     def describe_repositories(self, repositoryNames):
-        return {"repositories": [{"repositoryUri": "901289084804.dkr.ecr.us-east-1.amazonaws.com/cogent"}]}
+        return {"repositories": [{"repositoryUri": f"{POLIS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/cogent"}]}
 
     def describe_images(self, repositoryName, filter):
         return {"imageDetails": []}
@@ -108,20 +112,20 @@ class FakeStatusTable:
                 {
                     "cogent_name": "dr.gamma",
                     "stack_status": "UPDATE_COMPLETE",
-                    "domain": "dr-gamma.softmax-cogents.com",
+                    "domain": f"dr-gamma.{_DEFAULT_DOMAIN}",
                     "channels": {"github": "ok"},
-                    "dashboard_url": "https://dr-gamma.softmax-cogents.com",
+                    "dashboard_url": f"https://dr-gamma.{_DEFAULT_DOMAIN}",
                     "dashboard": {
                         "status": "ACTIVE",
                         "running_count": 1,
                         "desired_count": 1,
-                        "image": "901289084804.dkr.ecr.us-east-1.amazonaws.com/cogent:dr-gamma-dashboard",
+                        "image": f"{POLIS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/cogent:dr-gamma-dashboard",
                         "cpu_1m": 9,
                         "cpu_10m": 7,
                         "mem_pct": 41,
                     },
                     "executor": {
-                        "image": "901289084804.dkr.ecr.us-east-1.amazonaws.com/cogent:executor-dr-gamma",
+                        "image": f"{POLIS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/cogent:executor-dr-gamma",
                     },
                 }
             ]
@@ -164,7 +168,7 @@ def test_status_renders_stored_snapshot_without_listing_dashboard_services(monke
         Console(file=output, force_terminal=False, color_system=None, width=160),
     )
     monkeypatch.setattr(cli_mod, "get_polis_session", lambda: (fake_session, None))
-    monkeypatch.setattr(cli_mod, "PolisConfig", lambda: SimpleNamespace(domain="softmax-cogents.com"))
+    monkeypatch.setattr(cli_mod, "PolisConfig", lambda: SimpleNamespace(domain=_DEFAULT_DOMAIN))
 
     assert cli_mod.status.callback is not None
     cli_mod.status.callback()

@@ -13,6 +13,7 @@ import click
 
 from cli.local_dev import apply_local_checkout_env, repo_root, resolve_dashboard_ports
 from polis.aws import DEFAULT_ORG_PROFILE, ORG_PROFILE_ENV, resolve_org_profile
+from polis.config import PolisConfig
 
 _COGENT_DIR = Path.home() / ".cogents"
 _REPO_ROOT = repo_root()
@@ -310,7 +311,7 @@ def create_pat(ctx: click.Context, force: bool):
     click.echo(f"  cogent {name} cogtainer update stack")
     click.echo()
     click.echo("Usage:")
-    click.echo(f"  curl -H 'X-Api-Key: {key}' https://{name.replace('.', '-')}.softmax-cogents.com/api/...")
+    click.echo(f"  curl -H 'X-Api-Key: {key}' https://{name.replace('.', '-')}.{PolisConfig().domain}/api/...")
 
 
 @dashboard.command("show-pat")

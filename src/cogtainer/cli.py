@@ -6,7 +6,7 @@ import click
 
 from cli import DefaultCommandGroup, get_cogent_name  # noqa: F401
 from polis.aws import DEFAULT_ORG_PROFILE, ORG_PROFILE_ENV
-
+from polis.config import PolisConfig
 
 _PROFILE_HELP = (
     f"AWS profile for polis account (default: ${ORG_PROFILE_ENV} or {DEFAULT_ORG_PROFILE})"
@@ -202,7 +202,7 @@ def create_cmd(ctx: click.Context, profile: str | None):
     profile = resolve_org_profile(profile)
     set_profile(profile)
     polis_session, _ = get_polis_session()
-    cert_arn = _find_certificate(polis_session, f"{safe_name}.softmax-cogents.com")
+    cert_arn = _find_certificate(polis_session, f"{safe_name}.{PolisConfig().domain}")
 
     ecr_repo_uri = ""
     try:
@@ -334,8 +334,8 @@ def create_cmd(ctx: click.Context, profile: str | None):
             outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
             alb_dns = outputs.get("AlbDns", "")
             if alb_dns:
-                ensure_dns_record(store, safe_name, alb_dns)
-                click.echo(f"  DNS updated: {safe_name}.softmax-cogents.com -> {alb_dns}")
+                ensure_dns_record(store, safe_name, alb_dns, domain=PolisConfig().domain)
+                click.echo(f"  DNS updated: {safe_name}.{PolisConfig().domain} -> {alb_dns}")
             else:
                 click.echo("  No AlbDns output found, skipping DNS update")
         except Exception as e:

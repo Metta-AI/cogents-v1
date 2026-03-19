@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 
 import requests
 
+from polis.config import deploy_config
+
 logger = logging.getLogger(__name__)
+
+_DEFAULT_DOMAIN = deploy_config("domain", "softmax-cogents.com")
 
 
 def _cf_headers() -> dict[str, str]:
@@ -44,7 +47,7 @@ def _kv_namespace_id() -> str:
 
 def create_email_route(
     cogent_name: str,
-    domain: str = "softmax-cogents.com",
+    domain: str = _DEFAULT_DOMAIN,
 ) -> dict:
     """Create a Cloudflare Email Routing rule for a cogent.
 
@@ -89,7 +92,7 @@ def set_kv_route(
 
 def verify_ses_email(
     cogent_name: str,
-    domain: str = "softmax-cogents.com",
+    domain: str = _DEFAULT_DOMAIN,
     region: str = "us-east-1",
 ) -> dict:
     """Verify a cogent's email identity in SES.
@@ -120,7 +123,7 @@ def verify_ses_email(
 
 def provision_email(
     cogent_name: str,
-    domain: str = "softmax-cogents.com",
+    domain: str = _DEFAULT_DOMAIN,
     region: str = "us-east-1",
 ) -> dict:
     """Full provisioning: CF routing rule + KV entry + SES check."""

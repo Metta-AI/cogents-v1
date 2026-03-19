@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from aws_cdk import Duration
 
-POLIS_ACCOUNT = "901289084804"
-POLIS_REGION = "us-east-1"
+from polis.aws import DEFAULT_REGION as POLIS_REGION
+from polis.aws import POLIS_ACCOUNT_ID as POLIS_ACCOUNT
+from polis.config import deploy_config
 
 
 @dataclass
@@ -15,7 +16,7 @@ class CogtainerConfig:
     """Configuration for the Cogtainer CDK stack."""
 
     cogent_name: str
-    domain: str = "softmax-cogents.com"
+    domain: str = field(default_factory=lambda: deploy_config("domain", "softmax-cogents.com"))
     region: str = POLIS_REGION
     account: str = POLIS_ACCOUNT
     db_min_acu: float = 0.5

@@ -6,6 +6,7 @@ import logging
 
 import requests
 
+from polis.aws import ORG_EMAIL_DOMAIN
 from polis.secrets.store import SecretStore
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ def _list_access_policies(account_id: str, app_id: str, api_token: str) -> list[
     return resp.json().get("result", [])
 
 
-def ensure_access(store: SecretStore, domain: str = "softmax-cogents.com") -> dict:
+def ensure_access(store: SecretStore, domain: str) -> dict:
     """Create or update the Cloudflare Access Application for cogent dashboards.
 
     Sets up a wildcard self-hosted app for *.softmax-cogents.com with:
@@ -124,7 +125,7 @@ def _ensure_policies(account_id: str, app_id: str, api_token: str) -> None:
                 "name": "allow-softmax",
                 "decision": "allow",
                 "precedence": 1,
-                "include": [{"email_domain": {"domain": "softmax.com"}}],
+                "include": [{"email_domain": {"domain": ORG_EMAIL_DOMAIN}}],
             },
         )
         resp.raise_for_status()
@@ -165,7 +166,7 @@ def ensure_dns_record(
     store: SecretStore,
     subdomain: str,
     target: str,
-    domain: str = "softmax-cogents.com",
+    domain: str,
 ) -> dict:
     """Create or update a proxied CNAME record for a cogent subdomain.
 
@@ -220,7 +221,7 @@ def ensure_dns_record(
 def delete_dns_record(
     store: SecretStore,
     subdomain: str,
-    domain: str = "softmax-cogents.com",
+    domain: str,
 ) -> bool:
     """Delete a Cloudflare DNS record for a cogent subdomain.
 

@@ -13,9 +13,9 @@ import click
 
 from cli import DefaultCommandGroup, get_cogent_name
 # Discord bridge is now polis-level; per-cogent bridge management removed
-from polis.aws import DEFAULT_ORG_PROFILE, ORG_PROFILE_ENV, resolve_org_profile, set_org_profile
+from polis.aws import DEFAULT_ORG_PROFILE, DEFAULT_REGION, ORG_PROFILE_ENV, resolve_org_profile, set_org_profile
+from polis.config import PolisConfig
 
-DEFAULT_REGION = "us-east-1"
 _PROFILE_HELP = f"AWS profile (default: ${ORG_PROFILE_ENV} or {DEFAULT_ORG_PROFILE})"
 
 
@@ -207,9 +207,10 @@ def _read_boot_versions(name: str) -> dict[str, str] | None:
     """Read versions.json from the cogent's database via FileStore."""
     try:
         _ensure_db_env(name)
+        import json as _json
+
         from cogos.db.repository import Repository
         from cogos.files.store import FileStore
-        import json as _json
         repo = Repository.create()
         fs = FileStore(repo)
         content = fs.get_content("mnt/boot/versions.json")
@@ -725,7 +726,7 @@ def update_dashboard(ctx: click.Context, docker: bool, skip_health: bool, sha: s
     # 4. Signal running container to reload frontend (no ECS restart needed)
     click.echo("  Reloading frontend...")
     t1 = time.monotonic()
-    reload_url = f"https://{safe_name}.softmax-cogents.com/admin/reload-frontend"
+    reload_url = f"https://{safe_name}.{PolisConfig().domain}/admin/reload-frontend"
     try:
         import json
         import urllib.request
@@ -952,7 +953,7 @@ def update_stack(ctx: click.Context, profile: str | None):
     session, _ = get_polis_session()
     acm = session.client("acm", region_name=DEFAULT_REGION)
     cert_arn = ""
-    domain = f"{safe_name}.softmax-cogents.com"
+    domain = f"{safe_name}.{PolisConfig().domain}"
     for cert in acm.list_certificates()["CertificateSummaryList"]:
         if cert["DomainName"] == domain:
             cert_arn = cert["CertificateArn"]
