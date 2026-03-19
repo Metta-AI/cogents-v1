@@ -1,5 +1,44 @@
 # Agent Operations Guide
 
+## Asana Integration
+
+### Project
+
+Tasks live in the **Cogents** project in the Softmax workspace:
+- **Project URL**: https://app.asana.com/0/1213428766379931
+- **Project GID**: `1213428766379931`
+- **Workspace GID**: `1209016784099267`
+
+### Authentication
+
+The Claude Code MCP Asana integration handles auth automatically via the `claude_ai_Asana` MCP server (configured in Claude's connected accounts / secrets). No local API keys or AWS secrets needed — this is separate from the cogent runtime's `asana_cap.py` which uses AWS Secrets Manager.
+
+### Working on tasks
+
+Run `/asana.do-task` to have Claude Code:
+1. Fetch incomplete tasks from the Cogents project
+2. Pick the best one to work on
+3. Comment on the Asana task that work is starting
+4. Implement the changes in this repo
+5. Comment results back on the task
+6. Mark the task complete if done
+7. Commit and push
+
+### Manual Asana operations
+
+The MCP tools are available directly:
+```
+asana_get_tasks          — list tasks in a project
+asana_get_task           — get full task details
+asana_search_tasks       — search by text, assignee, status, etc.
+asana_create_task        — create a new task
+asana_update_task        — update task fields or mark complete
+asana_create_task_story  — add a comment to a task
+asana_get_project_sections — list project sections
+```
+
+All tools are prefixed with `mcp__claude_ai_Asana__` and loaded via ToolSearch.
+
 ## Which cogent to use
 
 Pick your test cogent based on `$USER`:
