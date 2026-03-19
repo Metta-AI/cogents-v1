@@ -524,7 +524,7 @@ def await_cmd(prefix: str, tag: str | None, timeout: int, profile: str | None):
 
     raise click.ClickException(
         f"Timed out waiting for ECR tag '{expected_tag}' after {timeout}s.\n"
-        f"Check CI: gh run list --repo Metta-AI/cogents-v1 --workflow docker-build-{prefix}.yml"
+        f"Check CI: gh run list --repo Metta-AI/cogos --workflow docker-build-{prefix}.yml"
     )
 
 

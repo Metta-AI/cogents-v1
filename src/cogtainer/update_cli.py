@@ -48,7 +48,7 @@ def _check_ecr_image_for_commit(session: boto3.Session, prefix: str = "executor"
             click.style(
                 f"  Warning: No ECR image found for current commit ({sha_short}).\n"
                 f"  Expected tag: {expected_tag}\n"
-                f"  Check CI: gh run list --repo Metta-AI/cogents-v1 --workflow docker-build-{prefix}.yml\n"
+                f"  Check CI: gh run list --repo Metta-AI/cogos --workflow docker-build-{prefix}.yml\n"
                 f"  The deployed code may not match the running container.",
                 fg="yellow",
             )
@@ -248,7 +248,7 @@ def update_lambda(ctx: click.Context, profile: str | None, sha: str | None):
         except Exception:
             raise click.ClickException(
                 f"CI artifact not found: s3://{CI_ARTIFACTS_BUCKET}/{s3_key}\n"
-                f"Check CI: gh run list --repo Metta-AI/cogents-v1 --workflow docker-build-executor.yml"
+                f"Check CI: gh run list --repo Metta-AI/cogos --workflow docker-build-executor.yml"
             )
         finally:
             os.unlink(tmp_path)
@@ -332,7 +332,7 @@ def _update_ecs_image(ecs_client, session, service_arn: str, tag: str) -> str:
         prefix = tag.split("-")[0] if "-" in tag else tag
         raise click.ClickException(
             f"ECR tag '{tag}' not found in cogent repo. "
-            f"Check CI build status: gh run list --repo Metta-AI/cogents-v1 --workflow docker-build-{prefix}.yml"
+            f"Check CI build status: gh run list --repo Metta-AI/cogos --workflow docker-build-{prefix}.yml"
         )
 
     svc_desc = ecs_client.describe_services(cluster="cogent-polis", services=[service_arn])["services"][0]
@@ -773,7 +773,7 @@ def _build_and_upload_frontend(session, safe_name, project_root, sha: str | None
         except Exception:
             raise click.ClickException(
                 f"CI artifact not found: s3://{CI_ARTIFACTS_BUCKET}/{s3_key}\n"
-                f"Check CI: gh run list --repo Metta-AI/cogents-v1 --workflow docker-build-dashboard.yml"
+                f"Check CI: gh run list --repo Metta-AI/cogos --workflow docker-build-dashboard.yml"
             )
     else:
         tarball_path, _size_mb = _build_dashboard_tarball(project_root)

@@ -1,4 +1,4 @@
-# cogents-v1
+# cogos
 
 CogOS runtime, infrastructure, and dashboard code.
 
