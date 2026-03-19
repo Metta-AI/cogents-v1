@@ -88,8 +88,13 @@ def resolve_runtime_status(
             else None
         )
 
+    cogent_name = manifest["cogent_name"]
+    safe_name = cogent_name.replace(".", "-")
+    db_name = f"cogent_{safe_name.replace('-', '_')}"
+
     snapshot: dict[str, Any] = {
-        "cogent_name": manifest["cogent_name"],
+        "cogent_name": cogent_name,
+        "db_name": db_name,
         "stack_name": stack_name,
         "stack_status": stack_status,
         "channels": channels or {},

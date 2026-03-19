@@ -169,6 +169,7 @@ def test_resolve_runtime_status_uses_live_component_images():
     )
 
     assert snapshot["cogent_name"] == "dr.gamma"
+    assert snapshot["db_name"] == "cogent_dr_gamma"
     assert snapshot["status_manifest"] == manifest
     assert snapshot["dashboard"]["image"].endswith(":dr-gamma-dashboard")
     assert snapshot["dashboard"]["running_count"] == 1
