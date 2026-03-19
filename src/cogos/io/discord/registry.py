@@ -60,7 +60,8 @@ def load_cogent_configs(table_name: str = DYNAMO_TABLE) -> list[CogentDiscordCon
         else:
             manifest = manifest_raw
 
-        db_info = manifest.get("database", {})
+        # DB info: check top-level item first, then manifest
+        db_info = item.get("database") or manifest.get("database") or {}
 
         # Read persona config from Secrets Manager
         persona = _read_persona_secret(sm, name)

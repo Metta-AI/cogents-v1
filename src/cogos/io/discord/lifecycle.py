@@ -101,45 +101,51 @@ class LifecycleManager:
                     logger.warning("Failed to delete role %s", rname, exc_info=True)
 
     async def _sync_webhooks(self, guild: discord.Guild, configs: list) -> None:
-        """Ensure webhooks exist per cogent per text channel."""
+        """Index existing cogent webhooks. New webhooks are created on-demand via get_or_create_webhook."""
         for channel in guild.text_channels:
             try:
                 existing_webhooks = await channel.webhooks()
             except discord.Forbidden:
-                logger.debug("No webhook access in #%s", channel.name)
                 continue
             except Exception:
-                logger.debug("Failed to list webhooks in #%s", channel.name, exc_info=True)
                 continue
 
-            existing_by_name: dict[str, discord.Webhook] = {}
             for wh in existing_webhooks:
                 if wh.name and wh.name.startswith("cogent-"):
-                    existing_by_name[wh.name] = wh
-
-            for cfg in configs:
-                wh_name = f"cogent-{cfg.cogent_name}"
-                persona = self._personas.setdefault(cfg.cogent_name, CogentPersona(
-                    cogent_name=cfg.cogent_name,
-                    display_name=cfg.display_name,
-                    avatar_url=cfg.avatar_url,
-                    color=cfg.color,
-                    default_channels=cfg.default_channels,
-                ))
-
-                if wh_name in existing_by_name:
-                    persona.webhooks[channel.id] = existing_by_name[wh_name]
-                else:
-                    if len(existing_webhooks) >= 15:
-                        logger.warning("Webhook limit reached in #%s, skipping %s", channel.name, cfg.cogent_name)
-                        continue
-                    try:
-                        wh = await channel.create_webhook(
-                            name=wh_name,
-                            reason=f"Cogent persona: {cfg.display_name}",
-                        )
+                    cogent_name = wh.name[len("cogent-"):]
+                    persona = self._personas.get(cogent_name)
+                    if persona:
                         persona.webhooks[channel.id] = wh
-                        existing_webhooks.append(wh)
-                        logger.info("Created webhook %s in #%s", wh_name, channel.name)
-                    except Exception:
-                        logger.warning("Failed to create webhook %s in #%s", wh_name, channel.name, exc_info=True)
+
+    async def get_or_create_webhook(self, channel: discord.TextChannel, cogent_name: str) -> discord.Webhook | None:
+        """Get existing webhook or create one on-demand for a cogent in a channel."""
+        persona = self._personas.get(cogent_name)
+        if not persona:
+            return None
+
+        # Check cache first
+        if channel.id in persona.webhooks:
+            return persona.webhooks[channel.id]
+
+        wh_name = f"cogent-{cogent_name}"
+        try:
+            existing = await channel.webhooks()
+            for wh in existing:
+                if wh.name == wh_name:
+                    persona.webhooks[channel.id] = wh
+                    return wh
+
+            if len(existing) >= 15:
+                logger.warning("Webhook limit in #%s, skipping %s", channel.name, cogent_name)
+                return None
+
+            wh = await channel.create_webhook(
+                name=wh_name,
+                reason=f"Cogent persona: {persona.display_name}",
+            )
+            persona.webhooks[channel.id] = wh
+            logger.info("Created webhook %s in #%s", wh_name, channel.name)
+            return wh
+        except Exception:
+            logger.warning("Failed to get/create webhook %s in #%s", wh_name, channel.name, exc_info=True)
+            return None

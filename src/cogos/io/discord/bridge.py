@@ -164,21 +164,25 @@ class DiscordBridge:
     # ------------------------------------------------------------------
 
     def _get_repo(self, cogent_name: str):
-        """Get or create a repository for the given cogent."""
+        """Get or create a repository for the given cogent. Returns None if no DB config."""
         if cogent_name in self._repos:
             return self._repos[cogent_name]
 
         cfg = self._configs.get(cogent_name)
-        if cfg is None:
-            raise RuntimeError(f"No config for cogent {cogent_name}")
+        if cfg is None or not cfg.db_resource_arn:
+            return None
 
         from cogos.db.factory import create_repository
 
-        repo = create_repository(
-            resource_arn=cfg.db_resource_arn,
-            secret_arn=cfg.db_secret_arn,
-            database=cfg.db_name,
-        )
+        try:
+            repo = create_repository(
+                resource_arn=cfg.db_resource_arn,
+                secret_arn=cfg.db_secret_arn,
+                database=cfg.db_name,
+            )
+        except Exception:
+            logger.warning("Failed to create repository for %s", cogent_name, exc_info=True)
+            return None
         self._repos[cogent_name] = repo
         return repo
 
@@ -280,6 +284,8 @@ class DiscordBridge:
 
             def _do_sync(cn=cogent_name, gm=guild_model, chs=channels):
                 repo = self._get_repo(cn)
+                if repo is None:
+                    return
                 repo.upsert_discord_guild(gm)
                 for ch in chs:
                     repo.upsert_discord_channel(ch)
@@ -395,6 +401,9 @@ class DiscordBridge:
         from cogos.db.models import ChannelMessage
 
         repo = self._get_repo(cogent_name)
+        if repo is None:
+            logger.warning("No DB for cogent %s, dropping message", cogent_name)
+            return
 
         # Scoped catch-all channel: io:discord:{cogent_name}:{dm|mention|message}
         type_suffix = message_type.split(":")[1]  # dm, mention, message
@@ -854,11 +863,14 @@ class DiscordBridge:
         webhook = None
 
         if persona:
-            # Get webhook for this channel (or parent channel for threads)
-            target_channel_id = channel.id
+            # Get or create webhook for this channel (or parent channel for threads)
+            target_channel = channel
             if isinstance(channel, discord.Thread):
-                target_channel_id = channel.parent_id
-            webhook = persona.webhooks.get(target_channel_id)
+                target_channel = self.client.get_channel(channel.parent_id)
+                if target_channel is None:
+                    target_channel = await self.client.fetch_channel(channel.parent_id)
+            if target_channel and hasattr(target_channel, 'webhooks'):
+                webhook = await self._lifecycle.get_or_create_webhook(target_channel, cogent_name)
 
         if webhook:
             await self._send_via_webhook(body, channel, webhook, persona)
@@ -1185,6 +1197,8 @@ class DiscordBridge:
                         seen_requests[cogent_name] = set()
 
                     repo = self._get_repo(cogent_name)
+                    if repo is None:
+                        continue
                     request_channel_name = f"io:discord:{cogent_name}:api:request"
                     ch = self._get_or_create_channel(repo, request_channel_name)
                     if ch is None:
