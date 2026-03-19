@@ -1124,15 +1124,23 @@ def _handle_search(tool_input: dict, process: Process, repo: Repository) -> str:
     """Search capabilities available to this process."""
     query = tool_input.get("query", "").lower().strip()
     if not query:
-        return (
-            "Error: query is required. Provide a keyword like 'discord', 'files', "
-            "'channels', 'procs', 'data', 'email', 'web'. "
-            "Your capabilities are already available as top-level objects — "
-            "use help() on them (e.g. discord.help()) or dir() to see their methods."
-        )
-    caps = repo.search_capabilities(query, process_id=process.id)
-    if not caps:
-        caps = repo.search_capabilities(query)
+        # Empty query: list all capabilities bound to this process
+        pcs = repo.list_process_capabilities(process.id)
+        caps = []
+        for pc in pcs:
+            cap = repo.get_capability(pc.capability)
+            if cap and cap.enabled:
+                caps.append(cap)
+        if not caps:
+            return (
+                "No capabilities bound to this process. "
+                "Your capabilities are already available as top-level objects — "
+                "use help() on them (e.g. discord.help()) or dir() to see their methods."
+            )
+    else:
+        caps = repo.search_capabilities(query, process_id=process.id)
+        if not caps:
+            caps = repo.search_capabilities(query)
     limit = min(tool_input.get("limit", 5), 20)
     caps = caps[:limit]
     results = []
