@@ -600,9 +600,11 @@ def cogents_create(ctx: click.Context, name: str):
     console.print("  Registering in status table...")
     ddb = session.resource("dynamodb")
     table_resource = ddb.Table("cogent-status")  # type: ignore[attr-defined]
+    db_name = f"cogent_{safe_name.replace('-', '_')}"
     table_resource.put_item(
         Item={
             "cogent_name": name,
+            "db_name": db_name,
             "stack_name": naming.stack_name(name),
             "stack_status": "REGISTERED",
             "running_count": 0,
