@@ -5,7 +5,7 @@ channel = event.get("channel_name", "")
 payload = event.get("payload", {})
 
 # Source repo identity
-SOURCE_REPO = "metta-ai/cogents-v1"
+SOURCE_REPO = "metta-ai/cogos"
 
 worker_caps = {
     "github": None, "disk": disk,

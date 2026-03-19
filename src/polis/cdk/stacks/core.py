@@ -477,10 +477,7 @@ class PolisStack(cdk.Stack):
                         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                     },
                     "StringLike": {
-                        "token.actions.githubusercontent.com:sub": [
-                            "repo:Metta-AI/cogents-v1:*",
-                            "repo:Metta-AI/cogos:*",
-                        ],
+                        "token.actions.githubusercontent.com:sub": "repo:Metta-AI/cogos:*",
                     },
                 },
             ),
