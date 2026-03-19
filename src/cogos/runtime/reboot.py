@@ -41,7 +41,7 @@ def reboot(repo) -> dict:
     # 5. Create fresh init process in the new epoch
     init_proc = Process(
         name="init",
-        mode=ProcessMode.ONE_SHOT,
+        mode=ProcessMode.DAEMON,
         content=INIT_PROCESS_CONTENT,
         executor="python",
         priority=200.0,
