@@ -292,9 +292,10 @@ def handler(event: dict, context: Any = None) -> dict:
         _notify_parent_on_exit(repo, process, run, exit_code=0, duration_ms=duration_ms)
 
         # Transition process state — respect out-of-band status changes
+        # Re-fetch to get current mode and status (mode may have changed during execution)
         current = repo.get_process(process.id)
         if current and current.status not in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
-            if process.mode.value == "daemon":
+            if current.mode.value == "daemon":
                 next_status = (
                     ProcessStatus.RUNNABLE
                     if repo.has_pending_deliveries(process.id)
@@ -384,10 +385,11 @@ def handler(event: dict, context: Any = None) -> dict:
         )
 
         # Retry logic — respect out-of-band status changes
+        # Re-fetch to get current mode and status (mode may have changed during execution)
         current = repo.get_process(process.id)
         if current and current.status in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
             pass  # someone disabled/suspended it while running
-        elif process.mode.value == "daemon":
+        elif current and current.mode.value == "daemon":
             # Circuit breaker: suspend daemon after consecutive failures
             if _daemon_should_suspend(repo, process):
                 repo.update_process_status(process.id, ProcessStatus.SUSPENDED)
