@@ -32,58 +32,103 @@ def image_file_prefixes(image_dir: Path) -> list[str]:
 _EXCLUDED_FILES = {"cog.py"}
 
 
+_image_cache: dict[str, ImageSpec] = {}
+
+
 def load_image(image_dir: Path) -> ImageSpec:
     """Load an image from a directory by exec'ing init/*.py and walking files/."""
+    cache_key = str(image_dir.resolve())
+    if cache_key in _image_cache:
+        return _image_cache[cache_key]
+
     spec = ImageSpec()
 
-    def add_capability(name, *, handler, description="", instructions="",
-                       schema=None, iam_role_arn=None, metadata=None):
-        spec.capabilities.append({
-            "name": name, "handler": handler, "description": description,
-            "instructions": instructions, "schema": schema,
-            "iam_role_arn": iam_role_arn,
-            "metadata": metadata,
-        })
+    def add_capability(
+        name, *, handler, description="", instructions="", schema=None, iam_role_arn=None, metadata=None
+    ):
+        spec.capabilities.append(
+            {
+                "name": name,
+                "handler": handler,
+                "description": description,
+                "instructions": instructions,
+                "schema": schema,
+                "iam_role_arn": iam_role_arn,
+                "metadata": metadata,
+            }
+        )
 
     def add_resource(name, *, type, capacity, metadata=None):
-        spec.resources.append({
-            "name": name, "resource_type": type, "capacity": capacity,
-            "metadata": metadata or {},
-        })
+        spec.resources.append(
+            {
+                "name": name,
+                "resource_type": type,
+                "capacity": capacity,
+                "metadata": metadata or {},
+            }
+        )
 
-    def add_process(name, *, mode="one_shot", content="",
-                    runner="lambda", executor="llm", model=None, priority=0.0,
-                    capabilities=None, handlers=None,
-                    metadata=None, idle_timeout_ms=None):
-        spec.processes.append({
-            "name": name, "mode": mode, "content": content,
-            "runner": runner, "executor": executor, "model": model,
-            "priority": priority, "capabilities": capabilities or [],
-            "handlers": handlers or [],
-            "metadata": metadata or {},
-            "idle_timeout_ms": idle_timeout_ms,
-        })
+    def add_process(
+        name,
+        *,
+        mode="one_shot",
+        content="",
+        runner="lambda",
+        executor="llm",
+        model=None,
+        priority=0.0,
+        capabilities=None,
+        handlers=None,
+        metadata=None,
+        idle_timeout_ms=None,
+    ):
+        spec.processes.append(
+            {
+                "name": name,
+                "mode": mode,
+                "content": content,
+                "runner": runner,
+                "executor": executor,
+                "model": model,
+                "priority": priority,
+                "capabilities": capabilities or [],
+                "handlers": handlers or [],
+                "metadata": metadata or {},
+                "idle_timeout_ms": idle_timeout_ms,
+            }
+        )
 
     def add_cron(expression, *, channel_name=None, event_type=None, payload=None, enabled=True):
         target_channel = channel_name or event_type
         if not target_channel:
             raise TypeError("add_cron() requires channel_name")
-        spec.cron_rules.append({
-            "expression": expression,
-            "channel_name": target_channel,
-            "payload": payload or {}, "enabled": enabled,
-        })
+        spec.cron_rules.append(
+            {
+                "expression": expression,
+                "channel_name": target_channel,
+                "payload": payload or {},
+                "enabled": enabled,
+            }
+        )
 
     def add_schema(name, *, definition, file_key=None):
-        spec.schemas.append({
-            "name": name, "definition": definition, "file_key": file_key,
-        })
+        spec.schemas.append(
+            {
+                "name": name,
+                "definition": definition,
+                "file_key": file_key,
+            }
+        )
 
     def add_channel(name, *, schema=None, channel_type="named", auto_close=False):
-        spec.channels.append({
-            "name": name, "schema": schema, "channel_type": channel_type,
-            "auto_close": auto_close,
-        })
+        spec.channels.append(
+            {
+                "name": name,
+                "schema": schema,
+                "channel_type": channel_type,
+                "auto_close": auto_close,
+            }
+        )
 
     def add_file(key, *, content=""):
         spec.files[key] = content
@@ -134,10 +179,12 @@ def load_image(image_dir: Path) -> ImageSpec:
             # App files — everything under the app dir except init/, __pycache__/, and cog.py
             for f in sorted(app_dir.rglob("*")):
                 rel_parts = f.relative_to(app_dir).parts
-                if (f.is_file()
+                if (
+                    f.is_file()
                     and "init" not in rel_parts
                     and "__pycache__" not in rel_parts
-                    and f.name not in _EXCLUDED_FILES):
+                    and f.name not in _EXCLUDED_FILES
+                ):
                     key = "mnt/boot/" + str(f.relative_to(apps_dir))
                     spec.files[key] = f.read_text()
 
@@ -166,6 +213,7 @@ def load_image(image_dir: Path) -> ImageSpec:
     repo_files = _load_repo_files(image_dir)
     spec.files.update(repo_files)
 
+    _image_cache[cache_key] = spec
     return spec
 
 
@@ -174,7 +222,9 @@ def _load_repo_files(image_dir: Path) -> dict[str, str]:
     try:
         result = subprocess.run(
             ["git", "-C", str(image_dir), "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         repo_root = Path(result.stdout.strip())
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -183,7 +233,9 @@ def _load_repo_files(image_dir: Path) -> dict[str, str]:
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root), "ls-files"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         tracked = result.stdout.strip().split("\n")
     except (subprocess.CalledProcessError, FileNotFoundError):
