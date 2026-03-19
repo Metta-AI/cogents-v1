@@ -16,12 +16,23 @@ import { AlertsPanel } from "@/components/alerts/AlertsPanel";
 import { CronPanel } from "@/components/cron/CronPanel";
 import { SetupPanel } from "@/components/setup/SetupPanel";
 import { DiagnosticsPanel } from "@/components/diagnostics/DiagnosticsPanel";
+import { TraceViewerPanel } from "@/components/trace-viewer/TraceViewerPanel";
 
 function getTabFromHash(): TabId {
   if (typeof window === "undefined") return "overview";
   const hash = window.location.hash.replace("#", "");
   if (hash === "events") return "trace";
+  if (hash.startsWith("trace-viewer:") || hash === "trace-viewer") return "trace-viewer" as TabId;
   return VALID_TABS.has(hash as TabId) ? (hash as TabId) : "overview";
+}
+
+function getTraceIdFromHash(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const hash = window.location.hash.replace("#", "");
+  if (hash.startsWith("trace-viewer:")) {
+    return hash.slice("trace-viewer:".length);
+  }
+  return undefined;
 }
 
 function useCogentName(): string | null {
@@ -34,14 +45,19 @@ function useCogentName(): string | null {
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<TabId>(getTabFromHash);
+  const [initialTraceId, setInitialTraceId] = useState<string | undefined>(getTraceIdFromHash);
 
   const handleTabChange = useCallback((tab: TabId) => {
     setActiveTab(tab);
+    setInitialTraceId(undefined);
     window.location.hash = tab === "overview" ? "" : tab;
   }, []);
 
   useEffect(() => {
-    const onPopState = () => setActiveTab(getTabFromHash());
+    const onPopState = () => {
+      setActiveTab(getTabFromHash());
+      setInitialTraceId(getTraceIdFromHash());
+    };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
@@ -52,10 +68,10 @@ export default function DashboardPage() {
     return <div className="h-screen overflow-hidden" />;
   }
 
-  return <Dashboard cogentName={cogentName} activeTab={activeTab} onTabChange={handleTabChange} />;
+  return <Dashboard cogentName={cogentName} activeTab={activeTab} onTabChange={handleTabChange} initialTraceId={initialTraceId} />;
 }
 
-function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string; activeTab: TabId; onTabChange: (tab: TabId) => void }) {
+function Dashboard({ cogentName, activeTab, onTabChange, initialTraceId }: { cogentName: string; activeTab: TabId; onTabChange: (tab: TabId) => void; initialTraceId?: string }) {
   const { data, loading, error, refresh, timeRange, setTimeRange, connected, showHistory, setShowHistory } = useCogentData(cogentName);
 
   const STUCK_THRESHOLD_MS = 10 * 60 * 1000;
@@ -137,6 +153,9 @@ function Dashboard({ cogentName, activeTab, onTabChange }: { cogentName: string;
         )}
         {activeTab === "trace" && (
           <TracePanel traces={data.traces} cogentName={cogentName} timeRange={timeRange} onRefresh={refresh} />
+        )}
+        {activeTab === "trace-viewer" && (
+          <TraceViewerPanel cogentName={cogentName} initialTraceId={initialTraceId} />
         )}
         {activeTab === "cron" && (
           <CronPanel crons={data.crons} cogentName={cogentName} onRefresh={refresh} />

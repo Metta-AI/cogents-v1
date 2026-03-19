@@ -535,6 +535,45 @@ export async function deleteAlert(name: string, id: string): Promise<void> {
   });
 }
 
+// ── Trace Viewer ────────────────────────────────────────────────────────────
+
+export async function getTraceViewer(cogentName: string, traceId: string) {
+  return fetchJSON<{
+    id: string;
+    cogent_id: string;
+    source: string;
+    source_ref: string | null;
+    created_at: string | null;
+    spans: {
+      id: string;
+      trace_id: string;
+      parent_span_id: string | null;
+      name: string;
+      coglet: string | null;
+      status: string;
+      started_at: string | null;
+      ended_at: string | null;
+      duration_ms: number | null;
+      metadata: Record<string, any>;
+      events: {
+        id: string;
+        event: string;
+        message: string | null;
+        timestamp: string | null;
+        metadata: Record<string, any>;
+      }[];
+    }[];
+    summary: {
+      total_duration_ms: number | null;
+      total_spans: number;
+      error_count: number;
+      total_tokens_in: number;
+      total_tokens_out: number;
+      total_cost_usd: number;
+    };
+  }>(`/api/cogents/${cogentName}/trace-viewer/${traceId}`);
+}
+
 // ── Diagnostics ─────────────────────────────────────────────────────────────
 
 export interface DiagnosticCheck {
