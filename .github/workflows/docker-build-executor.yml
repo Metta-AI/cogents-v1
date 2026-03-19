@@ -32,13 +32,44 @@ jobs:
           aws_role: ${{ vars.AWS_ROLE }}
           tag_prefix: executor
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Package Lambda zip
+        run: |
+          DEPS_DIR=$(mktemp -d)
+          uv pip install --target "$DEPS_DIR" --quiet --python 3.12 --python-platform linux \
+            pydantic pydantic-settings pydantic-core annotated-types \
+            Pillow google-genai anthropic asana
+
+          cd src
+          zip -qr /tmp/lambda.zip . -x '*/__pycache__/*' '*.pyc' '*.egg-info/*'
+          cd "$DEPS_DIR"
+          zip -qr /tmp/lambda.zip . -x '*/__pycache__/*' '*.pyc'
+
+          echo "SIZE=$(du -h /tmp/lambda.zip | cut -f1)" >> "$GITHUB_ENV"
+
+      - name: Upload Lambda zip to S3
+        uses: ./.github/actions/s3-upload
+        with:
+          aws_role: ${{ vars.AWS_ROLE }}
+          source_path: /tmp/lambda.zip
+          s3_key: lambda/${{ github.sha }}/lambda.zip
+
       - name: Summary
         run: |
-          echo "### Executor Image Built" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Executor Built" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Tags:**" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Docker Tags:**" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "${{ steps.build.outputs.image_uri }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Lambda Zip:** \`s3://cogent-polis-ci-artifacts/lambda/${{ github.sha }}/lambda.zip\` (${{ env.SIZE }})" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Deploy:** \`cogent <name> cogtainer update ecs --tag executor-${{ steps.build.outputs.short_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
