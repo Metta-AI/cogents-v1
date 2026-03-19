@@ -245,7 +245,7 @@ class TestWorkerMakeCogletEmoji:
         )
         (worker_dir / "main.md").write_text("# Worker\nDo the task.\n")
         (worker_dir / "make_coglet.py").write_text(
-            (Path(__file__).resolve().parents[3] / "images" / "cogent-v1" / "cogos" / "worker" / "make_coglet.py").read_text()
+            (Path(__file__).resolve().parents[3] / "images" / "cogos" / "cogos" / "worker" / "make_coglet.py").read_text()
         )
 
         cog = Cog(worker_dir)
@@ -264,7 +264,7 @@ class TestWorkerMakeCogletEmoji:
         )
         (worker_dir / "main.md").write_text("# Worker\nDo the task.\n")
         (worker_dir / "make_coglet.py").write_text(
-            (Path(__file__).resolve().parents[3] / "images" / "cogent-v1" / "cogos" / "worker" / "make_coglet.py").read_text()
+            (Path(__file__).resolve().parents[3] / "images" / "cogos" / "cogos" / "worker" / "make_coglet.py").read_text()
         )
 
         cog = Cog(worker_dir)

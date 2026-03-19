@@ -28,11 +28,11 @@ def _preprocess_argv() -> None:
 @click.group()
 @click.pass_context
 def main(ctx: click.Context):
-    """Cogent CLI.
+    """CogOS CLI.
 
     \b
-    Usage: cogent <name> <command> [options]
-    Example: cogent my-cogent cogtainer create
+    Usage: cogos <name> <command> [options]
+    Example: cogos my-cogent cogtainer create
     """
     ctx.ensure_object(dict)
     if "COGENT_ID" in os.environ:

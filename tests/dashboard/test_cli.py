@@ -92,7 +92,7 @@ def test_serve_db_local_sets_use_local_db(tmp_path, monkeypatch):
         procs.append(proc)
         return proc
 
-    monkeypatch.delenv("COGENT_LOCAL_DATA", raising=False)
+    monkeypatch.delenv("COGOS_LOCAL_DATA", raising=False)
     monkeypatch.setattr("cli.dashboard._REPO_ROOT", tmp_path)
     monkeypatch.setattr("cli.dashboard._FRONTEND_DIR", tmp_path / "missing")
     monkeypatch.setattr("cli.dashboard.subprocess.Popen", fake_popen)
@@ -107,7 +107,7 @@ def test_serve_db_local_sets_use_local_db(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert len(procs) == 1
     assert procs[0].env["USE_LOCAL_DB"] == "1"
-    assert procs[0].env["COGENT_LOCAL_DATA"] == str(default_local_data_dir(repo_root=tmp_path))
+    assert procs[0].env["COGOS_LOCAL_DATA"] == str(default_local_data_dir(repo_root=tmp_path))
 
 
 def test_serve_db_prod_passes_profile(tmp_path, monkeypatch):

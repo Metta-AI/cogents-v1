@@ -13,7 +13,7 @@ Operational UI for each cogent. Runs as a single Docker container serving both t
 ## Deployment
 
 ```bash
-cogent <name> dashboard deploy    # Delegates to: polis dashboard deploy <name>
+cogos <name> dashboard deploy    # Delegates to: polis dashboard deploy <name>
 ```
 
 This runs `polis dashboard deploy` which:
@@ -26,7 +26,7 @@ This runs `polis dashboard deploy` which:
 
 ```bash
 polis cogents create <name>       # Register identity (domain, cert, secrets)
-cogent <name> dashboard deploy    # Deploy the dashboard
+cogos <name> dashboard deploy    # Deploy the dashboard
 ```
 
 ## Docker Image
@@ -44,8 +44,8 @@ The container serves everything on one port:
 ## Local Development
 
 ```bash
-cogent local dashboard serve --db local   # Backend (8100) + Next.js dev server (5200 by default)
-cogent <name> dashboard serve --db prod  # Live DB via polis
+cogos local dashboard serve --db local   # Backend (8100) + Next.js dev server (5200 by default)
+cogos <name> dashboard serve --db prod  # Live DB via polis
 ```
 
 In dev mode, Next.js proxies `/api/*` to the backend via `rewrites` in `next.config.ts`.
@@ -81,4 +81,4 @@ src/polis/cli.py                        # polis dashboard deploy/destroy
 
 The dashboard **requires** RDS Data API credentials (`DB_CLUSTER_ARN`, `DB_SECRET_ARN`, `DB_NAME`). If these are missing, the app will fail to start rather than silently returning empty data.
 
-For local development without AWS access, set `USE_LOCAL_DB=1` to use the LocalRepository which persists to `.local/cogos/cogos_data.json` under the checkout. Populate it with `cogent local cogos image boot cogent-v1 --clean`.
+For local development without AWS access, set `USE_LOCAL_DB=1` to use the LocalRepository which persists to `.local/cogos/cogos_data.json` under the checkout. Populate it with `cogos local cogos image boot cogos --clean`.

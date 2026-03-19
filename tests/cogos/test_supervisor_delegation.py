@@ -29,7 +29,7 @@ DELEGATABLE_CAPS = [
 
 def _boot_cogent_v1(tmp_path):
     repo_root = Path(__file__).resolve().parents[2]
-    image_dir = repo_root / "images" / "cogent-v1"
+    image_dir = repo_root / "images" / "cogos"
     repo = LocalRepository(str(tmp_path / "db"))
     spec = load_image(image_dir)
     apply_image(spec, repo)

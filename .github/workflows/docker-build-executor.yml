@@ -72,7 +72,7 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Lambda Zip:** \`s3://cogent-polis-ci-artifacts/lambda/${{ github.sha }}/lambda.zip\` (${{ env.SIZE }})" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Deploy:** \`cogent <name> cogtainer update ecs --tag executor-${{ steps.build.outputs.short_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Deploy:** \`cogos <name> cogtainer update ecs --tag executor-${{ steps.build.outputs.short_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Update versions defaults (executor)
         uses: ./.github/actions/update-versions

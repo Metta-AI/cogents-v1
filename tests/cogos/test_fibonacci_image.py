@@ -6,12 +6,12 @@ from cogos.image.spec import load_image
 
 
 def test_cogent_v1_fibonacci_loads():
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
     assert "mnt/boot/fibonacci/fibonacci.md" in spec.files
 
 
 def test_cogent_v1_fibonacci_files_and_prompt():
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
     fibonacci_files = {k for k in spec.files if k.startswith("mnt/boot/fibonacci/")}
 
     assert "mnt/boot/fibonacci/fibonacci.md" in fibonacci_files
@@ -23,6 +23,6 @@ def test_cogent_v1_fibonacci_files_and_prompt():
 
 
 def test_cogent_v1_fibonacci_no_init():
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
     channel_names = {c["name"] for c in spec.channels}
     assert "fibonacci:poke" not in channel_names

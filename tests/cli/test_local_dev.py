@@ -36,9 +36,9 @@ def test_resolve_dashboard_ports_prefers_process_env_over_repo_env(tmp_path):
 
 
 def test_apply_local_checkout_env_sets_defaults_without_overwriting_data_dir(tmp_path):
-    env = {"COGENT_LOCAL_DATA": "/tmp/custom-local-data"}
+    env = {"COGOS_LOCAL_DATA": "/tmp/custom-local-data"}
 
     apply_local_checkout_env(env, repo_root=tmp_path)
 
     assert env["USE_LOCAL_DB"] == "1"
-    assert env["COGENT_LOCAL_DATA"] == "/tmp/custom-local-data"
+    assert env["COGOS_LOCAL_DATA"] == "/tmp/custom-local-data"

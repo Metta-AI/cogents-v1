@@ -19,11 +19,12 @@ from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
 from cogtainer.cdk.config import CogtainerConfig
+from polis import naming
 
 
 def _build_lambda_package() -> str:
     """Build Lambda package with deps into a temp directory. Returns path."""
-    build_dir = os.path.join(tempfile.gettempdir(), "cogent-lambda-build")
+    build_dir = os.path.join(tempfile.gettempdir(), f"{naming.RESOURCE_PREFIX}-lambda-build")
     if os.path.exists(build_dir):
         shutil.rmtree(build_dir)
     os.makedirs(build_dir)
@@ -83,7 +84,7 @@ class ComputeConstruct(Construct):
         self.ingress_queue = sqs.Queue(
             self,
             "CogosIngressQueue",
-            queue_name=f"cogent-{safe_name}-cogos-ingress.fifo",
+            queue_name=f"{naming.queue_name(safe_name, 'cogos-ingress')}.fifo",
             fifo=True,
             content_based_deduplication=False,
             visibility_timeout=Duration.seconds(60),
@@ -97,11 +98,11 @@ class ComputeConstruct(Construct):
             "DB_CLUSTER_ARN": db_cluster_arn,
             "DB_RESOURCE_ARN": db_cluster_arn,
             "DB_SECRET_ARN": db_secret_arn,
-            "DB_NAME": "cogent",
+            "DB_NAME": naming.db_name(),
             "EVENT_BUS_NAME": event_bus_name,
             "SESSIONS_BUCKET": sessions_bucket.bucket_name,
             "COGOS_INGRESS_QUEUE_URL": self.ingress_queue.queue_url,
-            "EXECUTOR_FUNCTION_NAME": f"cogent-{safe_name}-executor",
+            "EXECUTOR_FUNCTION_NAME": naming.lambda_name(safe_name, "executor"),
         }
 
         # Shared policy statements for Data API access
@@ -134,7 +135,7 @@ class ComputeConstruct(Construct):
         orchestrator_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["lambda:InvokeFunction"],
-                resources=[f"arn:aws:lambda:*:*:function:cogent-{safe_name}-executor"],
+                resources=[f"arn:aws:lambda:*:*:function:{naming.lambda_name(safe_name, 'executor')}"],
             )
         )
         orchestrator_role.add_to_policy(
@@ -186,7 +187,7 @@ class ComputeConstruct(Construct):
         self.orchestrator = lambda_.Function(
             self,
             "Orchestrator",
-            function_name=f"cogent-{safe_name}-orchestrator",
+            function_name=naming.lambda_name(safe_name, "orchestrator"),
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="cogtainer.lambdas.orchestrator.handler.handler",
             code=lambda_code,
@@ -195,7 +196,7 @@ class ComputeConstruct(Construct):
             role=orchestrator_role,  # type: ignore[arg-type]
             environment={
                 **env,
-                "EXECUTOR_FUNCTION_NAME": f"cogent-{safe_name}-executor",
+                "EXECUTOR_FUNCTION_NAME": naming.lambda_name(safe_name, "executor"),
             },
         )
 
@@ -211,7 +212,7 @@ class ComputeConstruct(Construct):
         sandbox_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["sts:AssumeRole"],
-                resources=[f"arn:aws:iam::*:role/cogent-{safe_name}-tool-*"],
+                resources=[f"arn:aws:iam::*:role/{naming.iam_role_name(f'{safe_name}-tool')}-*"],
             )
         )
 
@@ -219,7 +220,7 @@ class ComputeConstruct(Construct):
         self.sandbox = lambda_.Function(
             self,
             "Sandbox",
-            function_name=f"cogent-{safe_name}-sandbox",
+            function_name=naming.lambda_name(safe_name, "sandbox"),
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="cogtainer.lambdas.sandbox.handler.handler",
             code=lambda_code,
@@ -241,7 +242,7 @@ class ComputeConstruct(Construct):
         self.executor = lambda_.Function(
             self,
             "Executor",
-            function_name=f"cogent-{safe_name}-executor",
+            function_name=naming.lambda_name(safe_name, "executor"),
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="cogtainer.lambdas.executor.handler.handler",
             code=lambda_code,
@@ -250,7 +251,7 @@ class ComputeConstruct(Construct):
             role=executor_role,  # type: ignore[arg-type]
             environment={
                 **env,
-                "SANDBOX_FUNCTION_NAME": f"cogent-{safe_name}-sandbox",
+                "SANDBOX_FUNCTION_NAME": naming.lambda_name(safe_name, "sandbox"),
                 "LLM_PROVIDER": config.llm_provider,
             },
         )
@@ -268,7 +269,7 @@ class ComputeConstruct(Construct):
         dispatcher_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["lambda:InvokeFunction"],
-                resources=[f"arn:aws:lambda:*:*:function:cogent-{safe_name}-executor"],
+                resources=[f"arn:aws:lambda:*:*:function:{naming.lambda_name(safe_name, 'executor')}"],
             )
         )
         self.ingress_queue.grant_send_messages(dispatcher_role)
@@ -276,7 +277,7 @@ class ComputeConstruct(Construct):
         self.dispatcher = lambda_.Function(
             self,
             "Dispatcher",
-            function_name=f"cogent-{safe_name}-dispatcher",
+            function_name=naming.lambda_name(safe_name, "dispatcher"),
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="cogtainer.lambdas.dispatcher.handler.handler",
             code=lambda_code,
@@ -297,14 +298,14 @@ class ComputeConstruct(Construct):
         ingress_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["lambda:InvokeFunction"],
-                resources=[f"arn:aws:lambda:*:*:function:cogent-{safe_name}-executor"],
+                resources=[f"arn:aws:lambda:*:*:function:{naming.lambda_name(safe_name, 'executor')}"],
             )
         )
 
         self.ingress = lambda_.Function(
             self,
             "Ingress",
-            function_name=f"cogent-{safe_name}-ingress",
+            function_name=naming.lambda_name(safe_name, "ingress"),
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="cogtainer.lambdas.ingress.handler.handler",
             code=lambda_code,
@@ -364,7 +365,7 @@ class ComputeConstruct(Construct):
         task_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["sts:AssumeRole"],
-                resources=[f"arn:aws:iam::*:role/cogent-{safe_name}-tool-*"],
+                resources=[f"arn:aws:iam::*:role/{naming.iam_role_name(f'{safe_name}-tool')}-*"],
             )
         )
 
@@ -385,7 +386,7 @@ class ComputeConstruct(Construct):
         self.task_definition = ecs.FargateTaskDefinition(
             self,
             "ExecutorTask",
-            family=f"cogent-{safe_name}-executor",
+            family=naming.ecs_family(safe_name, "executor"),
             cpu=config.ecs_cpu,
             memory_limit_mib=config.ecs_memory,
             task_role=task_role,  # type: ignore[arg-type]
@@ -417,7 +418,7 @@ class ComputeConstruct(Construct):
         self.executor_task_log_group = logs.LogGroup(
             self,
             "ExecutorTaskExecutorLogGroup",
-            log_group_name=f"/ecs/cogent-{safe_name}-executor",
+            log_group_name=naming.log_group_name(safe_name, "executor"),
             removal_policy=RemovalPolicy.RETAIN,
         )
 
@@ -440,7 +441,7 @@ class ComputeConstruct(Construct):
             self,
             "EcsTaskSG",
             vpc=vpc,
-            description=f"cogent-{safe_name} ECS executor tasks",
+            description=f"{naming.event_bus_name(safe_name)} ECS executor tasks",
             allow_all_outbound=True,
         )
         public_subnets = vpc.select_subnets(subnet_type=ec2.SubnetType.PUBLIC)
@@ -449,7 +450,7 @@ class ComputeConstruct(Construct):
         polis_cluster = ecs.Cluster.from_cluster_attributes(
             self,
             "PolisCluster",
-            cluster_name="cogent-polis",
+            cluster_name=naming.cluster_name(),
             vpc=vpc,
             security_groups=[],
         )

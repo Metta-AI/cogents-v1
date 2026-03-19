@@ -16,6 +16,8 @@ from aws_cdk import (
 )
 from constructs import Construct
 
+from polis import naming
+
 ROTATION_HANDLER_DIR = Path(__file__).resolve().parent.parent.parent / "secrets" / "rotation"
 
 
@@ -34,7 +36,7 @@ class SecretsStack(cdk.Stack):
         self.rotation_fn = lambda_.Function(
             self,
             "RotationLambda",
-            function_name="cogent-secret-rotation",
+            function_name=naming.lambda_name("", "secret-rotation"),
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="handler.handler",
             code=lambda_.Code.from_asset(str(ROTATION_HANDLER_DIR)),
@@ -64,7 +66,7 @@ class SecretsStack(cdk.Stack):
         self.secrets_reader_role = iam.Role(
             self,
             "SecretsReaderRole",
-            role_name="cogent-secrets-reader",
+            role_name=naming.iam_role_name("secrets-reader"),
             assumed_by=iam.OrganizationPrincipal(org_id),  # type: ignore[arg-type]
         )
 

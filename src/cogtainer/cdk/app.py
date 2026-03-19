@@ -6,6 +6,7 @@ import aws_cdk as cdk
 
 from cogtainer.cdk.config import POLIS_ACCOUNT, POLIS_REGION, CogtainerConfig
 from cogtainer.cdk.stack import CogtainerStack
+from polis import naming
 
 
 def main() -> None:
@@ -23,7 +24,7 @@ def main() -> None:
 
     CogtainerStack(
         app,
-        f"cogent-{cogent_name.replace('.', '-')}-cogtainer",
+        naming.stack_name(cogent_name),
         config=config,
         certificate_arn=certificate_arn,
         env=cdk.Environment(account=POLIS_ACCOUNT, region=POLIS_REGION),

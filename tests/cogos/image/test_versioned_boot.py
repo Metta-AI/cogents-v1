@@ -17,7 +17,7 @@ def test_boot_writes_versions(tmp_path):
 
     # Load real image
     repo_root = Path(__file__).resolve().parents[3]
-    image_dir = repo_root / "images" / "cogent-v1"
+    image_dir = repo_root / "images" / "cogos"
     assert image_dir.is_dir(), f"Image not found: {image_dir}"
 
     # Resolve versions (all local for test)

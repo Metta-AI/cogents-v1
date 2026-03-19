@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import aws_cdk as cdk
 
+from polis import naming
 from polis.aws import DEFAULT_REGION, POLIS_ACCOUNT_ID
 from polis.cdk.stacks.core import PolisStack
 from polis.cdk.stacks.secrets import SecretsStack
@@ -23,8 +24,8 @@ def build_app(config: PolisConfig | None = None, org_id: str = "") -> cdk.App:
     org_id = org_id or app.node.try_get_context("org_id") or ORG_ID
     env = cdk.Environment(account=POLIS_ACCOUNT_ID, region=DEFAULT_REGION)
 
-    PolisStack(app, "cogent-polis", config=config, org_id=org_id, env=env)
-    SecretsStack(app, "cogent-secrets", org_id=org_id, env=env)
+    PolisStack(app, naming.polis_stack_name(), config=config, org_id=org_id, env=env)
+    SecretsStack(app, naming.secrets_stack_name(), org_id=org_id, env=env)
 
     return app
 

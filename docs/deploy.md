@@ -1,6 +1,6 @@
 # Deploy Guide
 
-Single reference for deploying Cogent components. For operational runbooks used by Claude, see `.claude/commands/deploy.*.md`.
+Single reference for deploying CogOS components. For operational runbooks used by Claude, see `.claude/commands/deploy.*.md`.
 
 ## Architecture
 
@@ -19,110 +19,110 @@ What changed? Run `git diff HEAD~1 --name-only` and match:
 
 | Changed paths | Command |
 |---|---|
-| `images/**` | `cogent <name> cogos image boot cogent-v1` |
-| `src/cogos/executor/**`, `src/cogos/sandbox/**` | `cogent <name> cogtainer update lambda` |
-| `src/cogos/capabilities/**` | `cogent <name> cogtainer update lambda` + `cogos image boot cogent-v1` |
-| `src/cogos/db/migrations/**` | `cogent <name> cogtainer update rds` |
-| `dashboard/frontend/**` | `cogent <name> dashboard deploy` |
-| `src/dashboard/**` | `cogent <name> dashboard deploy --docker` |
-| Both frontend + backend | `cogent <name> dashboard deploy --docker` |
-| `src/cogtainer/cdk/**`, IAM, VPC, ALB changes | `cogent <name> cogtainer create` |
-| `DOCKER_VERSION` changed | `cogent <name> cogtainer create` |
+| `images/**` | `cogos <name> cogos image boot cogos` |
+| `src/cogos/executor/**`, `src/cogos/sandbox/**` | `cogos <name> cogtainer update lambda` |
+| `src/cogos/capabilities/**` | `cogos <name> cogtainer update lambda` + `cogos image boot cogos` |
+| `src/cogos/db/migrations/**` | `cogos <name> cogtainer update rds` |
+| `dashboard/frontend/**` | `cogos <name> dashboard deploy` |
+| `src/dashboard/**` | `cogos <name> dashboard deploy --docker` |
+| Both frontend + backend | `cogos <name> dashboard deploy --docker` |
+| `src/cogtainer/cdk/**`, IAM, VPC, ALB changes | `cogos <name> cogtainer create` |
+| `DOCKER_VERSION` changed | `cogos <name> cogtainer create` |
 
 ## Command Reference
 
 ### Lambda + DB
 
 ```bash
-cogent <name> cogtainer update lambda       # Update Lambda code only (~15s)
-cogent <name> cogtainer update rds          # Run DB schema migrations
-cogent <name> cogtainer update ecs          # Force new ECS deployment (restart containers)
-cogent <name> cogtainer update all          # Lambda + RDS migrations + sync
+cogos <name> cogtainer update lambda       # Update Lambda code only (~15s)
+cogos <name> cogtainer update rds          # Run DB schema migrations
+cogos <name> cogtainer update ecs          # Force new ECS deployment (restart containers)
+cogos <name> cogtainer update all          # Lambda + RDS migrations + sync
 ```
 
 ### CDK Stack
 
 ```bash
-cogent <name> cogtainer create              # Full CDK deploy (~3-5 min)
-cogent <name> cogtainer build               # Build + push executor Docker image to ECR
-cogent <name> cogtainer status              # Check infrastructure status
+cogos <name> cogtainer create              # Full CDK deploy (~3-5 min)
+cogos <name> cogtainer build               # Build + push executor Docker image to ECR
+cogos <name> cogtainer status              # Check infrastructure status
 ```
 
 ### Image
 
 ```bash
-cogent <name> cogos image boot cogent-v1          # Upsert capabilities, files, processes into DB
-cogent <name> cogos image boot cogent-v1 --clean  # Wipe all tables first, then boot
-cogent <name> cogos reload -i cogent-v1 -y        # Reload config from image, preserving runtime data
-cogent <name> cogos reload -i cogent-v1 -y --full # Wipe ALL data (including runtime) and reload
+cogos <name> cogos image boot cogos          # Upsert capabilities, files, processes into DB
+cogos <name> cogos image boot cogos --clean  # Wipe all tables first, then boot
+cogos <name> cogos reload -i cogos -y        # Reload config from image, preserving runtime data
+cogos <name> cogos reload -i cogos -y --full # Wipe ALL data (including runtime) and reload
 ```
 
 ### Dashboard
 
 ```bash
-cogent <name> dashboard deploy              # Fast path: Next.js build -> S3 -> restart ECS (~30s)
-cogent <name> dashboard deploy --docker     # Full path: rebuild Docker image + push ECR + restart
-cogent <name> dashboard deploy --skip-health  # Skip health check wait
-cogent <name> cogos dashboard reload          # Restart local dashboard (stop + start)
+cogos <name> dashboard deploy              # Fast path: Next.js build -> S3 -> restart ECS (~30s)
+cogos <name> dashboard deploy --docker     # Full path: rebuild Docker image + push ECR + restart
+cogos <name> dashboard deploy --skip-health  # Skip health check wait
+cogos <name> cogos dashboard reload          # Restart local dashboard (stop + start)
 ```
 
 ### Discord Bridge
 
 ```bash
-cogent <name> cogos io discord start        # Scale ECS service to 1 task
-cogent <name> cogos io discord stop         # Scale to 0
-cogent <name> cogos io discord restart      # Force new deployment
-cogent <name> cogos io discord status       # Check running/desired counts
+cogos <name> cogos io discord start        # Scale ECS service to 1 task
+cogos <name> cogos io discord stop         # Scale to 0
+cogos <name> cogos io discord restart      # Force new deployment
+cogos <name> cogos io discord status       # Check running/desired counts
 ```
 
 ## Typical Sequences
 
 **Image-only change** (edited files in `images/`):
 ```bash
-cogent <name> cogos image boot cogent-v1
+cogos <name> cogos image boot cogos
 ```
 
 **Executor code change** (`src/cogos/executor/`, `src/cogos/sandbox/`):
 ```bash
-cogent <name> cogtainer update lambda
-cogent <name> cogos image boot cogent-v1    # if image also changed
+cogos <name> cogtainer update lambda
+cogos <name> cogos image boot cogos    # if image also changed
 ```
 
 **Schema migration + executor change**:
 ```bash
-cogent <name> cogtainer update rds
-cogent <name> cogtainer update lambda
-cogent <name> cogos image boot cogent-v1
+cogos <name> cogtainer update rds
+cogos <name> cogtainer update lambda
+cogos <name> cogos image boot cogos
 ```
 
 **Dashboard frontend-only**:
 ```bash
-cogent <name> dashboard deploy
+cogos <name> dashboard deploy
 ```
 
 **Dashboard with backend changes**:
 ```bash
-cogent <name> dashboard deploy --docker
+cogos <name> dashboard deploy --docker
 ```
 
 **Full infrastructure change** (CDK constructs, IAM, ALB):
 ```bash
-cogent <name> cogtainer create
-cogent <name> cogos image boot cogent-v1
+cogos <name> cogtainer create
+cogos <name> cogos image boot cogos
 ```
 
 **Docker image change** (Dockerfile, new deps):
 ```bash
-cogent <name> cogtainer build
-cogent <name> cogtainer update ecs
+cogos <name> cogtainer build
+cogos <name> cogtainer update ecs
 ```
 
 ## Post-Deploy Verification
 
 ```bash
-cogent <name> cogtainer status              # Infrastructure health
-cogent <name> cogos status                  # CogOS status
-cogent <name> cogos process list            # Processes running
+cogos <name> cogtainer status              # Infrastructure health
+cogos <name> cogos status                  # CogOS status
+cogos <name> cogos process list            # Processes running
 ```
 
 For dashboard, open `https://<safe-name>.<your-domain>` and confirm the change is visible.

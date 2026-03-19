@@ -161,7 +161,7 @@ def _run_migrations(repo) -> None:
 
 
 @image.command()
-@click.argument("name", default="cogent-v1")
+@click.argument("name", default="cogos")
 @click.option("--clean", is_flag=True, help="Wipe all tables before loading")
 @click.option("--dry-run", is_flag=True, help="Resolve and verify versions, then exit")
 @click.option("--executor", "v_executor", default=None, help="Override executor version SHA")
@@ -173,7 +173,7 @@ def _run_migrations(repo) -> None:
 @click.pass_context
 def boot(ctx, name, clean, dry_run, v_executor, v_dashboard, v_dashboard_frontend,
          v_discord_bridge, v_lambda, v_cogos):
-    """Boot CogOS from an image (default: cogent-v1)."""
+    """Boot CogOS from an image (default: cogos)."""
     from cogos.image.apply import apply_image
     from cogos.image.spec import load_image
     from cogos.image.versions import (
@@ -986,7 +986,7 @@ def wipe(yes: bool):
 
 
 @cogos.command()
-@click.option("--image", "-i", default="cogent-v1", help="Image name to load (default: cogent-v1)")
+@click.option("--image", "-i", default="cogos", help="Image name to load (default: cogos)")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.option("--full", is_flag=True, help="Wipe ALL data including runtime files (data/, logs/, etc.)")
 @click.pass_context

@@ -17,7 +17,7 @@ class TestAddCog:
     def test_add_cog_in_image_spec(self):
         from cogos.image.spec import load_image
 
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         cog_names = {c["name"] for c in spec.cogs}
         assert "recruiter" in cog_names
         assert "newsfromthefront" in cog_names
@@ -29,7 +29,7 @@ class TestAddCog:
         from cogos.image.spec import load_image
 
         repo = LocalRepository(str(tmp_path))
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         apply_image(spec, repo)
 
         fs = FileStore(repo)

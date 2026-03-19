@@ -8,6 +8,7 @@ from aws_cdk import aws_rds as rds
 from constructs import Construct
 
 from cogtainer.cdk.config import CogtainerConfig
+from polis import naming
 
 
 class DatabaseConstruct(Construct):
@@ -35,7 +36,7 @@ class DatabaseConstruct(Construct):
             engine=rds.DatabaseClusterEngine.aurora_postgres(
                 version=rds.AuroraPostgresEngineVersion.VER_16_4,
             ),
-            default_database_name="cogent",
+            default_database_name=naming.db_name(),
             enable_data_api=True,
             serverless_v2_min_capacity=config.db_min_acu,
             serverless_v2_max_capacity=config.db_max_acu,

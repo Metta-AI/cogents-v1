@@ -50,6 +50,7 @@ from aws_cdk import (
 )
 from constructs import Construct
 
+from polis import naming
 from polis.config import PolisConfig
 
 SRC_DIR = Path(__file__).resolve().parents[3]
@@ -73,7 +74,7 @@ class PolisStack(cdk.Stack):
         self.cluster = ecs.Cluster(
             self,
             "Cluster",
-            cluster_name="cogent-polis",
+            cluster_name=naming.cluster_name(),
             enable_fargate_capacity_providers=True,
             container_insights_v2=ecs.ContainerInsights.ENABLED,
         )
@@ -82,7 +83,7 @@ class PolisStack(cdk.Stack):
         self.ecr_repo = ecr.Repository(
             self,
             "ECR",
-            repository_name="cogent",
+            repository_name=naming.ecr_repo_name(),
             image_tag_mutability=ecr.TagMutability.MUTABLE,
             image_scan_on_push=True,
             lifecycle_rules=[
@@ -125,7 +126,7 @@ class PolisStack(cdk.Stack):
         self.status_table = dynamodb.Table(
             self,
             "StatusTable",
-            table_name="cogent-status",
+            table_name=naming.table_name("status"),
             partition_key=dynamodb.Attribute(
                 name="cogent_name",
                 type=dynamodb.AttributeType.STRING,
@@ -139,7 +140,7 @@ class PolisStack(cdk.Stack):
         self.watcher_fn = lambda_.Function(
             self,
             "WatcherLambda",
-            function_name="cogent-watcher",
+            function_name=naming.lambda_name("", "watcher"),
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="polis.watcher.handler.handler",
             code=lambda_.Code.from_asset(str(SRC_DIR)),
@@ -197,7 +198,7 @@ class PolisStack(cdk.Stack):
         self.admin_role = iam.Role(
             self,
             "PolisAdminRole",
-            role_name="cogent-polis-admin",
+            role_name=naming.iam_role_name("polis-admin"),
             assumed_by=iam.OrganizationPrincipal(org_id),  # type: ignore[arg-type]
         )
 
@@ -410,7 +411,7 @@ class PolisStack(cdk.Stack):
         self.email_ingest_fn = lambda_.Function(
             self,
             "EmailIngestLambda",
-            function_name="cogent-email-ingest",
+            function_name=naming.lambda_name("", "email-ingest"),
             runtime=lambda_.Runtime.PYTHON_3_12,
             handler="handler.handler",
             code=lambda_.Code.from_asset(str(EMAIL_HANDLER_DIR)),
@@ -483,7 +484,7 @@ class PolisStack(cdk.Stack):
         self.ci_artifacts_bucket = s3.Bucket(
             self,
             "CIArtifactsBucket",
-            bucket_name="cogent-polis-ci-artifacts",
+            bucket_name=naming.polis_bucket_name("ci-artifacts"),
             removal_policy=RemovalPolicy.RETAIN,
             auto_delete_objects=False,
             lifecycle_rules=[
@@ -519,7 +520,7 @@ class PolisStack(cdk.Stack):
         self.discord_reply_queue = sqs.Queue(
             self,
             "DiscordReplyQueue",
-            queue_name="cogent-polis-discord-replies",
+            queue_name=naming.queue_name("polis", "discord-replies"),
             visibility_timeout=Duration.seconds(60),
             retention_period=Duration.days(1),
         )
@@ -532,13 +533,13 @@ class PolisStack(cdk.Stack):
 
         # Sessions bucket (shared polis-level)
         sessions_bucket = s3.Bucket.from_bucket_name(
-            self, "SessionsBucket", "cogent-polis-sessions",
+            self, "SessionsBucket", naming.polis_bucket_name("sessions"),
         )
 
         # Task definition
         task_def = ecs.FargateTaskDefinition(
             self, "DiscordTaskDef",
-            family="cogent-polis-discord",
+            family=naming.ecs_family("polis", "discord"),
             cpu=256,
             memory_limit_mib=512,
         )
@@ -594,7 +595,7 @@ class PolisStack(cdk.Stack):
 
         self.discord_service = ecs.FargateService(
             self, "DiscordService",
-            service_name="cogent-polis-discord",
+            service_name=naming.ecs_service_name("polis", "discord"),
             cluster=self.cluster,
             task_definition=task_def,
             desired_count=1,

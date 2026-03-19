@@ -11,7 +11,7 @@ inputs:
   defaults_file:
     description: "Path to versions.defaults.json"
     required: false
-    default: "images/cogent-v1/versions.defaults.json"
+    default: "images/cogos/versions.defaults.json"
 
 runs:
   using: "composite"

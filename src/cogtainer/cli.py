@@ -5,6 +5,7 @@ from __future__ import annotations
 import click
 
 from cli import DefaultCommandGroup, get_cogent_name  # noqa: F401
+from polis import naming
 from polis.aws import DEFAULT_ORG_PROFILE, ORG_PROFILE_ENV
 from polis.config import PolisConfig
 
@@ -110,7 +111,7 @@ def status_cmd(ctx: click.Context):
     try:
         ecr = session.client("ecr")
         images = ecr.describe_images(
-            repositoryName="cogent",
+            repositoryName=naming.ecr_repo_name(),
             filter={"tagStatus": "TAGGED"},
         ).get("imageDetails", [])
         # Find images tagged with this cogent's name
@@ -207,7 +208,7 @@ def create_cmd(ctx: click.Context, profile: str | None):
     ecr_repo_uri = ""
     try:
         ecr_client = polis_session.client("ecr")
-        repos = ecr_client.describe_repositories(repositoryNames=["cogent"])["repositories"]
+        repos = ecr_client.describe_repositories(repositoryNames=[naming.ecr_repo_name()])["repositories"]
         ecr_repo_uri = repos[0]["repositoryUri"]
     except Exception:
         click.echo("Warning: Could not resolve polis ECR repo. Using default image.")
@@ -402,7 +403,7 @@ def build_cmd(ctx: click.Context, profile: str | None):
     # Get polis ECR repo URI
     polis_session, _ = get_polis_session()
     ecr_client = polis_session.client("ecr")
-    repos = ecr_client.describe_repositories(repositoryNames=["cogent"])["repositories"]
+    repos = ecr_client.describe_repositories(repositoryNames=[naming.ecr_repo_name()])["repositories"]
     repo_uri = repos[0]["repositoryUri"]
 
     image = f"{repo_uri}:{tag}"
@@ -476,7 +477,7 @@ def await_cmd(prefix: str, tag: str | None, timeout: int, profile: str | None):
     while time.monotonic() < deadline:
         try:
             resp = ecr_client.describe_images(
-                repositoryName="cogent",
+                repositoryName=naming.ecr_repo_name(),
                 imageIds=[{"imageTag": expected_tag}],
             )
             pushed = resp["imageDetails"][0].get("imagePushedAt", "")
