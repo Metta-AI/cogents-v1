@@ -34,6 +34,9 @@ from aws_cdk import (
     aws_route53 as route53,
 )
 from aws_cdk import (
+    aws_s3 as s3,
+)
+from aws_cdk import (
     aws_secretsmanager as secretsmanager,
 )
 from constructs import Construct
@@ -464,6 +467,22 @@ class PolisStack(cdk.Stack):
             )
         )
 
+        # --- CI Artifacts Bucket ---
+        self.ci_artifacts_bucket = s3.Bucket(
+            self,
+            "CIArtifactsBucket",
+            bucket_name="cogent-polis-ci-artifacts",
+            removal_policy=RemovalPolicy.RETAIN,
+            auto_delete_objects=False,
+            lifecycle_rules=[
+                s3.LifecycleRule(
+                    id="expire-old-artifacts",
+                    expiration=Duration.days(90),
+                ),
+            ],
+        )
+        self.ci_artifacts_bucket.grant_read_write(self.github_actions_role)
+
         # --- Outputs ---
         cdk.CfnOutput(self, "GitHubActionsRoleArn", value=self.github_actions_role.role_arn)
         cdk.CfnOutput(self, "ECRRepositoryUri", value=self.ecr_repo.repository_uri)
@@ -473,3 +492,4 @@ class PolisStack(cdk.Stack):
         cdk.CfnOutput(self, "StatusTableArn", value=self.status_table.table_arn)
         cdk.CfnOutput(self, "PolisAdminRoleArn", value=self.admin_role.role_arn)
         cdk.CfnOutput(self, "EmailIngestUrl", value=self.email_ingest_url.url)
+        cdk.CfnOutput(self, "CIArtifactsBucket", value=self.ci_artifacts_bucket.bucket_name)
