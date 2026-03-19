@@ -493,4 +493,4 @@ class PolisStack(cdk.Stack):
         cdk.CfnOutput(self, "StatusTableArn", value=self.status_table.table_arn)
         cdk.CfnOutput(self, "PolisAdminRoleArn", value=self.admin_role.role_arn)
         cdk.CfnOutput(self, "EmailIngestUrl", value=self.email_ingest_url.url)
-        cdk.CfnOutput(self, "CIArtifactsBucket", value=self.ci_artifacts_bucket.bucket_name)
+        cdk.CfnOutput(self, "CIArtifactsBucketName", value=self.ci_artifacts_bucket.bucket_name)
