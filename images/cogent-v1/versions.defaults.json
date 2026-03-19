@@ -1,5 +1,5 @@
 {
-  "executor": "local",
+  "executor": "a6363c8",
   "dashboard": "local",
   "dashboard_frontend": "local",
   "discord_bridge": "local",
