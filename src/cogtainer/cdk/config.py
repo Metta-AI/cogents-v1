@@ -19,8 +19,8 @@ class CogtainerConfig:
     domain: str = field(default_factory=lambda: deploy_config("domain", "softmax-cogents.com"))
     region: str = POLIS_REGION
     account: str = POLIS_ACCOUNT
-    db_min_acu: float = 0.5
-    db_max_acu: float = 4.0
+    shared_db_cluster_arn: str = ""
+    shared_db_secret_arn: str = ""
     executor_memory_mb: int = 2048
     executor_timeout_s: int = 900
     orchestrator_memory_mb: int = 512

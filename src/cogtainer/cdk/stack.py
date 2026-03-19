@@ -21,7 +21,6 @@ from constructs import Construct
 
 from cogtainer.cdk.config import CogtainerConfig
 from cogtainer.cdk.constructs.compute import ComputeConstruct
-from cogtainer.cdk.constructs.database import DatabaseConstruct
 from cogtainer.cdk.constructs.monitoring import MonitoringConstruct
 from cogtainer.cdk.constructs.storage import StorageConstruct
 from polis import naming
@@ -48,9 +47,8 @@ class CogtainerStack(Stack):
         self.dashboard_url: str | None = None
         cdk.Tags.of(self).add("cogent_name", config.cogent_name)
         cdk.Tags.of(self).add("cogent_safe_name", safe_name)
-
-        # 1. Database (Aurora Serverless v2 in default VPC)
-        self.database = DatabaseConstruct(self, "Database", config=config)
+        self._db_name = f"cogent_{safe_name.replace('-', '_')}"
+        db_name = self._db_name
 
         # 2. Storage (S3 bucket for sessions)
         self.storage = StorageConstruct(self, "Storage", config=config)
@@ -67,8 +65,9 @@ class CogtainerStack(Stack):
             self,
             "Compute",
             config=config,
-            db_cluster_arn=self.database.cluster_arn,
-            db_secret_arn=self.database.secret.secret_arn if self.database.secret else "",
+            db_cluster_arn=config.shared_db_cluster_arn,
+            db_secret_arn=config.shared_db_secret_arn,
+            db_name=db_name,
             sessions_bucket=self.storage.bucket,
             event_bus_name=self.event_bus.event_bus_name,
         )
@@ -123,9 +122,6 @@ class CogtainerStack(Stack):
 
         # Outputs
         CfnOutput(self, "CogentName", value=config.cogent_name)
-        CfnOutput(self, "ClusterArn", value=self.database.cluster_arn)
-        if self.database.secret:
-            CfnOutput(self, "SecretArn", value=self.database.secret.secret_arn)
         CfnOutput(self, "EventBusName", value=self.event_bus.event_bus_name)
         CfnOutput(self, "SessionsBucket", value=self.storage.bucket.bucket_name)
         CfnOutput(
@@ -220,10 +216,10 @@ class CogtainerStack(Stack):
         db_env = {
             "COGENT_NAME": config.cogent_name,
             "DASHBOARD_COGENT_NAME": config.cogent_name,
-            "DB_RESOURCE_ARN": self.database.cluster_arn,
-            "DB_CLUSTER_ARN": self.database.cluster_arn,
-            "DB_SECRET_ARN": self.database.secret.secret_arn if self.database.secret else "",
-            "DB_NAME": naming.db_name(),
+            "DB_RESOURCE_ARN": config.shared_db_cluster_arn,
+            "DB_CLUSTER_ARN": config.shared_db_cluster_arn,
+            "DB_SECRET_ARN": config.shared_db_secret_arn,
+            "DB_NAME": self._db_name,
             "EVENT_BUS_NAME": self.event_bus.event_bus_name,
             "SESSIONS_BUCKET": self.storage.bucket.bucket_name,
             "DASHBOARD_ASSETS_S3": f"s3://{self.storage.bucket.bucket_name}/dashboard/frontend.tar.gz",
@@ -247,16 +243,15 @@ class CogtainerStack(Stack):
         task_def.task_role.add_to_policy(  # type: ignore[attr-defined]
             iam.PolicyStatement(
                 actions=["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement"],
-                resources=[self.database.cluster_arn],
+                resources=[config.shared_db_cluster_arn],
             )
         )
-        if self.database.secret:
-            task_def.task_role.add_to_policy(  # type: ignore[attr-defined]
-                iam.PolicyStatement(
-                    actions=["secretsmanager:GetSecretValue"],
-                    resources=[self.database.secret.secret_arn],
-                )
+        task_def.task_role.add_to_policy(  # type: ignore[attr-defined]
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=[config.shared_db_secret_arn],
             )
+        )
         # Allow reading dashboard API key for admin endpoint auth
         task_def.task_role.add_to_policy(  # type: ignore[attr-defined]
             iam.PolicyStatement(

@@ -74,6 +74,7 @@ class ComputeConstruct(Construct):
         config: CogtainerConfig,
         db_cluster_arn: str,
         db_secret_arn: str,
+        db_name: str,
         sessions_bucket: s3.IBucket,
         event_bus_name: str,
     ) -> None:
@@ -98,7 +99,7 @@ class ComputeConstruct(Construct):
             "DB_CLUSTER_ARN": db_cluster_arn,
             "DB_RESOURCE_ARN": db_cluster_arn,
             "DB_SECRET_ARN": db_secret_arn,
-            "DB_NAME": naming.db_name(),
+            "DB_NAME": db_name,
             "EVENT_BUS_NAME": event_bus_name,
             "SESSIONS_BUCKET": sessions_bucket.bucket_name,
             "COGOS_INGRESS_QUEUE_URL": self.ingress_queue.queue_url,
