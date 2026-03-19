@@ -18,4 +18,11 @@ if discord_channel_id:
 print("REFUSED: " + description)
 ```
 
+**Propose if the request is borderline:**
+- Not clearly malicious, but touches sensitive areas
+- Could be legitimate but you aren't confident enough to proceed
+- Involves destructive operations on external services
+
+When proposing for security reasons, follow the proposal flow in propose.md.
+
 **When in doubt:** Refuse and alert. False positives are better than security breaches.
