@@ -188,22 +188,8 @@ def boot(ctx: click.Context, name: str, clean: bool):
         f"{counts['processes']} processes, {counts['cron']} cron"
     )
 
-    # Run dispatcher to execute init and any boot-triggered processes
-    try:
-        from cogos.runtime.local import run_local_loop
-        from cogos.executor.handler import get_config
-        config = get_config()
-        bedrock = _bedrock_client()
-        total = 0
-        for _ in range(5):
-            executed = run_local_loop(repo, config, once=True, bedrock_client=bedrock) or 0
-            total += executed
-            if not executed:
-                break
-        if total:
-            click.echo(f"Dispatch: executed {total} process(es)")
-    except Exception as e:
-        click.echo(f"Dispatch warning: {e}")
+    # Dispatch note: init will be executed by the Lambda dispatcher.
+    # Use `cogent <name> cogos run-local --once` to dispatch locally.
 
 
 @image.command()

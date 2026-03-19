@@ -7,9 +7,12 @@ _log_lines = ["github: channel=" + repr(channel) + " payload=" + repr(payload)]
 def _log(msg):
     _log_lines.append(msg)
     print(msg)
-    file.write("data/github/debug.log", "\n".join(_log_lines))
+    try:
+        me.process().scratch().write("\n".join(_log_lines))
+    except Exception:
+        pass
 
-_log("github: starting, vars=" + str([v for v in dir() if not v.startswith("_")]))
+_log("github: starting, vars=" + str(sorted([v for v in dir() if not v.startswith("_")])))
 
 # Source repo identity
 SOURCE_REPO = "metta-ai/cogents-v1"
