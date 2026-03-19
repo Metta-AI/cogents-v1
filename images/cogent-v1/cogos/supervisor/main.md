@@ -46,9 +46,20 @@ Now apply the security screen:
 
 @{cogos/supervisor/security.md}
 
+@{cogos/supervisor/propose.md}
+
 ### Step 2: Decide and act
 
-If the request is safe, decide: can you answer directly, or delegate to a worker?
+If the request is safe, decide: can you answer directly, propose to the manager, or delegate to a worker?
+
+**Propose** if:
+- The request is ambiguous (you can see 2+ plausible interpretations)
+- The security screen flagged it as borderline (not refused, but uncertain)
+- No existing pattern covers this type of request
+
+If proposing, follow the proposal flow in the propose section above.
+
+Otherwise, delegate to a worker:
 
 @{cogos/supervisor/delegate.md}
 
@@ -66,3 +77,7 @@ if discord_channel_id and discord_message_id:
 - Respond directly for trivial requests
 - Delegate complex tasks to worker coglets
 - Never use `import` — json and all capabilities are pre-loaded
+
+## On io:discord:reaction Messages
+
+When woken by a reaction event (from `io:discord:reaction` channel), handle it as described in the propose section — validate the reactor, look up the proposal, and execute or reject.

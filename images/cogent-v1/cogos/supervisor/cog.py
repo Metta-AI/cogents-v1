@@ -11,5 +11,5 @@ config = CogConfig(
         "cog_registry", "coglet_runtime",
         {"name": "dir", "alias": "root"},
     ],
-    handlers=["supervisor:help"],
+    handlers=["supervisor:help", "io:discord:reaction"],
 )
