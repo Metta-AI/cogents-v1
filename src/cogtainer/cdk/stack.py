@@ -156,6 +156,7 @@ class CogtainerStack(Stack):
         self, config: CogtainerConfig, safe_name: str, certificate_arn: str
     ) -> None:
         """Create the dashboard ALB + Fargate service."""
+        db_name = f"cogent_{safe_name.replace('-', '_')}"
         vpc = ec2.Vpc.from_lookup(self, "DashVpc", is_default=True)
         cluster = ecs.Cluster.from_cluster_attributes(
             self,

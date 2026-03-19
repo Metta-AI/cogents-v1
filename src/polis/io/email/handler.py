@@ -11,6 +11,7 @@ import logging
 import os
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 import boto3
 
@@ -22,8 +23,8 @@ DB_CLUSTER_ARN = os.environ.get("DB_CLUSTER_ARN", "")
 DB_SECRET_ARN = os.environ.get("DB_SECRET_ARN", "")
 DYNAMO_TABLE = os.environ.get("DYNAMO_TABLE", "")
 
-_rds = None
-_dynamo_table = None
+_rds: Any = None
+_dynamo_table: Any = None
 
 # Cache: cogent_name -> db_name
 _db_name_cache: dict[str, str] = {}
@@ -39,7 +40,7 @@ def _get_rds():
 def _get_dynamo_table():
     global _dynamo_table
     if _dynamo_table is None:
-        _dynamo_table = boto3.resource("dynamodb").Table(DYNAMO_TABLE)
+        _dynamo_table = boto3.resource("dynamodb").Table(DYNAMO_TABLE)  # type: ignore[attr-defined]
     return _dynamo_table
 
 
