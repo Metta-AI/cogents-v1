@@ -83,10 +83,16 @@ def main() -> None:
             os.environ["DB_SECRET_ARN"] = secret_arn
             os.environ["DB_NAME"] = db_name
 
-            from cogos.db.migrations import apply_schema
+            from cogos.db.factory import create_repository
+            from cogos.db.migrations import apply_cogos_sql_migrations, apply_schema
 
             version = apply_schema()
             print(f"  Schema applied (version {version})")
+
+            # Apply CogOS SQL migrations (creates cogos_process, cogos_channel, etc.)
+            repo = create_repository()
+            applied = apply_cogos_sql_migrations(repo)
+            print(f"  CogOS SQL migrations applied ({applied} statements)")
 
             # Update DynamoDB with db_name
             table.update_item(
