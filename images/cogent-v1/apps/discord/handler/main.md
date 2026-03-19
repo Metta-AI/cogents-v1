@@ -42,6 +42,7 @@ Process in **exactly 2 `run_code` calls**. No exploration, no extra calls.
 author_id = "..."      # numeric Discord user ID from payload
 author = "..."         # display name from payload
 channel_id = "..."     # numeric Discord channel ID from payload — use this for discord.send()
+channel_name = "..."   # Discord channel name from payload (empty for DMs)
 content = "..."        # message text from payload
 message_id = "..."     # numeric Discord message ID from payload
 is_dm = True           # or False, from payload
@@ -61,6 +62,13 @@ wl_data = wl.read()
 waterline = json.loads(wl_data.content) if not hasattr(wl_data, 'error') else {}
 if message_id in waterline.get("seen", []):
     print("SKIP: already processed")
+elif not is_dm and not is_mention and not channel_name.startswith("cogents"):
+    # Not in a whitelisted channel — silently skip
+    seen = waterline.get("seen", [])
+    seen.append(message_id)
+    waterline["seen"] = seen[-100:]
+    wl.write(json.dumps(waterline))
+    print("SKIP: channel not in whitelist")
 elif not is_dm and not is_mention:
     # Channel message — check if it's addressed to us
     content_lower = content.lower()
@@ -208,13 +216,14 @@ When escalating: set `escalate = True`, react with ⬆️, send to `supervisor:h
 Your identity is in `whoami/profile.md` — it contains your **Name** and **Discord User ID**.
 
 **Skip** (update waterline and exit) when:
+- The channel name does NOT start with `cogents` — you only participate in whitelisted channels
 - The content `<@mentions>` someone else, not you
 - General chat not directed at you
 
 **Respond** when:
-- Your name is mentioned (case-insensitive)
-- You are @mentioned with your Discord User ID
-- DMs and @mentions always get a response
+- You are in a whitelisted channel (name starts with `cogents`) and your name or @mention appears
+- You are @mentioned (works in ANY channel)
+- DMs always get a response
 
 ## Key rules
 
