@@ -12,6 +12,21 @@ Built on the Viable System Model. Each cogent is an autonomous agent with its ow
 | **Coglet** | The unit of work. Processes input/events and produces output/logs. Has a parent cog. Can be run via CogletRuntime, which creates a process for it. |
 | **CogletRuntime** | The execution layer that runs coglets — spawns processes from cog and coglet manifests with scoped capabilities. |
 
+## Communication
+
+All team communication happens on **Discord** (not Slack). When you see `#channel-name`, that refers to a Discord channel. Post updates using the Discord webhook stored in AWS Secrets Manager:
+
+```bash
+# Webhook secrets are at discord/channel-webhook/{channel} or discord/agent-webhook-url
+aws secretsmanager get-secret-value --secret-id "discord/agent-webhook-url" --query SecretString --output text --profile softmax
+
+# Post as a cogent identity:
+curl -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" \
+  -d '{"username": "dr.alpha", "content": "message here"}'
+```
+
+Discord messages have a 2000-character limit — split longer posts into multiple messages.
+
 ## Project Layout
 
 ```
