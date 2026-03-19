@@ -46,6 +46,10 @@ try:
     _cap_objects["history"] = history
 except NameError:
     pass
+try:
+    _cap_objects["monitor"] = monitor
+except NameError:
+    pass
 
 def _build_caps(cap_list, cog_name):
     """Build capabilities dict from a CogConfig capabilities list.

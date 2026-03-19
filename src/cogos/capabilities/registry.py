@@ -1246,4 +1246,14 @@ BUILTIN_CAPABILITIES: list[dict] = [
             "- cogent.profile() — markdown string with identity fields\n"
         ),
     },
+    {
+        "name": "monitor",
+        "description": "Alert monitoring — run detection rules and dispatch actions.",
+        "handler": "cogos.capabilities.alert_monitor.AlertMonitorCapability",
+        "instructions": (
+            "monitor runs alert detection rules and dispatches actions.\n"
+            "- monitor.check() — query recent alerts, run rules, dispatch actions\n"
+        ),
+        "schema": {},
+    },
 ]
