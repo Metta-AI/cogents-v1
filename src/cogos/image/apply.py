@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextlib import contextmanager, nullcontext
 
 from cogos.db.models import (
     Capability,
@@ -27,6 +28,12 @@ logger = logging.getLogger(__name__)
 
 def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]:
     """Apply an image spec to the database. Returns counts of entities created/updated."""
+    batch_ctx = repo.batch() if hasattr(repo, "batch") else nullcontext()
+    with batch_ctx:
+        return _apply_image_inner(spec, repo, clean=clean)
+
+
+def _apply_image_inner(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]:
     counts = {
         "capabilities": 0, "resources": 0, "files": 0, "processes": 0,
         "cron": 0, "schemas": 0, "channels": 0,

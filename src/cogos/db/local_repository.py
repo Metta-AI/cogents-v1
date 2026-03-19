@@ -303,6 +303,12 @@ class LocalRepository(Repository):
         return migrated
 
     @contextmanager
+    def batch(self):
+        """Batch multiple writes into a single save. Use for bulk operations."""
+        with self._writing():
+            yield
+
+    @contextmanager
     def _writing(self, *, force: bool = False):
         outermost = self._write_depth == 0
         if outermost:
