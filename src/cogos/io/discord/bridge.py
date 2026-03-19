@@ -78,6 +78,7 @@ def _make_message_payload(
         "author": str(message.author),
         "author_id": str(message.author.id),
         "channel_id": str(message.channel.id),
+        "channel_name": getattr(message.channel, "name", None) or "",
         "guild_id": str(message.guild.id) if message.guild else None,
         "message_id": str(message.id),
         "message_type": message_type,
