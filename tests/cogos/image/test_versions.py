@@ -2,7 +2,7 @@
 import json
 import pytest
 from unittest.mock import MagicMock
-from cogos.image.versions import VersionManifest, resolve_versions, verify_artifacts, ArtifactMissing
+from cogos.image.versions import VersionManifest, resolve_versions, verify_artifacts, ArtifactMissing, load_defaults
 
 
 def test_manifest_roundtrip():
@@ -92,3 +92,19 @@ def test_verify_skipped_for_local():
     components = {"executor": "local", "dashboard": "local", "dashboard_frontend": "local",
                   "discord_bridge": "local", "lambda": "local", "cogos": "local"}
     verify_artifacts(components, ecr_client=None, s3_client=None, artifacts_bucket="test-bucket")
+
+
+def test_load_defaults(tmp_path):
+    defaults_file = tmp_path / "versions.defaults.json"
+    defaults_file.write_text(json.dumps({
+        "executor": "aaa", "dashboard": "bbb", "dashboard_frontend": "ccc",
+        "discord_bridge": "ddd", "lambda": "eee", "cogos": "fff",
+    }))
+    result = load_defaults(tmp_path)
+    assert result["executor"] == "aaa"
+    assert len(result) == 6
+
+def test_load_defaults_missing(tmp_path):
+    result = load_defaults(tmp_path)
+    for v in result.values():
+        assert v == "local"

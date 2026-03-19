@@ -1,0 +1,8 @@
+{
+  "executor": "local",
+  "dashboard": "local",
+  "dashboard_frontend": "local",
+  "discord_bridge": "local",
+  "lambda": "local",
+  "cogos": "local"
+}

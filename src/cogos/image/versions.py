@@ -89,3 +89,10 @@ def verify_artifacts(
                 s3_client.head_object(Bucket=artifacts_bucket, Key=key)
             except Exception:
                 raise ArtifactMissing(f"{name}: S3 artifact 's3://{artifacts_bucket}/{key}' not found")
+
+
+def load_defaults(image_dir: Path) -> dict[str, str]:
+    defaults_file = image_dir / "versions.defaults.json"
+    if defaults_file.exists():
+        return json.loads(defaults_file.read_text())
+    return {c: "local" for c in KNOWN_COMPONENTS}
