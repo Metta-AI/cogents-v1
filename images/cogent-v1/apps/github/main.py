@@ -3,6 +3,7 @@
 
 channel = event.get("channel_name", "")
 payload = event.get("payload", {})
+print("github: channel=" + repr(channel) + " payload=" + repr(payload))
 
 # Source repo identity
 SOURCE_REPO = "metta-ai/cogents-v1"
