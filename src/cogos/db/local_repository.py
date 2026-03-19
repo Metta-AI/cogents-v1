@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import fcntl
 import json
 import logging
 import os
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -748,9 +748,9 @@ class LocalRepository:
         self, pattern: str, *, prefix: str | None = None, limit: int = 200
     ) -> list[str]:
         """Match file keys by glob pattern. Returns list of matching keys."""
-        from cogos.db.repository import Repository
-
         import re
+
+        from cogos.db.repository import Repository
 
         regex = Repository._glob_to_regex(pattern)
         self._maybe_reload()
@@ -1334,7 +1334,6 @@ class LocalRepository:
 
     def list_alerts(self, *, resolved: bool = False, limit: int = 50) -> list:
         self._maybe_reload()
-        from cogos.db.models.alert import Alert
 
         alerts = list(self._alerts.values())
         if not resolved:

@@ -17,6 +17,8 @@ def _make_bridge() -> DiscordBridge:
     bridge._typing_tasks = {}
     bridge._s3_client = None
     bridge._blob_bucket = ""
+    bridge._pending_dms = {}
+    bridge._alerted_dm_ids = set()
     return bridge
 
 

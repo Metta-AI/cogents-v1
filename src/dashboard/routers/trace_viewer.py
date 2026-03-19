@@ -58,8 +58,8 @@ def get_trace(name: str, trace_id: str) -> TraceOut:
     repo = get_repo()
     try:
         tid = UUID(trace_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid trace_id")
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail="Invalid trace_id") from err
 
     trace = repo.get_request_trace(tid)
     if not trace:

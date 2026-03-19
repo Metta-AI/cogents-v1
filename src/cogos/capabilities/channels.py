@@ -4,13 +4,12 @@ from __future__ import annotations
 import fnmatch
 import logging
 from typing import Any
-from uuid import UUID
 
 from pydantic import BaseModel
 
 from cogos.capabilities.base import Capability
 from cogos.channels.schema_validator import SchemaValidationError, SchemaValidator
-from cogos.db.models import Channel, ChannelMessage, ChannelType, Handler, Schema
+from cogos.db.models import Channel, ChannelMessage, ChannelType, Handler
 from cogos.trace import current_trace
 
 logger = logging.getLogger(__name__)

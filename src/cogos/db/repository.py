@@ -15,17 +15,11 @@ import boto3
 
 from cogos.db.models import (
     ALL_EPOCHS,
-    Alert,
-    AlertSeverity,
-    Budget,
-    BudgetPeriod,
     Capability,
     Channel,
     ChannelMessage,
     ChannelType,
     CogosOperation,
-    Conversation,
-    ConversationStatus,
     Cron,
     Delivery,
     DeliveryStatus,
@@ -39,7 +33,6 @@ from cogos.db.models import (
     RequestTrace,
     Resource,
     ResourceType,
-    ResourceUsage,
     Run,
     RunStatus,
     Schema,
@@ -1656,7 +1649,6 @@ class Repository:
         return [self._span_event_from_row(r) for r in self._rows_to_dicts(response)]
 
     def _span_from_row(self, row: dict) -> Span:
-        from cogos.db.models.span import SpanStatus
         return Span(
             id=UUID(row["id"]),
             trace_id=UUID(row["trace_id"]),
