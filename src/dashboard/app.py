@@ -80,6 +80,7 @@ def create_app() -> FastAPI:
         runs,
         schemas,
         setup,
+        trace_viewer,
         traces,
     )
 
@@ -92,6 +93,7 @@ def create_app() -> FastAPI:
     app.include_router(schemas.router, prefix="/api/cogents/{name}")
     app.include_router(runs.router, prefix="/api/cogents/{name}")
     app.include_router(traces.router, prefix="/api/cogents/{name}")
+    app.include_router(trace_viewer.router, prefix="/api/cogents/{name}")
     app.include_router(cogos_status.router, prefix="/api/cogents/{name}")
     app.include_router(cron.router, prefix="/api/cogents/{name}")
     app.include_router(resources.router, prefix="/api/cogents/{name}")
