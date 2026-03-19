@@ -99,8 +99,11 @@ def handler(event: dict, context) -> dict:
             {UUID(info.process_id) for info in match_result.deliveries},
         )
 
-    # 3. Select any remaining runnable processes
-    select_result = scheduler.select_processes(slots=5)
+    # 3. Select and dispatch ALL remaining runnable processes.
+    #    Each executor runs in its own Lambda invocation so there is no
+    #    reason to limit slots — starving low-priority processes causes
+    #    multi-minute scheduling delays for interactive workloads like DMs.
+    select_result = scheduler.select_processes(slots=50)
     if not select_result.selected:
         return {"statusCode": 200, "dispatched": dispatched}
 

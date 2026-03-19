@@ -4,10 +4,10 @@
 add_process(
     "init",
     mode="daemon",
-    content="@{cogos/init.py}",
+    content="@{mnt/boot/cogos/init.py}",
     executor="python",
     runner="lambda",
-    priority=200.0,
+    priority=100.0,
     capabilities=[
         "me", "procs", "root_dir", "file", "discord", "channels",
         "secrets", "stdlib", "alerts", "cogent", "history",

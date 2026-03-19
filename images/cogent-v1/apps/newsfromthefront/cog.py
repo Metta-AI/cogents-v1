@@ -2,7 +2,7 @@ from cogos.cog.cog import CogConfig
 
 config = CogConfig(
     mode="daemon",
-    priority=15.0,
+    priority=100.0,
     capabilities=[
         "me", "procs", "channels", "discord",
         "web_search", "secrets", "stdlib",

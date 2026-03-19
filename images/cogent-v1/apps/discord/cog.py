@@ -2,7 +2,7 @@ from cogos.cog.cog import CogConfig, model
 
 config = CogConfig(
     mode="daemon",
-    priority=5.0,
+    priority=100.0,
     executor="python",
     model=model("haiku"),
     capabilities=[

@@ -64,15 +64,25 @@ class Repository:
         self._region = region
         self._ingress_queue_url = os.environ.get("COGOS_INGRESS_QUEUE_URL", "")
 
-    def _nudge_ingress(self) -> None:
-        """Send a message to the ingress SQS queue to trigger immediate dispatch."""
+    def _nudge_ingress(self, *, process_id: UUID | None = None) -> None:
+        """Send a message to the ingress SQS queue to trigger immediate dispatch.
+
+        When *process_id* is provided the ingress Lambda will dispatch that
+        specific process instead of relying on weighted random selection, which
+        can starve low-priority processes.
+        """
         if not self._ingress_queue_url:
             return
         try:
+            import json as _json
+
+            body: dict = {"source": "channel_message"}
+            if process_id is not None:
+                body["process_id"] = str(process_id)
             sqs = boto3.client("sqs", region_name=self._region)
             sqs.send_message(
                 QueueUrl=self._ingress_queue_url,
-                MessageBody='{"source": "channel_message"}',
+                MessageBody=_json.dumps(body),
                 MessageGroupId="ingress-wake",
                 MessageDeduplicationId=str(int(time.time())),
             )
@@ -1937,7 +1947,7 @@ class Repository:
                 proc = self.get_process(handler.process)
                 if proc and proc.status == ProcessStatus.WAITING:
                     self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
-                    self._nudge_ingress()
+                    self._nudge_ingress(process_id=handler.process)
 
         return msg_id
 

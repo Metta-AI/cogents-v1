@@ -2,7 +2,7 @@ from cogos.cog.cog import CogConfig
 
 config = CogConfig(
     mode="daemon",
-    priority=8.0,
+    priority=100.0,
     emoji="🧠",
     capabilities=[
         "me", "procs", "discord", "channels",

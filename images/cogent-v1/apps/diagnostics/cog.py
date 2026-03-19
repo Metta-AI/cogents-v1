@@ -3,7 +3,7 @@ from cogos.cog.cog import CogConfig
 config = CogConfig(
     mode="daemon",
     executor="python",
-    priority=1.0,
+    priority=100.0,
     handlers=["system:diagnostics"],
     capabilities=[
         "me", "procs",
