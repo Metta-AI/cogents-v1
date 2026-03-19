@@ -1,38 +1,42 @@
 # Discord cog orchestrator — Python executor (no LLM needed for health checks).
 #
-# Ensures the handler exists, checks health, and escalates if unhealthy.
+# Ensures the handler exists with correct channel subscriptions, checks health,
+# and escalates if unhealthy.
 
-h = procs.get(name="discord/handler")
-has_handler = hasattr(h, 'status') and callable(h.status)
+handler_content = file.read("apps/discord/handler/main.md")
+if hasattr(handler_content, 'error'):
+    print("WARN: handler content not found: " + str(handler_content.error))
+    exit()
 
-if not has_handler:
-    handler_content = file.read("apps/discord/handler/main.md")
-    if hasattr(handler_content, 'error'):
-        print("WARN: handler content not found: " + str(handler_content.error))
-        exit()
-    r = procs.spawn("discord/handler",
-        mode="daemon",
-        content=handler_content.content,
-        model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
-        idle_timeout_ms=300000,
-        capabilities={
-            "discord": None, "channels": None, "stdlib": None,
-            "procs": None, "file": None,
-            "image": None, "blob": None, "secrets": None, "web": None,
-            "data:dir": data,
-        },
-        subscribe=["io:discord:dm", "io:discord:mention", "io:discord:message"],
-    )
-    if hasattr(r, 'error'):
-        print("WARN: handler spawn failed: " + str(r.error))
-    else:
-        print("Handler spawned")
+# Always spawn (upsert) to ensure channel handlers exist.
+# procs.spawn uses upsert_process, so this is safe for existing processes
+# and guarantees subscribe handlers are re-created after reboots.
+r = procs.spawn("discord/handler",
+    mode="daemon",
+    content=handler_content.content,
+    model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    idle_timeout_ms=300000,
+    capabilities={
+        "discord": None, "channels": None, "stdlib": None,
+        "procs": None, "file": None,
+        "image": None, "blob": None, "secrets": None, "web": None,
+        "data:dir": data,
+    },
+    subscribe=["io:discord:dm", "io:discord:mention", "io:discord:message"],
+)
+if hasattr(r, 'error'):
+    print("WARN: handler spawn failed: " + str(r.error))
     exit()
 
 # Health check
+h = procs.get(name="discord/handler")
+if not hasattr(h, 'status') or not callable(h.status):
+    print("Handler spawned, waiting for first dispatch")
+    exit()
+
 status = h.status()
-if status == "waiting" or status == "running":
-    print("Handler is " + status + ". No action needed.")
+if status == "waiting" or status == "running" or status == "runnable":
+    print("Handler is " + status + ". OK.")
     exit()
 
 # Handler is unhealthy — escalate to supervisor for LLM-powered diagnosis

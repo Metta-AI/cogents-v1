@@ -560,7 +560,7 @@ class Repository:
             response = self._execute(
                 """INSERT INTO cogos_handler (id, process, channel, enabled, epoch)
                    VALUES (:id, :process, :channel, :enabled, :epoch)
-                   ON CONFLICT (process, channel) DO UPDATE SET enabled = EXCLUDED.enabled
+                   ON CONFLICT (process, channel) DO UPDATE SET enabled = EXCLUDED.enabled, epoch = EXCLUDED.epoch
                    RETURNING id, created_at""",
                 [
                     self._param("id", h.id),

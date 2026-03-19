@@ -60,11 +60,6 @@ def handler(event: dict, context) -> dict:
     except Exception:
         pass
 
-    # 0. Check throttle cooldown — skip LLM dispatch if recently throttled
-    if _is_throttle_cooldown_active(repo):
-        logger.info("Throttle cooldown active — skipping LLM dispatch this tick")
-        return {"statusCode": 200, "dispatched": 0, "throttle_cooldown": True}
-
     # 0a. Reap runs stuck in RUNNING longer than 15 minutes (Lambda max timeout)
     reaped = repo.timeout_stale_runs(max_age_ms=900_000)
     if reaped:
@@ -81,6 +76,12 @@ def handler(event: dict, context) -> dict:
     flushed = _flush_dead_letters(repo)
     if flushed:
         logger.info("Flushed %s failed runs to dead-letter channel", flushed)
+
+    # 0d. Check throttle cooldown — skip LLM dispatch but allow maintenance above
+    throttle_active = _is_throttle_cooldown_active(repo)
+    if throttle_active:
+        logger.info("Throttle cooldown active — skipping LLM dispatch this tick")
+        return {"statusCode": 200, "dispatched": 0, "throttle_cooldown": True}
 
     # 1. Generate virtual system tick events (not written to event log)
     _apply_system_ticks(repo)
