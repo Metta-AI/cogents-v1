@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,17 +20,12 @@ class ImageSpec:
 
 
 def image_file_prefixes(image_dir: Path) -> list[str]:
-    """Return the top-level directory prefixes that an image owns as file keys.
+    """Return the file key prefixes that an image owns.
 
-    Excludes ``web/`` because runtime-published content (via ``web.publish()``)
-    also lives under that prefix and must survive reloads.
+    On reload, all files under these prefixes are wiped and rebuilt.
+    ``mnt/disk/`` is persistent and never wiped.
     """
-    _SKIP_DIRS = {"init", "apps", "web"}
-    prefixes: list[str] = []
-    for child in sorted(image_dir.iterdir()):
-        if child.is_dir() and child.name not in _SKIP_DIRS:
-            prefixes.append(child.name + "/")
-    return prefixes
+    return ["mnt/boot/", "mnt/repo/"]
 
 
 # Files that are configuration, not content — excluded from spec.files
@@ -111,17 +107,18 @@ def load_image(image_dir: Path) -> ImageSpec:
                 continue
             exec(compile(py.read_text(), str(py), "exec"), builtins.copy())
 
-    # Load top-level files from known content directories.
+    # Load top-level files from known content directories under mnt/boot/.
     # Directories named init/ and apps/ are structural — everything else is content.
-    _STRUCTURAL_DIRS = {"init", "apps"}
+    _STRUCTURAL_DIRS = {"init", "apps", ".git"}
     for child in sorted(image_dir.iterdir()):
         if child.is_dir() and child.name not in _STRUCTURAL_DIRS:
             for f in sorted(child.rglob("*")):
                 if f.is_file() and f.name not in _EXCLUDED_FILES:
-                    key = str(f.relative_to(image_dir))
+                    key = "mnt/boot/" + str(f.relative_to(image_dir))
                     spec.files[key] = f.read_text()
 
-    # Load apps — each app has init/ for scripts and everything else is files
+    # Load apps — each app has init/ for scripts and everything else is files.
+    # App files go under mnt/boot/<app_name>/ (stripping the apps/ prefix).
     apps_dir = image_dir / "apps"
     if apps_dir.is_dir():
         for app_dir in sorted(apps_dir.iterdir()):
@@ -141,7 +138,7 @@ def load_image(image_dir: Path) -> ImageSpec:
                     and "init" not in rel_parts
                     and "__pycache__" not in rel_parts
                     and f.name not in _EXCLUDED_FILES):
-                    key = str(f.relative_to(image_dir))
+                    key = "mnt/boot/" + str(f.relative_to(apps_dir))
                     spec.files[key] = f.read_text()
 
     # Discover cogs — directories containing main.py or main.md
@@ -154,7 +151,7 @@ def load_image(image_dir: Path) -> ImageSpec:
             if _is_cog_dir(app_dir):
                 cog = Cog(app_dir)
                 manifest = CogManifest.from_cog(cog)
-                spec.cogs.append(manifest.to_dict(content_prefix="apps"))
+                spec.cogs.append(manifest.to_dict(content_prefix="mnt/boot"))
 
     # Scan cogos/ subdirectory for cog directories (e.g. cogos/supervisor/)
     cogos_dir = image_dir / "cogos"
@@ -163,6 +160,43 @@ def load_image(image_dir: Path) -> ImageSpec:
             if _is_cog_dir(sub_dir):
                 cog = Cog(sub_dir)
                 manifest = CogManifest.from_cog(cog)
-                spec.cogs.append(manifest.to_dict(content_prefix="cogos"))
+                spec.cogs.append(manifest.to_dict(content_prefix="mnt/boot/cogos"))
+
+    # Load git repo snapshot under mnt/repo/
+    repo_files = _load_repo_files(image_dir)
+    spec.files.update(repo_files)
 
     return spec
+
+
+def _load_repo_files(image_dir: Path) -> dict[str, str]:
+    """Load git-tracked files from the repo containing image_dir into mnt/repo/ keys."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(image_dir), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        )
+        repo_root = Path(result.stdout.strip())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return {}
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files"],
+            capture_output=True, text=True, check=True,
+        )
+        tracked = result.stdout.strip().split("\n")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return {}
+
+    files = {}
+    for rel_path in tracked:
+        if not rel_path:
+            continue
+        full = repo_root / rel_path
+        if full.is_file():
+            try:
+                files["mnt/repo/" + rel_path] = full.read_text()
+            except (UnicodeDecodeError, OSError):
+                pass  # skip binary files
+    return files

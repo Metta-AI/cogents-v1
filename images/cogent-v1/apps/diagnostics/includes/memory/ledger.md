@@ -1,6 +1,6 @@
-@{cogos/includes/code_mode.md}
-@{cogos/includes/files.md}
-@{cogos/includes/memory/ledger.md}
+@{mnt/boot/cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/files.md}
+@{mnt/boot/cogos/includes/memory/ledger.md}
 
 # Diagnostic: includes/memory/ledger
 

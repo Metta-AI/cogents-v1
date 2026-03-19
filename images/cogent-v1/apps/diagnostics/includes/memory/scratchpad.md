@@ -1,6 +1,6 @@
-@{cogos/includes/code_mode.md}
-@{cogos/includes/files.md}
-@{cogos/includes/memory/scratchpad.md}
+@{mnt/boot/cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/files.md}
+@{mnt/boot/cogos/includes/memory/scratchpad.md}
 
 # Diagnostic: includes/memory/scratchpad
 

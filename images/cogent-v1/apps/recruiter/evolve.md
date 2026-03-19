@@ -1,6 +1,6 @@
 # Evolve — Self-Improvement Engine
 
-@{cogos/includes/memory/session.md}
+@{mnt/boot/cogos/includes/memory/session.md}
 
 You analyze feedback and propose improvements to the recruiter system.
 

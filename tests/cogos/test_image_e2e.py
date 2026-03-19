@@ -53,7 +53,7 @@ def test_boot_cogs_e2e(tmp_path):
     # -- Verify cog manifests are written --
     from cogos.files.store import FileStore
     fs = FileStore(repo)
-    raw = fs.get_content("_boot/cog_manifests.json")
+    raw = fs.get_content("mnt/boot/_boot/cog_manifests.json")
     assert raw is not None
     manifests = json.loads(raw)
     manifest_map = {e["name"]: e for e in manifests}
@@ -91,7 +91,7 @@ def test_boot_cogs_e2e(tmp_path):
     from cogos.cog.runtime import CogManifest
 
     for m_dict in manifests:
-        prefix = m_dict.get("content_prefix", "apps")
+        prefix = m_dict.get("content_prefix", "mnt/boot")
         name = m_dict["name"]
         entrypoint = m_dict["entrypoint"]
         content_key = f"{prefix}/{name}/{entrypoint}"

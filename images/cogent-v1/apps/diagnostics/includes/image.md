@@ -1,5 +1,5 @@
-@{cogos/includes/code_mode.md}
-@{cogos/includes/image.md}
+@{mnt/boot/cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/image.md}
 
 # Diagnostic: includes/image
 

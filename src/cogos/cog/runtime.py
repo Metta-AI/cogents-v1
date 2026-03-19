@@ -247,8 +247,10 @@ class CogletRuntime:
         return caps
 
     def _add_scoped_dir_and_data(self, caps: dict[str, Any], cog_name: str) -> None:
-        """Add scoped dir and data capabilities."""
+        """Add mount-based filesystem capabilities."""
         dir_cap = self.cap_objects.get("root_dir")
         if dir_cap is not None and hasattr(dir_cap, "scope"):
-            caps["src_dir"] = dir_cap.scope(prefix=f"cogs/{cog_name}/")
-            caps["data_dir"] = dir_cap.scope(prefix=f"data/{cog_name}/")
+            caps["boot"] = dir_cap.scope(prefix="mnt/boot/", read_only=True)
+            caps["src"] = dir_cap.scope(prefix=f"mnt/boot/{cog_name}/", read_only=True)
+            caps["disk"] = dir_cap.scope(prefix=f"mnt/disk/{cog_name}/")
+            caps["repo"] = dir_cap.scope(prefix="mnt/repo/", read_only=True)

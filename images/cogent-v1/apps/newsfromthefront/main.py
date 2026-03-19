@@ -6,18 +6,18 @@ payload = event.get("payload", {})
 
 # Create/get coglets (idempotent)
 researcher = cog.make_coglet("researcher", entrypoint="main.md",
-    files={"main.md": source.get("researcher.md").read().content})
+    files={"main.md": src.get("researcher.md").read().content})
 analyst = cog.make_coglet("analyst", entrypoint="main.md",
-    files={"main.md": source.get("analyst.md").read().content})
+    files={"main.md": src.get("analyst.md").read().content})
 test_runner = cog.make_coglet("test", entrypoint="main.md",
-    files={"main.md": source.get("test.md").read().content})
+    files={"main.md": src.get("test.md").read().content})
 backfiller = cog.make_coglet("backfill", entrypoint="main.md",
-    files={"main.md": source.get("backfill.md").read().content})
+    files={"main.md": src.get("backfill.md").read().content})
 
 caps = {
     "web_search": None, "channels": None,
     "discord": None, "secrets": None, "stdlib": None,
-    "data_dir": data_dir,
+    "disk": disk,
 }
 
 if channel == "newsfromthefront:tick":

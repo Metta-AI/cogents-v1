@@ -10,11 +10,11 @@ def test_cogent_v1_supervisor_loads():
     spec = load_image(Path("images/cogent-v1"))
 
     # supervisor is spawned at runtime by init.py, not declared as a spec process
-    init_content = spec.files.get("cogos/init.py", "")
+    init_content = spec.files.get("mnt/boot/cogos/init.py", "")
     assert "supervisor" in init_content
 
     # The supervisor prompt file should be loaded
-    assert "apps/supervisor/supervisor.md" in spec.files
+    assert "mnt/boot/supervisor/supervisor.md" in spec.files
 
 
 def test_cogent_v1_supervisor_channel():
@@ -40,4 +40,4 @@ def test_cogent_v1_supervisor_files():
     """The supervisor prompt file should be loaded."""
     spec = load_image(Path("images/cogent-v1"))
 
-    assert "apps/supervisor/supervisor.md" in spec.files
+    assert "mnt/boot/supervisor/supervisor.md" in spec.files

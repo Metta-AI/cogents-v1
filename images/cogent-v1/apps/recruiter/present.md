@@ -1,6 +1,6 @@
 # Present — Candidate Presentation Daemon
 
-@{cogos/includes/memory/session.md}
+@{mnt/boot/cogos/includes/memory/session.md}
 
 You present screened candidates to the team in the `#cogents` Discord channel and capture feedback.
 

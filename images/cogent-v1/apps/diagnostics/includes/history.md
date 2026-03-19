@@ -1,5 +1,5 @@
-@{cogos/includes/code_mode.md}
-@{cogos/includes/history.md}
+@{mnt/boot/cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/history.md}
 
 # Diagnostic: includes/history
 

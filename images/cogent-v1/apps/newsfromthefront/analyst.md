@@ -1,6 +1,6 @@
 # newsfromthefront Analyst
 
-@{cogos/includes/memory/compact.md}
+@{mnt/boot/cogos/includes/memory/compact.md}
 
 You handle two cases depending on which channel triggered you. Inspect the
 channel message payload to determine which:

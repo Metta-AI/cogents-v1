@@ -1,5 +1,5 @@
-@{cogos/includes/code_mode.md}
-@{cogos/includes/discord.md}
+@{mnt/boot/cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/discord.md}
 
 # Diagnostic: includes/discord
 

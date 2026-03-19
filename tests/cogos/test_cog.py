@@ -7,6 +7,7 @@ from pathlib import Path
 from cogos.db.local_repository import LocalRepository
 from cogos.files.store import FileStore
 
+
 # ---------------------------------------------------------------------------
 # Image-level: add_cog + cog manifest
 # ---------------------------------------------------------------------------
@@ -32,7 +33,7 @@ class TestAddCog:
         apply_image(spec, repo)
 
         fs = FileStore(repo)
-        raw = fs.get_content("_boot/cog_manifests.json")
+        raw = fs.get_content("mnt/boot/_boot/cog_manifests.json")
         assert raw is not None
         manifest = json.loads(raw)
         names = {e["name"] for e in manifest}

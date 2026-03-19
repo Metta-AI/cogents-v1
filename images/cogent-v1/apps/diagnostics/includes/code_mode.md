@@ -1,4 +1,4 @@
-@{cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/code_mode.md}
 
 # Diagnostic: includes/code_mode
 

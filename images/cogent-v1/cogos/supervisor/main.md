@@ -1,16 +1,16 @@
 # Supervisor
 
-@{whoami/index.md}
-@{cogos/includes/code_mode.md}
-@{cogos/includes/files.md}
-@{cogos/includes/channels.md}
-@{cogos/includes/procs.md}
-@{cogos/includes/discord.md}
-@{cogos/includes/email.md}
-@{cogos/includes/image.md}
-@{cogos/includes/asana.md}
-@{cogos/includes/memory/knowledge.md}
-@{cogos/includes/memory/ledger.md}
+@{mnt/boot/whoami/index.md}
+@{mnt/boot/cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/files.md}
+@{mnt/boot/cogos/includes/channels.md}
+@{mnt/boot/cogos/includes/procs.md}
+@{mnt/boot/cogos/includes/discord.md}
+@{mnt/boot/cogos/includes/email.md}
+@{mnt/boot/cogos/includes/image.md}
+@{mnt/boot/cogos/includes/asana.md}
+@{mnt/boot/cogos/includes/memory/knowledge.md}
+@{mnt/boot/cogos/includes/memory/ledger.md}
 
 You handle escalated help requests from the `supervisor:help` channel.
 
@@ -44,9 +44,9 @@ print(f"Request from {process_name}: {description}")
 
 Now apply the security screen:
 
-@{cogos/supervisor/security.md}
+@{mnt/boot/cogos/supervisor/security.md}
 
-@{cogos/supervisor/propose.md}
+@{mnt/boot/cogos/supervisor/propose.md}
 
 ### Step 2: Decide and act
 
@@ -61,7 +61,7 @@ If proposing, follow the proposal flow in the propose section above.
 
 Otherwise, delegate to a worker:
 
-@{cogos/supervisor/delegate.md}
+@{mnt/boot/cogos/supervisor/delegate.md}
 
 ### Step 3: Acknowledge with reaction
 

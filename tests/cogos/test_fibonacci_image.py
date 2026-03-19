@@ -7,15 +7,15 @@ from cogos.image.spec import load_image
 
 def test_cogent_v1_fibonacci_loads():
     spec = load_image(Path("images/cogent-v1"))
-    assert "apps/fibonacci/fibonacci.md" in spec.files
+    assert "mnt/boot/fibonacci/fibonacci.md" in spec.files
 
 
 def test_cogent_v1_fibonacci_files_and_prompt():
     spec = load_image(Path("images/cogent-v1"))
-    fibonacci_files = {k for k in spec.files if k.startswith("apps/fibonacci/")}
+    fibonacci_files = {k for k in spec.files if k.startswith("mnt/boot/fibonacci/")}
 
-    assert "apps/fibonacci/fibonacci.md" in fibonacci_files
-    prompt = spec.files["apps/fibonacci/fibonacci.md"]
+    assert "mnt/boot/fibonacci/fibonacci.md" in fibonacci_files
+    prompt = spec.files["mnt/boot/fibonacci/fibonacci.md"]
     assert "fibonacci:poke" in prompt
     assert "If this is the first time, reply with `0`." in prompt
     assert "look back at the prior conversation in this session" in prompt

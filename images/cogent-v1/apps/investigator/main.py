@@ -19,7 +19,7 @@ def sanitize_name(s):
 
 def load_active():
     """Load active investigations from persistent data store."""
-    raw = data_dir.get("active.json").read()
+    raw = disk.get("active.json").read()
     if hasattr(raw, "error"):
         return {}
     try:
@@ -30,7 +30,7 @@ def load_active():
 
 def save_active(active):
     """Persist active investigations."""
-    data_dir.get("active.json").write(json.dumps(active))
+    disk.get("active.json").write(json.dumps(active))
 
 
 # ═══════════════════════════════════════════════════════════
@@ -144,7 +144,7 @@ def spawn_investigation(incident, active):
     dedup_key = incident["dedup_key"]
 
     # Read the investigation coglet template
-    coglet = source.get("investigate/main.md").read()
+    coglet = src.get("investigate/main.md").read()
     if hasattr(coglet, "error"):
         print("ERROR: could not read investigate/main.md: " + str(coglet.error))
         return False
@@ -199,7 +199,7 @@ def spawn_investigation(incident, active):
             "stdlib": None,
             "discord": None,
             "alerts": None,
-            "data_dir": data_dir,
+            "disk": disk,
         },
     )
 

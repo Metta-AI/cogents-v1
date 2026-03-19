@@ -8,12 +8,12 @@ payload = event.get("payload", {})
 SOURCE_REPO = "metta-ai/cogents-v1"
 
 worker_caps = {
-    "github": None, "data_dir": data_dir,
+    "github": None, "disk": disk,
     "channels": None, "stdlib": None,
 }
 
 def _make_scanner():
-    content = source.get("scanner/main.md").read()
+    content = src.get("scanner/main.md").read()
     if hasattr(content, 'error'):
         print("github: scanner prompt not found: " + str(content.error))
         return None
@@ -21,7 +21,7 @@ def _make_scanner():
         files={"main.md": content.content})
 
 def _make_discovery():
-    content = source.get("discovery/main.md").read()
+    content = src.get("discovery/main.md").read()
     if hasattr(content, 'error'):
         print("github: discovery prompt not found: " + str(content.error))
         return None
@@ -42,14 +42,14 @@ if channel == "github:discover":
 
 elif channel == "system:tick:hour" or not channel:
     # Check if daily scan is due
-    last_scan = data_dir.get("last_scan.txt").read()
+    last_scan = disk.get("last_scan.txt").read()
     today = stdlib.time.strftime("%Y-%m-%d")
     if not hasattr(last_scan, 'error') and last_scan.content.strip() == today:
         print("github: already scanned today")
         exit()
 
     # Read repos.md and build scan list
-    repos_content = data_dir.get("repos.md").read()
+    repos_content = disk.get("repos.md").read()
     if hasattr(repos_content, 'error'):
         print("github: repos.md not found")
         exit()
@@ -80,7 +80,7 @@ elif channel == "system:tick:hour" or not channel:
                 run = coglet_runtime.run(scanner, procs, capability_overrides=worker_caps)
                 run.process().send({"repo": repo, "is_self_repo": is_self})
 
-    data_dir.get("last_scan.txt").write(today)
+    disk.get("last_scan.txt").write(today)
     print("github: dispatched " + str(len(scan_repos)) + " scans")
 
 else:

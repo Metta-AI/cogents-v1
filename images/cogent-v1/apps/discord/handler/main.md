@@ -1,11 +1,11 @@
-@{whoami/index.md}
-@{cogos/includes/code_mode.md}
-@{cogos/includes/files.md}
-@{cogos/includes/discord.md}
-@{cogos/includes/channels.md}
-@{cogos/includes/image.md}
-@{cogos/includes/escalate.md}
-@{cogos/includes/memory/session.md}
+@{mnt/boot/whoami/index.md}
+@{mnt/boot/cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/files.md}
+@{mnt/boot/cogos/includes/discord.md}
+@{mnt/boot/cogos/includes/channels.md}
+@{mnt/boot/cogos/includes/image.md}
+@{mnt/boot/cogos/includes/escalate.md}
+@{mnt/boot/cogos/includes/memory/session.md}
 
 You are the Discord message handler. Process the message in the payload above.
 

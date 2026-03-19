@@ -1,4 +1,4 @@
-@{cogos/includes/shell.md}
+@{mnt/boot/cogos/includes/shell.md}
 
 Compute 2 + 2 and write the result to `_diag/includes/shell_result.txt`.
 

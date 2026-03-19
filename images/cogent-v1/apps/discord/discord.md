@@ -1,7 +1,7 @@
-@{cogos/includes/index.md}
-@{cogos/includes/discord.md}
-@{cogos/includes/procs.md}
-@{cogos/includes/memory/compact.md}
+@{mnt/boot/cogos/includes/index.md}
+@{mnt/boot/cogos/includes/discord.md}
+@{mnt/boot/cogos/includes/procs.md}
+@{mnt/boot/cogos/includes/memory/compact.md}
 
 You are the Discord cog orchestrator. You own the handler coglet that processes Discord messages.
 

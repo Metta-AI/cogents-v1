@@ -106,10 +106,10 @@ def test_boot_image_init_uses_capability_profiles(tmp_path):
     apply_image(spec, repo)
 
     fs = FileStore(repo)
-    init_content = fs.get_content("cogos/init.py")
+    init_content = fs.get_content("mnt/boot/cogos/init.py")
     assert init_content is not None
     assert ".profile()" in init_content
-    assert "whoami/profile.md" in init_content
+    assert "mnt/boot/whoami/profile.md" in init_content
 
 
 # ── Test 3: Handler has filtering instructions ────────────
@@ -125,11 +125,11 @@ def test_handler_prompt_has_identity_filtering_instructions(tmp_path):
     apply_image(spec, repo)
 
     fs = FileStore(repo)
-    handler_content = fs.get_content("apps/discord/handler/main.md")
+    handler_content = fs.get_content("mnt/boot/discord/handler/main.md")
     assert handler_content is not None
 
     # Verify the handler reads identity from profile
-    assert "whoami/index.md" in handler_content or "whoami/profile.md" in handler_content
+    assert "mnt/boot/whoami/index.md" in handler_content or "mnt/boot/whoami/profile.md" in handler_content
     assert "my_name" in handler_content
     assert "my_discord_id" in handler_content
 
@@ -150,14 +150,14 @@ def test_handler_prompt_expansion_includes_full_identity(tmp_path):
 
     # Simulate secrets-populated profile (as init.py would write after reading secrets)
     fs.upsert(
-        "whoami/profile.md",
+        "mnt/boot/whoami/profile.md",
         "# Profile\n\n"
         "- **Name:** dr.beta\n"
         "- **Discord User ID:** 555666777\n",
         source="system",
     )
 
-    handler_content = fs.get_content("apps/discord/handler/main.md")
+    handler_content = fs.get_content("mnt/boot/discord/handler/main.md")
     assert handler_content is not None
 
     handler = Process(

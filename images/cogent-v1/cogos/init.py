@@ -55,6 +55,7 @@ def _build_caps(cap_list, cog_name):
     """Build capabilities dict from a CogConfig capabilities list.
 
     Always returns dict(name, Capability) — no aliases, no None values.
+    Injects mount-based filesystem capabilities: boot, src, disk, repo.
     """
     caps = {}
     for entry in cap_list:
@@ -71,11 +72,13 @@ def _build_caps(cap_list, cog_name):
                 caps[name] = cap_obj.scope(**config)
             elif cap_obj is not None:
                 caps[name] = cap_obj
-    # Add scoped dir capabilities for cog isolation
+    # Mount-based filesystem capabilities
     dir_cap = _cap_objects.get("root_dir")
     if dir_cap is not None and hasattr(dir_cap, "scope"):
-        caps["src_dir"] = dir_cap.scope(prefix="cogs/" + cog_name + "/")
-        caps["data_dir"] = dir_cap.scope(prefix="data/" + cog_name + "/")
+        caps["boot"] = dir_cap.scope(prefix="mnt/boot/", read_only=True)
+        caps["src"] = dir_cap.scope(prefix="mnt/boot/" + cog_name + "/", read_only=True)
+        caps["disk"] = dir_cap.scope(prefix="mnt/disk/" + cog_name + "/")
+        caps["repo"] = dir_cap.scope(prefix="mnt/repo/", read_only=True)
     return caps
 
 def _read_file(key):
@@ -93,7 +96,7 @@ def _spawn_cog(manifest):
     entrypoint = manifest["entrypoint"]
 
     # Read main content from FileStore
-    prefix = manifest.get("content_prefix", "apps")
+    prefix = manifest.get("content_prefix", "mnt/boot")
     content_key = prefix + "/" + cog_name + "/" + entrypoint
     content = _read_file(content_key)
     if not content:
@@ -101,10 +104,6 @@ def _spawn_cog(manifest):
         return None
 
     caps = _build_caps(config.get("capabilities", []), cog_name)
-    # Add source dir scoped to where the cog's files live in the FileStore
-    dir_cap = _cap_objects.get("root_dir")
-    if dir_cap is not None and hasattr(dir_cap, "scope"):
-        caps["source"] = dir_cap.scope(prefix=prefix + "/" + cog_name + "/")
 
     subscribe = config.get("handlers") if config.get("handlers") else None
 
@@ -149,7 +148,7 @@ for _pname in ["cogent", "discord", "email"]:
     _pcap = _cap_objects.get(_pname)
     if _pcap is not None and hasattr(_pcap, "profile"):
         _profile_lines.append(_pcap.profile())
-file.write("whoami/profile.md", "\n".join(_profile_lines))
+file.write("mnt/boot/whoami/profile.md", "\n".join(_profile_lines))
 _cogent_cap = _cap_objects.get("cogent")
 if _cogent_cap is not None and hasattr(_cogent_cap, "name"):
     print("Profile: name=" + _cogent_cap.name)
@@ -157,7 +156,7 @@ else:
     print("Profile: written (no cogent capability)")
 
 # ── Read cog manifests ────────────────────────────────────────
-manifest_data = file.read("_boot/cog_manifests.json")
+manifest_data = file.read("mnt/boot/_boot/cog_manifests.json")
 manifests = []
 if hasattr(manifest_data, 'error'):
     print("WARN: cog manifests not found: " + str(manifest_data.error))

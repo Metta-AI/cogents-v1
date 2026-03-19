@@ -111,7 +111,7 @@ class TestDiscordCogApply:
         apply_image(spec, repo)
 
         store = FileStore(repo)
-        raw = store.get_content("_boot/cog_manifests.json")
+        raw = store.get_content("mnt/boot/_boot/cog_manifests.json")
         assert raw is not None
         manifests = json.loads(raw)
         names = {entry["name"] for entry in manifests}

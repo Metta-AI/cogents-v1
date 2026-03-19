@@ -161,9 +161,11 @@ class TestRunCog:
         rt = _make_runtime(cog, {"root_dir": dir_cap})
         rt.run_cog(procs)
 
-        dir_cap.scope.assert_any_call(prefix="cogs/mycog/")
+        dir_cap.scope.assert_any_call(prefix="mnt/boot/", read_only=True)
+        dir_cap.scope.assert_any_call(prefix="mnt/boot/mycog/", read_only=True)
         caps = procs.spawn.call_args.kwargs["capabilities"]
-        assert "src_dir" in caps
+        assert "boot" in caps
+        assert "src" in caps
 
     def test_adds_scoped_data(self, tmp_path):
         dir_cap = _mock_cap("root_dir")
@@ -174,7 +176,9 @@ class TestRunCog:
 
         calls = dir_cap.scope.call_args_list
         prefixes = [c.kwargs.get("prefix") or c.args[0] for c in calls]
-        assert "data/mycog/" in prefixes
+        assert "mnt/disk/mycog/" in prefixes
+        caps = procs.spawn.call_args.kwargs["capabilities"]
+        assert "disk" in caps
 
     def test_adds_runtime_self(self, tmp_path):
         cog = _make_cog(tmp_path)
@@ -244,8 +248,9 @@ class TestRunCoglet:
 
         calls = dir_cap.scope.call_args_list
         prefixes = [c.kwargs.get("prefix") or c.args[0] for c in calls]
-        assert "cogs/mycog/" in prefixes
-        assert "data/mycog/" in prefixes
+        assert "mnt/boot/" in prefixes
+        assert "mnt/boot/mycog/" in prefixes
+        assert "mnt/disk/mycog/" in prefixes
 
     def test_coglet_uses_own_config(self, tmp_path):
         cog = _make_cog(tmp_path, coglets={

@@ -49,7 +49,7 @@ def test_load_image_parses_all_sections():
 
     assert len(spec.cron_rules) == 0
 
-    assert spec.files["cogos/scheduler.md"] == "You are the scheduler."
+    assert spec.files["mnt/boot/cogos/scheduler.md"] == "You are the scheduler."
 
 
 def test_load_image_no_init_dir():

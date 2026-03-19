@@ -54,9 +54,9 @@ def test_apps_load_files():
         _write_app_image(Path(td))
         spec = load_image(Path(td))
 
-    assert "apps/myapp/prompt.md" in spec.files
-    assert spec.files["apps/myapp/prompt.md"] == "You are a worker.\n@{apps/myapp/config.md}"
-    assert "apps/myapp/config.md" in spec.files
+    assert "mnt/boot/myapp/prompt.md" in spec.files
+    assert spec.files["mnt/boot/myapp/prompt.md"] == "You are a worker.\n@{apps/myapp/config.md}"
+    assert "mnt/boot/myapp/config.md" in spec.files
 
 
 def test_apps_load_channels():
@@ -75,7 +75,7 @@ def test_app_prompt_refs_are_explicit_in_file_content():
         _write_app_image(Path(td))
         spec = load_image(Path(td))
 
-    assert "@{apps/myapp/config.md}" in spec.files["apps/myapp/prompt.md"]
+    assert "@{apps/myapp/config.md}" in spec.files["mnt/boot/myapp/prompt.md"]
 
 
 def test_apps_dont_affect_top_level():
@@ -84,7 +84,7 @@ def test_apps_dont_affect_top_level():
         _write_app_image(Path(td))
         spec = load_image(Path(td))
 
-    assert "cogos/scheduler.md" in spec.files
+    assert "mnt/boot/cogos/scheduler.md" in spec.files
     names = {p["name"] for p in spec.processes}
     assert "scheduler" in names
 
@@ -106,32 +106,32 @@ def test_cogent_v1_recruiter_loads():
 def test_cogent_v1_recruiter_files():
     """All recruiter files should be loaded with correct keys."""
     spec = load_image(Path("images/cogent-v1"))
-    recruiter_files = {k for k in spec.files if k.startswith("apps/recruiter/")}
+    recruiter_files = {k for k in spec.files if k.startswith("mnt/boot/recruiter/")}
 
-    assert "apps/recruiter/criteria.md" in recruiter_files
-    assert "apps/recruiter/rubric.json" in recruiter_files
-    assert "apps/recruiter/diagnosis.md" in recruiter_files
-    assert "apps/recruiter/strategy.md" in recruiter_files
-    assert "apps/recruiter/evolution.md" in recruiter_files
+    assert "mnt/boot/recruiter/criteria.md" in recruiter_files
+    assert "mnt/boot/recruiter/rubric.json" in recruiter_files
+    assert "mnt/boot/recruiter/diagnosis.md" in recruiter_files
+    assert "mnt/boot/recruiter/strategy.md" in recruiter_files
+    assert "mnt/boot/recruiter/evolution.md" in recruiter_files
 
     sourcer_files = {k for k in recruiter_files if "sourcer/" in k}
     assert len(sourcer_files) >= 1
 
-    assert "apps/recruiter/main.py" in recruiter_files
+    assert "mnt/boot/recruiter/main.py" in recruiter_files
     prompt_files = {k for k in recruiter_files if k.endswith((".md", ".json")) and "sourcer/" not in k and "init/" not in k}
-    assert "apps/recruiter/discover.md" in prompt_files
+    assert "mnt/boot/recruiter/discover.md" in prompt_files
 
 
 def test_cogent_v1_recruiter_prompt_refs_are_explicit():
     """Recruiter orchestrator references config and worker files via source.get().read()."""
     spec = load_image(Path("images/cogent-v1"))
 
-    orchestrator = spec.files["apps/recruiter/main.py"]
-    # The orchestrator uses source.get().read() to load config into coglets at runtime
-    assert 'source.get("criteria.md").read()' in orchestrator
-    assert 'source.get("strategy.md").read()' in orchestrator
-    # Child prompt files are still referenced via source.get().read()
-    assert 'source.get("discover.md").read()' in orchestrator
+    orchestrator = spec.files["mnt/boot/recruiter/main.py"]
+    # The orchestrator uses src.get().read() to load config into coglets at runtime
+    assert 'src.get("criteria.md").read()' in orchestrator
+    assert 'src.get("strategy.md").read()' in orchestrator
+    # Child prompt files are still referenced via src.get().read()
+    assert 'src.get("discover.md").read()' in orchestrator
 
 
 def test_cogent_v1_recruiter_channel():

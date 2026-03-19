@@ -300,6 +300,9 @@ class DirCapability(Capability):
                     f"to {requested['prefix']!r}"
                 )
             merged["prefix"] = requested["prefix"]
+        # read_only is sticky — once True, cannot be set back to False
+        if existing.get("read_only"):
+            merged["read_only"] = True
         return merged
 
     def _full_key(self, key: str) -> str:
@@ -333,7 +336,10 @@ class DirCapability(Capability):
             process_id=self.process_id,
             run_id=self.run_id,
         )
-        fc._scope = {"key": full_key}
+        scope: dict = {"key": full_key}
+        if self._scope.get("read_only"):
+            scope["ops"] = {"read"}
+        fc._scope = scope
         return fc
 
     def grep(
@@ -435,6 +441,7 @@ class DirCapability(Capability):
 
     def __repr__(self) -> str:
         prefix = self._scope.get("prefix", "")
+        ro = " read-only" if self._scope.get("read_only") else ""
         if prefix:
-            return f"<Dir '{prefix}' list() get(key) grep(pattern) glob(pattern) tree()>"
-        return "<DirCapability list() get(key) grep(pattern) glob(pattern) tree()>"
+            return f"<Dir '{prefix}'{ro} list() get(key) grep(pattern) glob(pattern) tree()>"
+        return f"<DirCapability{ro} list() get(key) grep(pattern) glob(pattern) tree()>"

@@ -48,15 +48,15 @@ Files can reference other files inline with `@{file-key}`. The context engine re
 
 ```md
 # agents/my-agent.md
-@{whoami/index.md}
-@{cogos/includes/code_mode.md}
+@{mnt/boot/whoami/index.md}
+@{mnt/boot/cogos/includes/code_mode.md}
 ```
 
 When this file is used as a process prompt, the referenced files are expanded directly where they appear.
 
 ## Shared includes
 
-Files under `cogos/includes/` are shared API references and instructions. Each process includes what it needs via `@{cogos/includes/code_mode.md}`, `@{cogos/includes/files.md}`, etc. There is no auto-injection — all includes are explicit.
+Files under `cogos/includes/` are shared API references and instructions. Each process includes what it needs via `@{mnt/boot/cogos/includes/code_mode.md}`, `@{mnt/boot/cogos/includes/files.md}`, etc. There is no auto-injection — all includes are explicit.
 
 ## Read-only files
 

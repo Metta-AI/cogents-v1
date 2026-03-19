@@ -1,5 +1,5 @@
-@{cogos/includes/code_mode.md}
-@{cogos/includes/escalate.md}
+@{mnt/boot/cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/escalate.md}
 
 # Diagnostic: includes/escalate
 

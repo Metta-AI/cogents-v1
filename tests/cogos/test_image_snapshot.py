@@ -43,4 +43,4 @@ def test_snapshot_round_trips(tmp_path):
     assert restored.processes[0]["content"] == "@{cogos/scheduler.md}"
     assert "dir" in restored.processes[0]["capabilities"]
     assert restored.processes[0]["handlers"] == []
-    assert restored.files["cogos/scheduler.md"] == "You are the scheduler."
+    assert restored.files["mnt/boot/cogos/scheduler.md"] == "You are the scheduler."

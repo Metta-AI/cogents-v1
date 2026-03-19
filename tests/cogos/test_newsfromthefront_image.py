@@ -50,11 +50,11 @@ def test_cogent_v1_newsfromthefront_prompt_files_exist():
     spec = load_image(Path("images/cogent-v1"))
 
     expected_files = [
-        "apps/newsfromthefront/main.py",
-        "apps/newsfromthefront/researcher.md",
-        "apps/newsfromthefront/analyst.md",
-        "apps/newsfromthefront/test.md",
-        "apps/newsfromthefront/backfill.md",
+        "mnt/boot/newsfromthefront/main.py",
+        "mnt/boot/newsfromthefront/researcher.md",
+        "mnt/boot/newsfromthefront/analyst.md",
+        "mnt/boot/newsfromthefront/test.md",
+        "mnt/boot/newsfromthefront/backfill.md",
     ]
     for key in expected_files:
         assert key in spec.files
@@ -64,8 +64,8 @@ def test_cogent_v1_newsfromthefront_whoami_is_app_scoped():
     """The app identity file should not collide with the image-level whoami key."""
     spec = load_image(Path("images/cogent-v1"))
 
-    assert "whoami/index.md" in spec.files
-    assert "apps/newsfromthefront/whoami/index.md" in spec.files
+    assert "mnt/boot/whoami/index.md" in spec.files
+    assert "mnt/boot/newsfromthefront/whoami/index.md" in spec.files
 
 
 def test_cogent_v1_newsfromthefront_cog_apply(tmp_path):
@@ -79,7 +79,7 @@ def test_cogent_v1_newsfromthefront_cog_apply(tmp_path):
     store = FileStore(repo)
 
     # Verify manifest is written
-    raw = store.get_content("_boot/cog_manifests.json")
+    raw = store.get_content("mnt/boot/_boot/cog_manifests.json")
     assert raw is not None
     manifests = json.loads(raw)
     entry = next((e for e in manifests if e["name"] == "newsfromthefront"), None)
@@ -87,5 +87,5 @@ def test_cogent_v1_newsfromthefront_cog_apply(tmp_path):
     assert entry["config"]["mode"] == "daemon"
 
     # Content file should be in FileStore
-    content = store.get_content("apps/newsfromthefront/main.py")
+    content = store.get_content("mnt/boot/newsfromthefront/main.py")
     assert content is not None

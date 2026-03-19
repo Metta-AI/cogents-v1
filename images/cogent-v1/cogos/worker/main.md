@@ -1,10 +1,10 @@
 # Worker
 
-@{whoami/index.md}
-@{cogos/includes/code_mode.md}
-@{cogos/includes/files.md}
-@{cogos/includes/coglet/channels.md}
-@{cogos/includes/memory/scratchpad.md}
+@{mnt/boot/whoami/index.md}
+@{mnt/boot/cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/files.md}
+@{mnt/boot/cogos/includes/coglet/channels.md}
+@{mnt/boot/cogos/includes/memory/scratchpad.md}
 
 You are a worker process spawned to complete a specific task.
 

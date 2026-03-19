@@ -119,7 +119,7 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
     # (section 9) to avoid a race where the dispatcher picks up init before
     # the manifest is ready.
     counts["cogs"] = len(spec.cogs)
-    fs.upsert("_boot/cog_manifests.json", json.dumps(spec.cogs, indent=2))
+    fs.upsert("mnt/boot/_boot/cog_manifests.json", json.dumps(spec.cogs, indent=2))
 
     # 9. Processes (with capability bindings and handlers)
     # IMPORTANT: This must come AFTER the boot manifest is written (section 8)

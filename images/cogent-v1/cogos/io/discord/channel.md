@@ -1,4 +1,4 @@
-@{cogos/io/discord/handler.md}
+@{mnt/boot/cogos/io/discord/handler.md}
 
 You are handling messages in Discord channel {channel_id}.
 

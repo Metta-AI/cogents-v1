@@ -1,5 +1,5 @@
-@{cogos/includes/code_mode.md}
-@{cogos/includes/channels.md}
+@{mnt/boot/cogos/includes/code_mode.md}
+@{mnt/boot/cogos/includes/channels.md}
 
 # Diagnostic: includes/channels
 
