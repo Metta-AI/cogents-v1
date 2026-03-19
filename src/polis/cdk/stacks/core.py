@@ -51,6 +51,7 @@ from aws_cdk import (
 from constructs import Construct
 
 from polis import naming
+from polis.cdk.constructs.database import SharedDatabaseConstruct
 from polis.config import PolisConfig
 
 SRC_DIR = Path(__file__).resolve().parents[3]
@@ -136,6 +137,9 @@ class PolisStack(cdk.Stack):
             removal_policy=cdk.RemovalPolicy.DESTROY,
         )
 
+        # --- Shared Aurora Database ---
+        self.database = SharedDatabaseConstruct(self, "SharedDb")
+
         # --- Agent Watcher Lambda ---
         self.watcher_fn = lambda_.Function(
             self,
@@ -147,6 +151,8 @@ class PolisStack(cdk.Stack):
             timeout=Duration.seconds(120),
             environment={
                 "DYNAMO_TABLE": self.status_table.table_name,
+                "DB_CLUSTER_ARN": self.database.cluster_arn,
+                "DB_SECRET_ARN": self.database.secret.secret_arn if self.database.secret else "",
             },
         )
 
@@ -418,6 +424,8 @@ class PolisStack(cdk.Stack):
             timeout=Duration.seconds(30),
             environment={
                 "EMAIL_INGEST_SECRET": email_ingest_secret.secret_value.unsafe_unwrap(),
+                "DB_CLUSTER_ARN": self.database.cluster_arn,
+                "DB_SECRET_ARN": self.database.secret.secret_arn if self.database.secret else "",
             },
         )
 
