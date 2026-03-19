@@ -489,7 +489,7 @@ wheels = [
 ]
 
 [[package]]
-name = "cogent"
+name = "cogos"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
