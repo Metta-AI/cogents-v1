@@ -9,6 +9,7 @@ from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
 from cogtainer.cdk.config import CogtainerConfig
+from polis import naming
 
 
 class MonitoringConstruct(Construct):
@@ -33,7 +34,7 @@ class MonitoringConstruct(Construct):
         cw.Alarm(
             self,
             "OrchestratorErrors",
-            alarm_name=f"cogent-{safe_name}-orchestrator-errors",
+            alarm_name=naming.alarm_name(safe_name, "orchestrator-errors"),
             metric=orchestrator_fn.metric_errors(period=Duration.minutes(5)),
             threshold=5,
             evaluation_periods=1,
@@ -44,7 +45,7 @@ class MonitoringConstruct(Construct):
         cw.Alarm(
             self,
             "ExecutorErrors",
-            alarm_name=f"cogent-{safe_name}-executor-errors",
+            alarm_name=naming.alarm_name(safe_name, "executor-errors"),
             metric=executor_fn.metric_errors(period=Duration.minutes(5)),
             threshold=3,
             evaluation_periods=1,
@@ -55,7 +56,7 @@ class MonitoringConstruct(Construct):
         cw.Alarm(
             self,
             "ExecutorDuration",
-            alarm_name=f"cogent-{safe_name}-executor-duration",
+            alarm_name=naming.alarm_name(safe_name, "executor-duration"),
             metric=executor_fn.metric_duration(period=Duration.minutes(5)),
             threshold=config.executor_timeout_s * 1000 * 0.9,
             evaluation_periods=1,
@@ -65,7 +66,7 @@ class MonitoringConstruct(Construct):
         cw.Alarm(
             self,
             "IngressErrors",
-            alarm_name=f"cogent-{safe_name}-ingress-errors",
+            alarm_name=naming.alarm_name(safe_name, "ingress-errors"),
             metric=ingress_fn.metric_errors(period=Duration.minutes(5)),
             threshold=3,
             evaluation_periods=1,
@@ -75,7 +76,7 @@ class MonitoringConstruct(Construct):
         cw.Alarm(
             self,
             "IngressBacklog",
-            alarm_name=f"cogent-{safe_name}-ingress-backlog",
+            alarm_name=naming.alarm_name(safe_name, "ingress-backlog"),
             metric=ingress_queue.metric_approximate_number_of_messages_visible(period=Duration.minutes(5)),
             threshold=10,
             evaluation_periods=1,

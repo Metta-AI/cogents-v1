@@ -10,7 +10,7 @@ from cogos.image.spec import load_image
 
 def test_cogent_v1_newsfromthefront_cog_declared():
     """The newsfromthefront cog should be declared in the image spec."""
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
 
     cog = next((c for c in spec.cogs if c["name"] == "newsfromthefront"), None)
     assert cog is not None, "newsfromthefront cog not found in spec"
@@ -20,7 +20,7 @@ def test_cogent_v1_newsfromthefront_cog_declared():
 
 def test_cogent_v1_newsfromthefront_config_is_daemon():
     """The cog config should be a daemon with proper capabilities."""
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
 
     cog = next(c for c in spec.cogs if c["name"] == "newsfromthefront")
     config = cog["config"]
@@ -31,7 +31,7 @@ def test_cogent_v1_newsfromthefront_config_is_daemon():
 
 def test_cogent_v1_newsfromthefront_has_handlers():
     """The cog should subscribe to all NFF channels."""
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
 
     cog = next(c for c in spec.cogs if c["name"] == "newsfromthefront")
     handlers = cog["config"]["handlers"]
@@ -47,7 +47,7 @@ def test_cogent_v1_newsfromthefront_has_handlers():
 
 def test_cogent_v1_newsfromthefront_prompt_files_exist():
     """All child prompt files should be loaded as files in the spec."""
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
 
     expected_files = [
         "mnt/boot/newsfromthefront/main.py",
@@ -62,7 +62,7 @@ def test_cogent_v1_newsfromthefront_prompt_files_exist():
 
 def test_cogent_v1_newsfromthefront_whoami_is_app_scoped():
     """The app identity file should not collide with the image-level whoami key."""
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
 
     assert "mnt/boot/whoami/index.md" in spec.files
     assert "mnt/boot/newsfromthefront/whoami/index.md" in spec.files
@@ -72,7 +72,7 @@ def test_cogent_v1_newsfromthefront_cog_apply(tmp_path):
     """Cog manifest should be written to FileStore on apply."""
     import json
 
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
     repo = LocalRepository(str(tmp_path))
     apply_image(spec, repo)
 

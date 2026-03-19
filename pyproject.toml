@@ -1,5 +1,5 @@
 [project]
-name = "cogent"
+name = "cogos"
 version = "0.1.0"
 description = "Autonomous software engineering agent built on the Viable System Model"
 requires-python = ">=3.12"
@@ -43,7 +43,7 @@ dev = [
 ]
 
 [project.scripts]
-cogent = "cli.__main__:entry"
+cogos = "cli.__main__:entry"
 polis = "polis.cli:polis"
 discord-bridge = "cogos.io.discord.bridge:main"
 

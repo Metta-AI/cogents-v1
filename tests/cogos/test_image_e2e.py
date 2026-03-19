@@ -9,7 +9,7 @@ from cogos.image.spec import load_image
 def test_boot_cogent_v1(tmp_path):
     """Boot from the real cogent-v1 image using LocalRepository."""
     repo_root = Path(__file__).resolve().parents[2]
-    image_dir = repo_root / "images" / "cogent-v1"
+    image_dir = repo_root / "images" / "cogos"
     assert image_dir.is_dir(), f"cogent-v1 image not found at {image_dir}"
 
     repo = LocalRepository(str(tmp_path / "db"))
@@ -35,7 +35,7 @@ def test_boot_cogs_e2e(tmp_path):
     """Boot cogent-v1, verify cog manifests are written correctly."""
     import json
     repo_root = Path(__file__).resolve().parents[2]
-    image_dir = repo_root / "images" / "cogent-v1"
+    image_dir = repo_root / "images" / "cogos"
 
     repo = LocalRepository(str(tmp_path / "db"))
     spec = load_image(image_dir)
@@ -107,7 +107,7 @@ def test_boot_cogs_e2e(tmp_path):
 def test_boot_then_snapshot_round_trip(tmp_path):
     """Boot cogent-v1, snapshot, boot snapshot — should produce same state."""
     repo_root = Path(__file__).resolve().parents[2]
-    image_dir = repo_root / "images" / "cogent-v1"
+    image_dir = repo_root / "images" / "cogos"
 
     # Boot original
     repo1 = LocalRepository(str(tmp_path / "db1"))

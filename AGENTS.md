@@ -1,4 +1,4 @@
-# Cogent — Autonomous Software Engineering Agent
+# CogOS — Autonomous Software Engineering Agent
 
 Built on the Viable System Model. Each cogent is an autonomous agent with its own ECS task, database, and channel integrations.
 
@@ -35,7 +35,7 @@ src/
   cogos/        # Execution engine (operating system)
   memory/       # Persistent memory (PostgreSQL)
   cogos/io/     # External IO (Discord, GitHub, Asana, email)
-  cli/          # Main cogent CLI
+  cli/          # Main cogos CLI
   polis/        # Shared infrastructure hub (see docs/polis/)
   dashboard/    # Operational dashboard
   body/         # Agent runtime (ECS task)
@@ -78,7 +78,7 @@ polis/shared/{key}         # Org-wide shared keys (e.g., polis/shared/jwt-signin
 
 ## Running a Cogent Locally vs on AWS
 
-`cogent local ...` (or `cogos -c local ...`) means run on this machine using LocalRepository. By default, each checkout gets its own local JSON store at `.local/cogos/cogos_data.json` under that repo. Set `COGENT_LOCAL_DATA` to override it. Any other cogent name targets that cogent's AWS infrastructure (RDS, Lambda, ECS).
+`cogos local ...` means run on this machine using LocalRepository. By default, each checkout gets its own local JSON store at `.local/cogos/cogos_data.json` under that repo. Set `COGENT_LOCAL_DATA` to override it. Any other cogent name targets that cogent's AWS infrastructure (RDS, Lambda, ECS).
 
 ### Local: Run CogOS on this machine
 
@@ -86,20 +86,20 @@ Requires AWS credentials for Bedrock (LLM calls). No Lambda, no RDS, no EventBri
 
 ```bash
 # 1. Boot an image into local DB
-cogent local cogos image boot cogent-v1 --clean
+cogos local cogos image boot cogos --clean
 
 # 2. Start the local executor (daemon loop, replaces Lambda dispatch)
-cogent local cogos run-local
+cogos local cogos run-local
 
 # 3. (Optional) Start Discord bridge locally
-cogent local cogos io discord run-local
+cogos local cogos io discord run-local
 
 # 4. Run a single process manually
-cogent local cogos process run <process-name> --local
+cogos local cogos process run <process-name> --local
 
 # 5. Check status
-cogent local cogos status
-cogent local cogos run list
+cogos local cogos status
+cogos local cogos run list
 ```
 
 `run-local` options:
@@ -108,24 +108,24 @@ cogent local cogos run list
 
 ### Validated Local Operations
 
-All of the following have been tested and work with `cogent local`:
+All of the following have been tested and work with `cogos local`:
 
 | Operation | Command |
 |-----------|---------|
-| Boot image | `cogent local cogos image boot cogent-v1 --clean` |
-| Check status | `cogent local cogos status` |
-| List capabilities | `cogent local cogos capability list` |
-| Inspect capability | `cogent local cogos capability get <name>` |
-| List/read/create files | `cogent local cogos file list`, `file get`, `file create` |
-| List handlers | `cogent local cogos handler list` |
-| Emit channel message | `cogent local cogos channel send <channel> --payload '{...}'` |
-| Run executor tick | `cogent local cogos run-local --once` |
-| Run process directly | `cogent local cogos process run <name> --local` |
-| Disable process | `cogent local cogos process disable <name>` |
-| View run history | `cogent local cogos run list`, `run show <id>` |
-| Wipe all data | `cogent local cogos wipe -y` |
-| Reload from image | `cogent local cogos reload -i cogent-v1 -y` |
-| Discord IO help | `cogent local cogos io discord --help` |
+| Boot image | `cogos local cogos image boot cogos --clean` |
+| Check status | `cogos local cogos status` |
+| List capabilities | `cogos local cogos capability list` |
+| Inspect capability | `cogos local cogos capability get <name>` |
+| List/read/create files | `cogos local cogos file list`, `file get`, `file create` |
+| List handlers | `cogos local cogos handler list` |
+| Emit channel message | `cogos local cogos channel send <channel> --payload '{...}'` |
+| Run executor tick | `cogos local cogos run-local --once` |
+| Run process directly | `cogos local cogos process run <name> --local` |
+| Disable process | `cogos local cogos process disable <name>` |
+| View run history | `cogos local cogos run list`, `run show <id>` |
+| Wipe all data | `cogos local cogos wipe -y` |
+| Reload from image | `cogos local cogos reload -i cogos -y` |
+| Discord IO help | `cogos local cogos io discord --help` |
 
 Validation checklist with step-by-step commands: `tests/cogos/local_validation.md`
 
@@ -148,16 +148,16 @@ In production (Docker), both are served on a single port (8100) — Next.js is s
 
 ```bash
 # Background (recommended for dev):
-cogent local cogos dashboard start             # local JSON DB, runs in background
-cogent local cogos dashboard stop              # stop both servers
-cogent local cogos dashboard reload            # restart (stop + start)
+cogos local cogos dashboard start             # local JSON DB, runs in background
+cogos local cogos dashboard stop              # stop both servers
+cogos local cogos dashboard reload            # restart (stop + start)
 
 # Foreground (opens browser):
-cogent local dashboard serve --db local        # local JSON DB
-cogent <name> dashboard serve --db prod          # live polis DB
+cogos local dashboard serve --db local        # local JSON DB
+cogos <name> dashboard serve --db prod          # live polis DB
 ```
 
-`cogos dashboard start` runs both backend and frontend in the background, tracking PIDs for clean stop/reload. Logs go to `/tmp/cogent-backend.log` and `/tmp/cogent-frontend.log`.
+`cogos dashboard start` runs both backend and frontend in the background, tracking PIDs for clean stop/reload. Logs go to `/tmp/cogos-backend.log` and `/tmp/cogos-frontend.log`.
 
 # Manual (two terminals):
 source dashboard/ports.sh
@@ -203,58 +203,58 @@ All `cogtainer update` commands check that a CI-built ECR image exists for the c
 
 ```bash
 # Wait for CI to finish building
-cogent <name> cogtainer await                          # Wait for executor-<sha>
-cogent <name> cogtainer await --prefix dashboard       # Wait for dashboard-<sha>
-cogent <name> cogtainer await --tag dashboard-latest   # Wait for specific tag
+cogos <name> cogtainer await                          # Wait for executor-<sha>
+cogos <name> cogtainer await --prefix dashboard       # Wait for dashboard-<sha>
+cogos <name> cogtainer await --tag dashboard-latest   # Wait for specific tag
 
 # Deploy dashboard image to ECS
-cogent <name> cogtainer update ecs --tag dashboard-latest
-cogent <name> cogtainer update ecs --tag dashboard-abc1234
+cogos <name> cogtainer update ecs --tag dashboard-latest
+cogos <name> cogtainer update ecs --tag dashboard-abc1234
 
 # Deploy executor code to Lambda (no Docker needed)
-cogent <name> cogtainer update lambda
+cogos <name> cogtainer update lambda
 ```
 
 Local builds (`cogtainer build`, `dashboard deploy --docker`) still work when needed.
 
-### Deploying a cogent (decision tree)
+### Deploying a cogent instance (decision tree)
 
 See [docs/deploy.md](docs/deploy.md) for the full reference. Match what changed to the right command:
 
 | What changed | Command |
 |---|---|
-| `images/**` only | `cogent <name> cogos image boot cogent-v1` |
-| `src/cogos/executor/**`, `src/cogos/sandbox/**`, `src/cogos/capabilities/**` | `cogent <name> cogtainer update lambda` |
-| `src/cogos/db/migrations/**` | `cogent <name> cogtainer update rds` |
-| `dashboard/frontend/**` only | `cogent <name> dashboard deploy` |
-| `src/dashboard/**` (backend) | `cogent <name> dashboard deploy --docker` |
+| `images/**` only | `cogos <name> cogos image boot cogos` |
+| `src/cogos/executor/**`, `src/cogos/sandbox/**`, `src/cogos/capabilities/**` | `cogos <name> cogtainer update lambda` |
+| `src/cogos/db/migrations/**` | `cogos <name> cogtainer update rds` |
+| `dashboard/frontend/**` only | `cogos <name> dashboard deploy` |
+| `src/dashboard/**` (backend) | `cogos <name> dashboard deploy --docker` |
 | `src/cogtainer/docker/**` (Dockerfile/deps) | CI builds automatically; executor runs as Lambda, no ECS deploy needed |
-| `dashboard/Dockerfile`, backend deps | CI builds automatically; then `cogent <name> cogtainer update ecs --tag dashboard-latest` |
-| `src/cogtainer/cdk/**`, IAM, VPC, ALB changes | `cogent <name> cogtainer create` |
+| `dashboard/Dockerfile`, backend deps | CI builds automatically; then `cogos <name> cogtainer update ecs --tag dashboard-latest` |
+| `src/cogtainer/cdk/**`, IAM, VPC, ALB changes | `cogos <name> cogtainer create` |
 
 Common sequences:
 
 ```bash
 # Executor code change
-cogent <name> cogtainer update lambda
-cogent <name> cogos image boot cogent-v1    # if image also changed
+cogos <name> cogtainer update lambda
+cogos <name> cogos image boot cogos    # if image also changed
 
 # Schema migration + executor change
-cogent <name> cogtainer update rds
-cogent <name> cogtainer update lambda
+cogos <name> cogtainer update rds
+cogos <name> cogtainer update lambda
 
 # Full infrastructure change (CDK constructs, IAM, ALB)
-cogent <name> cogtainer create
-cogent <name> cogos image boot cogent-v1
+cogos <name> cogtainer create
+cogos <name> cogos image boot cogos
 ```
 
 ### Managing the Discord bridge (remote)
 
 ```bash
-cogent <name> cogos io discord start     # Scale ECS service to 1 task
-cogent <name> cogos io discord stop      # Scale to 0
-cogent <name> cogos io discord restart   # Force new deployment
-cogent <name> cogos io discord status    # Check running/desired counts
+cogos <name> cogos io discord start     # Scale ECS service to 1 task
+cogos <name> cogos io discord stop      # Scale to 0
+cogos <name> cogos io discord restart   # Force new deployment
+cogos <name> cogos io discord status    # Check running/desired counts
 ```
 
 ### Testing a deployed dashboard
@@ -262,8 +262,8 @@ cogent <name> cogos io discord status    # Check running/desired counts
 1. Create a PAT (Personal Access Token) for API access:
 
 ```bash
-cogent <name> dashboard create-pat
-cogent <name> cogtainer create              # Apply ALB bypass rule
+cogos <name> dashboard create-pat
+cogos <name> cogtainer create              # Apply ALB bypass rule
 ```
 
 2. Test with curl:
@@ -276,14 +276,14 @@ curl -H 'X-Api-Key: <pat>' https://<safe-name>.<your-domain>/api/cogents/<name>/
 
 ## Dashboard Testing with agent-browser
 
-Use the `agent-browser` skill to test the Cogent Dashboard interactively.
+Use the `agent-browser` skill to test the CogOS Dashboard interactively.
 
 ### Prerequisites
 
 Start the dashboard:
 
 ```bash
-cogent local cogos dashboard start
+cogos local cogos dashboard start
 ```
 
 Or manually:

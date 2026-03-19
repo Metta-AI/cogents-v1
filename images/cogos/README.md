@@ -1,11 +1,11 @@
-# cogent-v1 image
+# cogos image
 
 Declarative snapshot of everything needed to initialize a new cogent.
 
 ## Structure
 
 ```
-images/cogent-v1/
+images/cogos/
 ├── init/
 │   ├── capabilities.py   # built-in capabilities (files, procs, channels, etc.)
 │   ├── resources.py       # resource pools (lambda=5, ecs=2)

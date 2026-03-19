@@ -98,7 +98,7 @@ def test_handler_prompt_expands_profile_identity(repo, file_store):
 def test_boot_image_init_uses_capability_profiles(tmp_path):
     """Booting cogent-v1 image creates init.py that uses cogent/discord/email profiles."""
     repo_root = Path(__file__).resolve().parents[2]
-    image_dir = repo_root / "images" / "cogent-v1"
+    image_dir = repo_root / "images" / "cogos"
     assert image_dir.is_dir()
 
     repo = LocalRepository(str(tmp_path / "db"))
@@ -118,7 +118,7 @@ def test_boot_image_init_uses_capability_profiles(tmp_path):
 def test_handler_prompt_has_identity_filtering_instructions(tmp_path):
     """The discord handler prompt tells the LLM to read profile and filter by name."""
     repo_root = Path(__file__).resolve().parents[2]
-    image_dir = repo_root / "images" / "cogent-v1"
+    image_dir = repo_root / "images" / "cogos"
 
     repo = LocalRepository(str(tmp_path / "db"))
     spec = load_image(image_dir)
@@ -140,7 +140,7 @@ def test_handler_prompt_has_identity_filtering_instructions(tmp_path):
 def test_handler_prompt_expansion_includes_full_identity(tmp_path):
     """Full boot + profile write + prompt expansion = identity in handler prompt."""
     repo_root = Path(__file__).resolve().parents[2]
-    image_dir = repo_root / "images" / "cogent-v1"
+    image_dir = repo_root / "images" / "cogos"
 
     repo = LocalRepository(str(tmp_path / "db"))
     spec = load_image(image_dir)

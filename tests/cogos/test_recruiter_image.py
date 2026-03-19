@@ -90,8 +90,8 @@ def test_apps_dont_affect_top_level():
 
 
 def test_cogent_v1_recruiter_loads():
-    """The actual recruiter app should load from the cogent-v1 image as a cog."""
-    spec = load_image(Path("images/cogent-v1"))
+    """The actual recruiter app should load from the cogos image as a cog."""
+    spec = load_image(Path("images/cogos"))
 
     cog = next((c for c in spec.cogs if c["name"] == "recruiter"), None)
     assert cog is not None, "recruiter cog not found"
@@ -105,7 +105,7 @@ def test_cogent_v1_recruiter_loads():
 
 def test_cogent_v1_recruiter_files():
     """All recruiter files should be loaded with correct keys."""
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
     recruiter_files = {k for k in spec.files if k.startswith("mnt/boot/recruiter/")}
 
     assert "mnt/boot/recruiter/criteria.md" in recruiter_files
@@ -124,7 +124,7 @@ def test_cogent_v1_recruiter_files():
 
 def test_cogent_v1_recruiter_prompt_refs_are_explicit():
     """Recruiter orchestrator references config and worker files via source.get().read()."""
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
 
     orchestrator = spec.files["mnt/boot/recruiter/main.py"]
     # The orchestrator uses src.get().read() to load config into coglets at runtime
@@ -136,6 +136,6 @@ def test_cogent_v1_recruiter_prompt_refs_are_explicit():
 
 def test_cogent_v1_recruiter_channel():
     """The feedback channel should be defined."""
-    spec = load_image(Path("images/cogent-v1"))
+    spec = load_image(Path("images/cogos"))
     channel_names = {c["name"] for c in spec.channels}
     assert "recruiter:feedback" in channel_names

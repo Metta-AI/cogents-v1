@@ -13,6 +13,7 @@ import click
 
 from cli import DefaultCommandGroup, get_cogent_name
 # Discord bridge is now polis-level; per-cogent bridge management removed
+from polis import naming
 from polis.aws import DEFAULT_ORG_PROFILE, DEFAULT_REGION, ORG_PROFILE_ENV, resolve_org_profile, set_org_profile
 from polis.config import PolisConfig
 
@@ -37,7 +38,7 @@ def _check_ecr_image_for_commit(session: boto3.Session, prefix: str = "executor"
     ecr_client = session.client("ecr", region_name=DEFAULT_REGION)
     try:
         ecr_client.describe_images(
-            repositoryName="cogent",
+            repositoryName=naming.ecr_repo_name(),
             imageIds=[{"imageTag": expected_tag}],
         )
         click.echo(f"  ECR image for HEAD ({sha_short}): {click.style('found', fg='green')}")
@@ -330,7 +331,7 @@ def _update_ecs_image(ecs_client, session, service_arn: str, tag: str) -> str:
     ecr_client = session.client("ecr", region_name=DEFAULT_REGION)
     try:
         ecr_client.describe_images(
-            repositoryName="cogent",
+            repositoryName=naming.ecr_repo_name(),
             imageIds=[{"imageTag": tag}],
         )
         click.echo(f"  ECR tag '{tag}': {click.style('found', fg='green')}")
@@ -963,7 +964,7 @@ def update_stack(ctx: click.Context, profile: str | None):
     ecr_repo_uri = ""
     try:
         ecr_client = session.client("ecr")
-        repos = ecr_client.describe_repositories(repositoryNames=["cogent"])["repositories"]
+        repos = ecr_client.describe_repositories(repositoryNames=[naming.ecr_repo_name()])["repositories"]
         ecr_repo_uri = repos[0]["repositoryUri"]
     except Exception:
         click.echo("Warning: Could not resolve polis ECR repo. Using default image.")

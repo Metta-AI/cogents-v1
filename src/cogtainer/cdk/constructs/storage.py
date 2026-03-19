@@ -7,6 +7,7 @@ from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
 from cogtainer.cdk.config import CogtainerConfig
+from polis import naming
 
 
 class StorageConstruct(Construct):
@@ -24,7 +25,7 @@ class StorageConstruct(Construct):
         self.bucket = s3.Bucket(
             self,
             "SessionsBucket",
-            bucket_name=f"cogent-{config.cogent_name.replace('.', '-')}-cogtainer-sessions",
+            bucket_name=naming.bucket_name(config.cogent_name),
             removal_policy=RemovalPolicy.RETAIN,
             auto_delete_objects=False,
             lifecycle_rules=[

@@ -24,6 +24,7 @@ from cogtainer.cdk.constructs.compute import ComputeConstruct
 from cogtainer.cdk.constructs.database import DatabaseConstruct
 from cogtainer.cdk.constructs.monitoring import MonitoringConstruct
 from cogtainer.cdk.constructs.storage import StorageConstruct
+from polis import naming
 
 _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent)
 
@@ -58,7 +59,7 @@ class CogtainerStack(Stack):
         self.event_bus = events.EventBus(
             self,
             "EventBus",
-            event_bus_name=f"cogent-{safe_name}",
+            event_bus_name=naming.event_bus_name(safe_name),
         )
 
         # 4. Compute (Lambdas outside VPC, ECS task def for shared cluster)
@@ -77,7 +78,7 @@ class CogtainerStack(Stack):
             self,
             "CatchAllRule",
             event_bus=self.event_bus,
-            rule_name=f"cogent-{safe_name}-catch-all",
+            rule_name=naming.rule_name(safe_name, "catch-all"),
             event_pattern=events.EventPattern(
                 source=events.Match.prefix("cogent."),
             ),
@@ -88,7 +89,7 @@ class CogtainerStack(Stack):
         events.Rule(
             self,
             "DispatcherSchedule",
-            rule_name=f"cogent-{safe_name}-dispatcher-schedule",
+            rule_name=naming.rule_name(safe_name, "dispatcher-schedule"),
             schedule=events.Schedule.rate(Duration.minutes(1)),
             targets=[targets.LambdaFunction(self.compute.dispatcher)],  # type: ignore[arg-type]
         )
@@ -107,7 +108,7 @@ class CogtainerStack(Stack):
         # 7. Shared Discord reply queue (polis-level)
         polis_discord_queue = sqs.Queue.from_queue_arn(
             self, "PolisDiscordQueue",
-            f"arn:aws:sqs:{config.region}:{config.account}:cogent-polis-discord-replies",
+            f"arn:aws:sqs:{config.region}:{config.account}:{naming.queue_name('polis', 'discord-replies')}",
         )
         polis_discord_queue.grant_send_messages(self.compute.orchestrator)
         polis_discord_queue.grant_send_messages(self.compute.executor)
@@ -163,7 +164,7 @@ class CogtainerStack(Stack):
         cluster = ecs.Cluster.from_cluster_attributes(
             self,
             "PolisCluster",
-            cluster_name="cogent-polis",
+            cluster_name=naming.cluster_name(),
             vpc=vpc,
             security_groups=[],
         )
@@ -222,12 +223,12 @@ class CogtainerStack(Stack):
             "DB_RESOURCE_ARN": self.database.cluster_arn,
             "DB_CLUSTER_ARN": self.database.cluster_arn,
             "DB_SECRET_ARN": self.database.secret.secret_arn if self.database.secret else "",
-            "DB_NAME": "cogent",
+            "DB_NAME": naming.db_name(),
             "EVENT_BUS_NAME": self.event_bus.event_bus_name,
             "SESSIONS_BUCKET": self.storage.bucket.bucket_name,
             "DASHBOARD_ASSETS_S3": f"s3://{self.storage.bucket.bucket_name}/dashboard/frontend.tar.gz",
             "DASHBOARD_DOCKER_VERSION": docker_version,
-            "EXECUTOR_FUNCTION_NAME": f"cogent-{safe_name}-executor",
+            "EXECUTOR_FUNCTION_NAME": naming.lambda_name(safe_name, "executor"),
         }
 
         task_def.add_container(

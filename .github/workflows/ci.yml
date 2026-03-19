@@ -14,19 +14,19 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_USER: cogent
-          POSTGRES_PASSWORD: cogent_dev
-          POSTGRES_DB: cogent_test
+          POSTGRES_USER: cogos
+          POSTGRES_PASSWORD: cogos_dev
+          POSTGRES_DB: cogos_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U cogent -d cogent_test"
+          --health-cmd "pg_isready -U cogos -d cogos_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
 
     env:
-      TEST_DATABASE_URL: postgresql://cogent:cogent_dev@localhost:5432/cogent_test
+      TEST_DATABASE_URL: postgresql://cogos:cogos_dev@localhost:5432/cogos_test
 
     steps:
       - uses: actions/checkout@v4

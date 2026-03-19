@@ -1,6 +1,6 @@
 """End-to-end test for per-channel Discord sub-handler routing.
 
-Boots cogent-v1 image, simulates Discord DM flow, verifies:
+Boots cogos image, simulates Discord DM flow, verifies:
 1. Parent handler wakes on first DM
 2. Parent spawns a daemon child subscribed to the fine-grained channel
 3. On second DM, child has its own delivery on the fine-grained channel

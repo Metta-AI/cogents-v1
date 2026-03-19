@@ -24,7 +24,7 @@ from polis.aws import (
     set_profile,
 )
 from polis.config import PolisConfig
-from polis.naming import expected_stack_name
+from polis import naming
 from polis.quotas import QuotaEnsureResult, ensure_service_quota_targets
 from polis.secrets.store import SecretStore
 
@@ -228,13 +228,13 @@ def status():
 
     def _query_ecr():
         ecr = polis_session.client("ecr")
-        repos = ecr.describe_repositories(repositoryNames=["cogent"])["repositories"]
+        repos = ecr.describe_repositories(repositoryNames=[naming.ecr_repo_name()])["repositories"]
         if not repos:
             return None, []
         uri = repos[0]["repositoryUri"]
         try:
             img_resp = ecr.describe_images(
-                repositoryName="cogent",
+                repositoryName=naming.ecr_repo_name(),
                 filter={"tagStatus": "TAGGED"},
             )
             images = sorted(
@@ -603,7 +603,7 @@ def cogents_create(ctx: click.Context, name: str):
     table_resource.put_item(
         Item={
             "cogent_name": name,
-            "stack_name": expected_stack_name(name),
+            "stack_name": naming.stack_name(name),
             "stack_status": "REGISTERED",
             "running_count": 0,
             "desired_count": 0,

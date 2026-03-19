@@ -113,7 +113,7 @@ def test_image_declares_only_init_process(tmp_path):
     from cogos.image.spec import load_image
 
     repo = LocalRepository(str(tmp_path))
-    image_dir = Path(__file__).resolve().parents[2] / "images" / "cogent-v1"
+    image_dir = Path(__file__).resolve().parents[2] / "images" / "cogos"
     spec = load_image(image_dir)
     apply_image(spec, repo)
 

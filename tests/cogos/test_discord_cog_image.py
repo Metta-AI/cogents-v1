@@ -7,26 +7,26 @@ from cogos.image.spec import load_image
 
 class TestDiscordCogImage:
     def test_discord_cog_registered(self):
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         cog_names = {c["name"] for c in spec.cogs}
         assert "discord" in cog_names
 
     def test_discord_cog_config(self):
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         discord_cog = next(c for c in spec.cogs if c["name"] == "discord")
         config = discord_cog["config"]
         assert config["mode"] == "daemon"
         assert config["executor"] == "python"
 
     def test_discord_cog_has_handlers(self):
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         discord_cog = next(c for c in spec.cogs if c["name"] == "discord")
         handlers = discord_cog["config"]["handlers"]
         assert "discord-cog:review" in handlers
         assert "system:tick:hour" in handlers
 
     def test_discord_cog_has_capabilities(self):
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         discord_cog = next(c for c in spec.cogs if c["name"] == "discord")
         caps = discord_cog["config"]["capabilities"]
         cap_names = [c if isinstance(c, str) else c["name"] for c in caps]
@@ -34,51 +34,51 @@ class TestDiscordCogImage:
 
     def test_discord_cog_has_handler_coglet(self):
         """Discord cog should have a 'handler' coglet subdirectory."""
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         discord_cog = next(c for c in spec.cogs if c["name"] == "discord")
         assert "handler" in discord_cog["coglets"]
 
     def test_no_static_discord_handle_message(self):
         """The old discord-handle-message process should not be in init.py."""
-        init_py = Path("images/cogent-v1/cogos/init.py").read_text()
+        init_py = Path("images/cogos/cogos/init.py").read_text()
         assert "discord-handle-message" not in init_py
 
     def test_no_legacy_scheduler_spawn_in_init(self):
         """Dispatcher Lambda owns scheduling; init.py must not spawn a scheduler daemon."""
-        init_py = Path("images/cogent-v1/cogos/init.py").read_text()
+        init_py = Path("images/cogos/cogos/init.py").read_text()
         assert 'procs.spawn("scheduler"' not in init_py
 
     def test_init_reads_cog_manifests(self):
         """Init reads _boot/cog_manifests.json and spawns cog processes."""
-        init_py = Path("images/cogent-v1/cogos/init.py").read_text()
+        init_py = Path("images/cogos/cogos/init.py").read_text()
         assert "_boot/cog_manifests.json" in init_py
         assert "_spawn_cog" in init_py
 
     def test_init_kicks_discord_review_after_boot(self):
         """Init sends discord-cog:review so discord can spawn its handler."""
-        init_py = Path("images/cogent-v1/cogos/init.py").read_text()
+        init_py = Path("images/cogos/cogos/init.py").read_text()
         assert 'channels.send("discord-cog:review"' in init_py
 
     def test_discord_orchestrator_spawns_handler_if_missing(self):
         """Discord orchestrator should spawn handler when it doesn't exist."""
-        discord_py = Path("images/cogent-v1/apps/discord/main.py").read_text()
+        discord_py = Path("images/cogos/apps/discord/main.py").read_text()
         assert 'procs.spawn("discord/handler"' in discord_py
 
     def test_discord_orchestrator_has_web_capability(self):
         """Discord orchestrator needs web to delegate to handler."""
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         discord_cog = next(c for c in spec.cogs if c["name"] == "discord")
         caps = discord_cog["config"]["capabilities"]
         cap_names = [c if isinstance(c, str) else c["name"] for c in caps]
         assert "web" in cap_names
 
     def test_discord_handler_prompt_uses_web_url_helper(self):
-        prompt = Path("images/cogent-v1/apps/discord/handler/main.md").read_text()
+        prompt = Path("images/cogos/apps/discord/handler/main.md").read_text()
         assert "web.url(path)" in prompt
 
     def test_init_process_does_not_request_scheduler_capability(self):
         """The init process should not request the obsolete scheduler capability."""
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         init_proc = next(p for p in spec.processes if p["name"] == "init")
         assert "scheduler" not in init_proc["capabilities"]
 
@@ -89,7 +89,7 @@ class TestDiscordCogApply:
         from cogos.db.local_repository import LocalRepository
         from cogos.image.apply import apply_image
 
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         repo = LocalRepository(str(tmp_path))
         apply_image(spec, repo)
 
@@ -106,7 +106,7 @@ class TestDiscordCogApply:
         from cogos.files.store import FileStore
         from cogos.image.apply import apply_image
 
-        spec = load_image(Path("images/cogent-v1"))
+        spec = load_image(Path("images/cogos"))
         repo = LocalRepository(str(tmp_path))
         apply_image(spec, repo)
 
