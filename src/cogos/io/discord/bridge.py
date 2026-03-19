@@ -139,6 +139,7 @@ class DiscordBridge:
         intents.message_content = True
         intents.dm_messages = True
         intents.guilds = True
+        intents.reactions = True
         self.client = discord.Client(intents=intents)
         self._setup_handlers()
 
@@ -300,6 +301,10 @@ class DiscordBridge:
                 return
             await self._relay_to_db(message)
 
+        @self.client.event
+        async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+            await self._on_raw_reaction_add(payload)
+
     def _get_or_create_channel(self, repo, channel_name: str):
         """Look up a channel by name, creating it if missing."""
         from cogos.db.models import Channel, ChannelType
@@ -400,6 +405,55 @@ class DiscordBridge:
                     f"Failed to relay inbound {message_type} from {message.author} to DB — message will be lost",
                     {"message_id": str(message.id), "author": str(message.author), "message_type": message_type},
                 )
+
+    # ------------------------------------------------------------------
+    # Reaction relay
+    # ------------------------------------------------------------------
+
+    async def _on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        """Relay reactions on our own messages to the DB."""
+        # Ignore bot reactions
+        if payload.member and payload.member.bot:
+            return
+        if payload.user_id == self.client.user.id:
+            return
+
+        try:
+            channel = self.client.get_channel(payload.channel_id)
+            if channel is None:
+                channel = await self.client.fetch_channel(payload.channel_id)
+            message = await channel.fetch_message(payload.message_id)
+        except Exception:
+            logger.debug("Could not fetch message %s for reaction relay", payload.message_id, exc_info=True)
+            return
+
+        # Only relay reactions on our own messages
+        if message.author.id != self.client.user.id:
+            return
+
+        try:
+            from cogos.db.models import ChannelMessage
+
+            repo = self._get_repo()
+            ch = self._get_or_create_channel(repo, "io:discord:reaction")
+            if ch is None:
+                return
+
+            repo.append_channel_message(ChannelMessage(
+                channel=ch.id,
+                sender_process=None,
+                payload={
+                    "message_id": str(payload.message_id),
+                    "channel_id": str(payload.channel_id),
+                    "reactor_id": str(payload.user_id),
+                    "emoji": str(payload.emoji.name),
+                    "guild_id": str(payload.guild_id) if payload.guild_id else None,
+                },
+                idempotency_key=f"reaction:{payload.message_id}:{payload.user_id}:{payload.emoji.name}",
+            ))
+            logger.info("Relayed reaction %s from user %s on message %s", payload.emoji.name, payload.user_id, payload.message_id)
+        except Exception:
+            logger.exception("Failed to relay reaction on message %s", payload.message_id)
 
     # ------------------------------------------------------------------
     # Typing indicator
