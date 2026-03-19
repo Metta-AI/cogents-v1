@@ -209,11 +209,15 @@ def diag_blob():
     """Test blob upload/download."""
     checks = []
     def test_upload_download():
-        blob.upload("_diag_blob", "test content")
-        r = blob.download("_diag_blob")
+        ref = blob.upload("test content", "_diag_blob")
+        if hasattr(ref, "error") and ref.error:
+            raise Exception(str(ref.error))
+        r = blob.download(ref.key)
         if hasattr(r, "error") and r.error:
             raise Exception(str(r.error))
-        content = r.content if hasattr(r, "content") else str(r)
+        content = r.data if hasattr(r, "data") else str(r)
+        if isinstance(content, bytes):
+            content = content.decode("utf-8", errors="replace")
         if "test content" not in content:
             raise Exception("mismatch: " + repr(content)[:100])
     checks.append(check("upload_download", test_upload_download))

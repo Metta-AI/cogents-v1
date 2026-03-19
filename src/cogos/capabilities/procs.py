@@ -272,7 +272,9 @@ class ProcsCapability(Capability):
             inline_schema=inline_schema,
             schema_id=schema_id,
         )
-        self.repo.upsert_channel(recv_ch)
+        # Use the DB-returned ID (handles ON CONFLICT returning existing row's ID)
+        _recv_id = self.repo.upsert_channel(recv_ch)
+        recv_ch_id = _recv_id if isinstance(_recv_id, UUID) else recv_ch.id
 
         # Create per-process stdio channels (legacy names + coglet aliases)
         for stream in ("stdin", "stdout", "stderr"):
@@ -320,7 +322,7 @@ class ProcsCapability(Capability):
         # Register parent for wakeup on the recv channel (child→parent) so
         # child:exited notifications create deliveries and wake the parent.
         from cogos.db.models import Handler
-        self.repo.create_handler(Handler(process=parent_id, channel=recv_ch.id, epoch=child_epoch))
+        self.repo.create_handler(Handler(process=parent_id, channel=recv_ch_id, epoch=child_epoch))
 
         # Bind child to channel handlers if subscribe is set
         if subscribe:
