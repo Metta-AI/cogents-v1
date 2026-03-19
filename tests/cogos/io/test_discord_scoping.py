@@ -48,12 +48,12 @@ class TestUnscopedAllowsAnyChannel:
         body = mock_sqs.call_args.args[0]
         assert body["channel"] == "chan-123"
         assert body["content"] == "hello"
-        assert body["_meta"] == {
-            "queued_at_ms": 1234567,
-            "trace_id": str(trace_id),
-            "process_id": str(pid),
-            "run_id": str(run_id),
-        }
+        meta = body["_meta"]
+        assert meta["queued_at_ms"] == 1234567
+        assert meta["trace_id"] == str(trace_id)
+        assert meta["process_id"] == str(pid)
+        assert meta["run_id"] == str(run_id)
+        assert "cogent_name" in meta
 
 
 class TestScopedChannelsAllowsMatching:

@@ -106,9 +106,15 @@ def _make_bridge() -> DiscordBridge:
     bridge._blob_bucket = ""
     bridge._pending_dms = {}
     bridge._alerted_dm_ids = set()
+    bridge._sent_message_owners = {}
+    bridge._repos = {}
+    bridge._configs = {}
+    bridge._lifecycle = MagicMock()
+    bridge._lifecycle.personas = {}
     return bridge
 
 
+@pytest.mark.anyio
 class TestBridgeMaybeReact:
     async def test_adds_reaction_when_react_present(self):
         bridge = _make_bridge()
@@ -141,6 +147,7 @@ class TestBridgeMaybeReact:
         message.add_reaction.assert_called_once_with("🔧")
 
 
+@pytest.mark.anyio
 class TestBridgeHandleMessageReact:
     async def test_handle_message_reacts_after_send(self):
         bridge = _make_bridge()
@@ -173,6 +180,7 @@ class TestBridgeHandleMessageReact:
         sent_message.add_reaction.assert_not_called()
 
 
+@pytest.mark.anyio
 class TestBridgeHandleDmReact:
     async def test_handle_dm_reacts_after_send(self):
         bridge = _make_bridge()

@@ -10,6 +10,11 @@ import pytest
 from cogos.io.discord.capability import DiscordCapability, DiscordError
 
 
+@pytest.fixture(autouse=True)
+def _set_cogent_name(monkeypatch):
+    monkeypatch.setenv("COGENT_NAME", "test")
+
+
 def _make_capability(scope=None):
     """Create a DiscordCapability with a mocked repo."""
     repo = MagicMock()
@@ -34,13 +39,13 @@ class TestHistoryRequest:
     def test_writes_request_to_api_channel(self):
         cap, repo = _make_capability()
 
-        req_ch = _make_channel("io:discord:api:request")
-        resp_ch = _make_channel("io:discord:api:response")
+        req_ch = _make_channel("io:discord:test:api:request")
+        resp_ch = _make_channel("io:discord:test:api:response")
 
         def get_channel(name):
-            if name == "io:discord:api:request":
+            if name == "io:discord:test:api:request":
                 return req_ch
-            if name == "io:discord:api:response":
+            if name == "io:discord:test:api:response":
                 return resp_ch
             return None
 
@@ -68,13 +73,13 @@ class TestHistoryResponse:
     def test_returns_messages_on_success(self):
         cap, repo = _make_capability()
 
-        req_ch = _make_channel("io:discord:api:request")
-        resp_ch = _make_channel("io:discord:api:response")
+        req_ch = _make_channel("io:discord:test:api:request")
+        resp_ch = _make_channel("io:discord:test:api:response")
 
         def get_channel(name):
-            if name == "io:discord:api:request":
+            if name == "io:discord:test:api:request":
                 return req_ch
-            if name == "io:discord:api:response":
+            if name == "io:discord:test:api:response":
                 return resp_ch
             return None
 
@@ -105,13 +110,13 @@ class TestHistoryResponse:
     def test_returns_error_from_response(self):
         cap, repo = _make_capability()
 
-        req_ch = _make_channel("io:discord:api:request")
-        resp_ch = _make_channel("io:discord:api:response")
+        req_ch = _make_channel("io:discord:test:api:request")
+        resp_ch = _make_channel("io:discord:test:api:response")
 
         def get_channel(name):
-            if name == "io:discord:api:request":
+            if name == "io:discord:test:api:request":
                 return req_ch
-            if name == "io:discord:api:response":
+            if name == "io:discord:test:api:response":
                 return resp_ch
             return None
 
@@ -141,13 +146,13 @@ class TestHistoryTimeout:
     def test_timeout_returns_error(self):
         cap, repo = _make_capability()
 
-        req_ch = _make_channel("io:discord:api:request")
-        resp_ch = _make_channel("io:discord:api:response")
+        req_ch = _make_channel("io:discord:test:api:request")
+        resp_ch = _make_channel("io:discord:test:api:response")
 
         def get_channel(name):
-            if name == "io:discord:api:request":
+            if name == "io:discord:test:api:request":
                 return req_ch
-            if name == "io:discord:api:response":
+            if name == "io:discord:test:api:response":
                 return resp_ch
             return None
 
@@ -180,13 +185,13 @@ class TestHistoryScope:
         cap, repo = _make_capability()
         scoped = cap.scope(ops={"history"}, channels=["123456"])
 
-        req_ch = _make_channel("io:discord:api:request")
-        resp_ch = _make_channel("io:discord:api:response")
+        req_ch = _make_channel("io:discord:test:api:request")
+        resp_ch = _make_channel("io:discord:test:api:response")
 
         def get_channel(name):
-            if name == "io:discord:api:request":
+            if name == "io:discord:test:api:request":
                 return req_ch
-            if name == "io:discord:api:response":
+            if name == "io:discord:test:api:response":
                 return resp_ch
             return None
 
@@ -212,10 +217,10 @@ class TestHistoryMissingChannels:
 
     def test_missing_response_channel(self):
         cap, repo = _make_capability()
-        req_ch = _make_channel("io:discord:api:request")
+        req_ch = _make_channel("io:discord:test:api:request")
 
         def get_channel(name):
-            if name == "io:discord:api:request":
+            if name == "io:discord:test:api:request":
                 return req_ch
             return None
 

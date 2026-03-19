@@ -4,7 +4,6 @@ import pytest
 from botocore.exceptions import ClientError
 from click.testing import CliRunner
 
-from cogos.io.discord.setup import discord_secret_status
 from cogtainer.update_cli import (
     _ensure_discord_bridge_state,
     _find_dashboard_service,
@@ -87,93 +86,37 @@ def test_find_dashboard_service_raises_when_dashboard_service_missing():
         _find_dashboard_service(ecs_client, "dr-gamma")
 
 
-def test_get_discord_desired_count_reads_service():
-    ecs_client = _FakeEcsClient([])
-    ecs_client.describe_services_response = {
-        "services": [{"serviceName": "cogent-dr-gamma-discord", "desiredCount": 1}]
-    }
-    session = _FakeSession(
-        ecs_client=ecs_client,
-        acm_client=object(),
-        ecr_client=object(),
-        secrets_client=_FakeSecretsClient(exists=True),
-    )
-
-    desired = _get_discord_desired_count(session, "dr.gamma")  # type: ignore[arg-type]
-
-    assert desired == 1
-
-
-def test_discord_secret_status_checks_expected_secret_name():
-    secrets_client = _FakeSecretsClient(exists=True)
+def test_get_discord_desired_count_returns_none():
+    """Discord bridge is now polis-level, per-cogent returns None."""
     session = _FakeSession(
         ecs_client=_FakeEcsClient([]),
         acm_client=object(),
         ecr_client=object(),
-        secrets_client=secrets_client,
+        secrets_client=_FakeSecretsClient(exists=True),
     )
-
-    configured, error = discord_secret_status("dr.gamma", "us-east-1", session=session)  # type: ignore[arg-type]
-
-    assert configured is True
-    assert error is None
-    assert secrets_client.calls == ["cogent/dr.gamma/discord"]
+    assert _get_discord_desired_count(session, "dr.gamma") is None  # type: ignore[arg-type]
 
 
-def test_ensure_discord_bridge_state_autostarts_when_secret_exists():
-    ecs_client = _FakeEcsClient([])
-    ecs_client.describe_services_response = {
-        "services": [{"serviceName": "cogent-dr-gamma-discord", "desiredCount": 0}]
-    }
+def test_discord_bridge_state_is_noop():
+    """Discord bridge is now polis-level, per-cogent management is no-op."""
     session = _FakeSession(
-        ecs_client=ecs_client,
+        ecs_client=_FakeEcsClient([]),
         acm_client=object(),
         ecr_client=object(),
         secrets_client=_FakeSecretsClient(exists=True),
     )
-
     action = _ensure_discord_bridge_state(
         session,  # type: ignore[arg-type]
         "dr.gamma",
         "dr-gamma",
         previous_desired_count=None,
     )
-
-    assert action == ("autostarted", 1)
-    assert ecs_client.update_calls == [
-        {
-            "cluster": "cogent-polis",
-            "service": "cogent-dr-gamma-discord",
-            "desiredCount": 1,
-        }
-    ]
-
-
-def test_ensure_discord_bridge_state_preserves_explicitly_stopped_bridge():
-    ecs_client = _FakeEcsClient([])
-    session = _FakeSession(
-        ecs_client=ecs_client,
-        acm_client=object(),
-        ecr_client=object(),
-        secrets_client=_FakeSecretsClient(exists=True),
-    )
-
-    action = _ensure_discord_bridge_state(
-        session,  # type: ignore[arg-type]
-        "dr.gamma",
-        "dr-gamma",
-        previous_desired_count=0,
-    )
-
     assert action is None
-    assert ecs_client.update_calls == []
 
 
-def test_update_stack_restores_running_discord_service(monkeypatch):
+def test_update_stack_no_per_cogent_discord_management(monkeypatch):
+    """Discord bridge is polis-level; update stack should not manage per-cogent bridge."""
     ecs_client = _FakeEcsClient([])
-    ecs_client.describe_services_response = {
-        "services": [{"serviceName": "cogent-dr-gamma-discord", "desiredCount": 1}]
-    }
     acm_client = type(
         "FakeAcm",
         (),
@@ -217,14 +160,8 @@ def test_update_stack_restores_running_discord_service(monkeypatch):
 
     assert result.exit_code == 0
     assert run_calls
-    assert ecs_client.update_calls == [
-        {
-            "cluster": "cogent-polis",
-            "service": "cogent-dr-gamma-discord",
-            "desiredCount": 1,
-        }
-    ]
-    assert "Restoring Discord bridge desired count to 1 for cogent-dr.gamma" in result.output
+    # No per-cogent discord bridge management
+    assert ecs_client.update_calls == []
 
 
 def test_update_rds_runs_brain_and_cogos_migrations(monkeypatch):

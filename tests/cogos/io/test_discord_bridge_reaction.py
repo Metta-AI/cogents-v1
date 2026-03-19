@@ -20,43 +20,46 @@ def _make_bridge() -> DiscordBridge:
     bridge._typing_tasks = {}
     bridge._s3_client = None
     bridge._blob_bucket = ""
-    bridge.cogent_name = "test-cogent"
+    bridge._sent_message_owners = {}
+    bridge._repos = {}
+    bridge._configs = {}
+    bridge._lifecycle = MagicMock()
+    bridge._lifecycle.personas = {}
     return bridge
 
 
 @pytest.mark.anyio
 async def test_relay_reaction_on_own_message():
-    """Bridge relays reactions on bot's own messages to io:discord:reaction channel."""
+    """Bridge relays reactions on bot's own messages to all cogents."""
     bridge = _make_bridge()
+    bridge._configs = {"test-cogent": MagicMock()}
 
     repo = MagicMock()
     bridge._get_repo = MagicMock(return_value=repo)
 
-    reaction_channel = Channel(name="io:discord:reaction", channel_type=ChannelType.NAMED)
+    reaction_channel = Channel(name="io:discord:test-cogent:reaction", channel_type=ChannelType.NAMED)
     repo.get_channel_by_name.return_value = reaction_channel
 
-    # Simulate a raw reaction event on a message authored by the bot
     raw_event = MagicMock(spec=discord.RawReactionActionEvent)
     raw_event.message_id = 12345
     raw_event.channel_id = 67890
-    raw_event.user_id = 11111  # reactor (not the bot)
+    raw_event.user_id = 11111
     raw_event.guild_id = 22222
     raw_event.emoji = MagicMock()
     raw_event.emoji.name = "\U0001f44d"
     raw_event.member = MagicMock()
     raw_event.member.bot = False
 
-    # Mock fetching the message to check authorship
     mock_channel = AsyncMock()
     mock_message = AsyncMock()
     mock_message.author.id = 999  # bot's own message
+    mock_message.webhook_id = None
     mock_channel.fetch_message.return_value = mock_message
     bridge.client.get_channel = MagicMock(return_value=None)
     bridge.client.fetch_channel = AsyncMock(return_value=mock_channel)
 
     await bridge._on_raw_reaction_add(raw_event)
 
-    # Should have written a channel message
     repo.append_channel_message.assert_called_once()
     msg = repo.append_channel_message.call_args.args[0]
     assert msg.payload["message_id"] == "12345"
@@ -67,8 +70,9 @@ async def test_relay_reaction_on_own_message():
 
 @pytest.mark.anyio
 async def test_ignores_reaction_on_others_message():
-    """Bridge ignores reactions on messages NOT authored by the bot."""
+    """Bridge ignores reactions on messages NOT authored by the bot or webhooks."""
     bridge = _make_bridge()
+    bridge._configs = {"test-cogent": MagicMock()}
 
     repo = MagicMock()
     bridge._get_repo = MagicMock(return_value=repo)
@@ -86,6 +90,7 @@ async def test_ignores_reaction_on_others_message():
     mock_channel = AsyncMock()
     mock_message = AsyncMock()
     mock_message.author.id = 88888  # NOT the bot
+    mock_message.webhook_id = None
     mock_channel.fetch_message.return_value = mock_message
     bridge.client.get_channel = MagicMock(return_value=None)
     bridge.client.fetch_channel = AsyncMock(return_value=mock_channel)
@@ -120,18 +125,19 @@ async def test_ignores_bot_reactions():
 
 @pytest.mark.anyio
 async def test_creates_reaction_channel_if_missing():
-    """Bridge creates io:discord:reaction channel if it doesn't exist."""
+    """Bridge creates scoped reaction channel if it doesn't exist."""
     bridge = _make_bridge()
+    bridge._configs = {"test-cogent": MagicMock()}
 
     repo = MagicMock()
     bridge._get_repo = MagicMock(return_value=repo)
 
-    created_channel = Channel(name="io:discord:reaction", channel_type=ChannelType.NAMED)
+    created_channel = Channel(name="io:discord:test-cogent:reaction", channel_type=ChannelType.NAMED)
     call_count = [0]
 
     def _get_channel(name):
         call_count[0] += 1
-        if name == "io:discord:reaction":
+        if "reaction" in name:
             return None if call_count[0] == 1 else created_channel
         return None
 
@@ -150,6 +156,7 @@ async def test_creates_reaction_channel_if_missing():
     mock_channel = AsyncMock()
     mock_message = AsyncMock()
     mock_message.author.id = 999  # bot's own message
+    mock_message.webhook_id = None
     mock_channel.fetch_message.return_value = mock_message
     bridge.client.get_channel = MagicMock(return_value=None)
     bridge.client.fetch_channel = AsyncMock(return_value=mock_channel)
