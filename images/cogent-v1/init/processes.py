@@ -3,7 +3,7 @@
 
 add_process(
     "init",
-    mode="one_shot",
+    mode="daemon",
     content="@{cogos/init.py}",
     executor="python",
     runner="lambda",

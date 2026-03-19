@@ -136,7 +136,9 @@ def apply_image(spec: ImageSpec, repo, *, clean: bool = False) -> dict[str, int]
             executor=proc_dict.get("executor", "llm"),
             model=proc_dict.get("model"),
             priority=float(proc_dict.get("priority", 0.0)),
-            status=ProcessStatus.WAITING if mode == ProcessMode.DAEMON else ProcessStatus.RUNNABLE,
+            # Daemons start WAITING (activated by messages), except init which must boot immediately.
+            # One-shot processes start RUNNABLE.
+            status=ProcessStatus.WAITING if mode == ProcessMode.DAEMON and proc_dict["name"] != "init" else ProcessStatus.RUNNABLE,
             metadata=proc_dict.get("metadata") or {},
             idle_timeout_ms=proc_dict.get("idle_timeout_ms"),
         )
