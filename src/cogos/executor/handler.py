@@ -93,6 +93,30 @@ def get_repo(config: ExecutorConfig | None = None) -> Repository:
     )
 
 
+_SECRETS_PROVIDER = None
+
+
+def get_secrets_provider():
+    """Reconstruct SecretsProvider from env vars set by the runtime."""
+    from cogtainer.secrets import create_secrets_provider
+
+    provider_type = os.environ.get("SECRETS_PROVIDER", "aws")
+    data_dir = os.environ.get("SECRETS_DATA_DIR", os.environ.get("COGOS_LOCAL_DATA", ""))
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    return create_secrets_provider(
+        provider_type=provider_type,
+        data_dir=data_dir,
+        region=region,
+    )
+
+
+def _get_secrets_provider():
+    global _SECRETS_PROVIDER
+    if _SECRETS_PROVIDER is None:
+        _SECRETS_PROVIDER = get_secrets_provider()
+    return _SECRETS_PROVIDER
+
+
 # ── Meta-capability definitions ──────────────────────────────
 
 TOOL_CONFIG = {"tools": [
