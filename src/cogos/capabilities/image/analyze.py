@@ -28,7 +28,7 @@ def describe(cap, key: str, prompt: str | None = None) -> ImageDescription | Ima
     if dl_err:
         return ImageError(error=dl_err)
     try:
-        client = get_gemini_client()
+        client = get_gemini_client(secrets_provider=cap._secrets_provider)
         text_prompt = prompt or "Describe this image in detail."
         image_part = _image_to_part(img)
         response = client.models.generate_content(
@@ -49,7 +49,7 @@ def analyze(cap, key: str, prompt: str) -> AnalysisResult | ImageError:
     if dl_err:
         return ImageError(error=dl_err)
     try:
-        client = get_gemini_client()
+        client = get_gemini_client(secrets_provider=cap._secrets_provider)
         image_part = _image_to_part(img)
         response = client.models.generate_content(
             model=MODEL, contents=[prompt, image_part]
@@ -69,7 +69,7 @@ def extract_text(cap, key: str) -> ExtractedText | ImageError:
     if dl_err:
         return ImageError(error=dl_err)
     try:
-        client = get_gemini_client()
+        client = get_gemini_client(secrets_provider=cap._secrets_provider)
         text_prompt = "Extract all text visible in this image. Return only the extracted text, nothing else."
         image_part = _image_to_part(img)
         response = client.models.generate_content(

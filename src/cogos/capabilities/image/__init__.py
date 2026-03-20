@@ -51,8 +51,8 @@ class ImageCapability(Capability):
         ref3 = image.overlay_text(ref2.key, "Hello!", position="bottom")
     """
 
-    def __init__(self, repo, process_id, run_id=None, trace_id=None):
-        super().__init__(repo, process_id, run_id, trace_id)
+    def __init__(self, repo, process_id, run_id=None, trace_id=None, **kwargs):
+        super().__init__(repo, process_id, run_id, trace_id, **kwargs)
         self._blob = BlobCapability(repo, process_id, run_id)
 
     def _narrow(self, existing: dict, requested: dict) -> dict:

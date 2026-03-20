@@ -40,7 +40,7 @@ def generate(cap, prompt: str, size: str | None = None, style: str | None = None
     if size:
         full_prompt += f" Image size: {size}."
 
-    client = get_gemini_client()
+    client = get_gemini_client(secrets_provider=cap._secrets_provider)
     response = client.models.generate_content(
         model=MODEL,
         contents=full_prompt,
@@ -74,7 +74,7 @@ def edit(cap, key: str, prompt: str) -> BlobRef | ImageError:
 
     image_part = _image_to_part(img_bytes)
 
-    client = get_gemini_client()
+    client = get_gemini_client(secrets_provider=cap._secrets_provider)
     response = client.models.generate_content(
         model=MODEL,
         contents=[prompt, image_part],
@@ -107,7 +107,7 @@ def variations(cap, key: str, count: int = 2) -> list[BlobRef] | ImageError:
     img_bytes = buf.getvalue()
 
     image_part = _image_to_part(img_bytes)
-    client = get_gemini_client()
+    client = get_gemini_client(secrets_provider=cap._secrets_provider)
 
     refs: list[BlobRef] = []
     for i in range(count):

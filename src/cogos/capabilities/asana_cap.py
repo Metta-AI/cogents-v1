@@ -107,8 +107,8 @@ class AsanaCapability(Capability):
         "tasks_for_user",
     }
 
-    def __init__(self, repo, process_id) -> None:
-        super().__init__(repo, process_id)
+    def __init__(self, repo, process_id, **kwargs) -> None:
+        super().__init__(repo, process_id, **kwargs)
         self._api_key: str | None = None
         self._client = None
         self._username: str | None = None
@@ -117,7 +117,7 @@ class AsanaCapability(Capability):
         """The Asana username for this cogent."""
         if self._username is None:
             try:
-                self._username = fetch_secret("cogent/{cogent}/asana", field="username") or ""
+                self._username = fetch_secret("cogent/{cogent}/asana", field="username", secrets_provider=self._secrets_provider) or ""
             except Exception:
                 self._username = ""
         return self._username
@@ -132,7 +132,7 @@ class AsanaCapability(Capability):
     def _get_client(self):
         if self._client is None:
             if self._api_key is None:
-                self._api_key = fetch_secret(SECRET_KEY, field="access_token")
+                self._api_key = fetch_secret(SECRET_KEY, field="access_token", secrets_provider=self._secrets_provider)
             config = asana.Configuration()
             config.access_token = self._api_key
             self._client = asana.ApiClient(config)

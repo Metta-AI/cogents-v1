@@ -99,7 +99,7 @@ class WebSearchCapability(Capability):
         """Search the web via Tavily. recency: 'day'|'week'|'month'."""
         self._check("search")
         try:
-            api_key = fetch_secret("cogent/{cogent}/tavily", field="api_key")
+            api_key = fetch_secret("cogent/{cogent}/tavily", field="api_key", secrets_provider=self._secrets_provider)
             payload: dict[str, Any] = {
                 "api_key": api_key,
                 "query": query,
@@ -144,7 +144,7 @@ class WebSearchCapability(Capability):
         """Search GitHub. search_type: 'repositories'|'issues'|'code'."""
         self._check("search_github")
         try:
-            token = fetch_secret("cogent/{cogent}/github", field="access_token")
+            token = fetch_secret("cogent/{cogent}/github", field="access_token", secrets_provider=self._secrets_provider)
             full_query = query
             if after_date:
                 full_query += f" pushed:>{after_date}"
@@ -188,7 +188,7 @@ class WebSearchCapability(Capability):
         """Search Twitter/X via X API v2."""
         self._check("search_twitter")
         try:
-            bearer = fetch_secret("cogent/{cogent}/twitter", field="bearer_token")
+            bearer = fetch_secret("cogent/{cogent}/twitter", field="bearer_token", secrets_provider=self._secrets_provider)
             params: dict[str, Any] = {
                 "query": query + " -is:retweet",
                 "max_results": 100,

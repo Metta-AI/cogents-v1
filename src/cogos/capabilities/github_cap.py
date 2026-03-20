@@ -93,14 +93,14 @@ class GitHubCapability(Capability):
 
     ALL_OPS = {"search_repos", "get_user", "list_contributions", "get_repo", "list_org_repos"}
 
-    def __init__(self, repo, process_id) -> None:
-        super().__init__(repo, process_id)
+    def __init__(self, repo, process_id, **kwargs) -> None:
+        super().__init__(repo, process_id, **kwargs)
         self._client_instance = None
 
     def _get_client(self):
         if self._client_instance is not None:
             return self._client_instance
-        secret_raw = fetch_secret(SECRET_KEY)
+        secret_raw = fetch_secret(SECRET_KEY, secrets_provider=self._secrets_provider)
         import json as _json
         secret = _json.loads(secret_raw)
         secret_type = secret.get("type", "token")
