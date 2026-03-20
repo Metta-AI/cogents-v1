@@ -16,7 +16,7 @@ backfiller = cog.make_coglet("backfill", entrypoint="main.md",
 
 caps = {
     "web_search": None, "channels": None,
-    "discord": None, "secrets": None, "stdlib": None,
+    "discord": None, "secrets": None,
     "disk": disk,
 }
 

@@ -57,7 +57,7 @@ Read the existing recent_changes.md. Compare the repo's current state (from READ
 Append a dated entry:
 
 ```python
-today = stdlib.time.strftime("%Y-%m-%d")
+today = time.strftime("%Y-%m-%d")
 entry = "\n## " + today + "\n" + changes_summary + "\n"
 
 existing_changes = data.get(repo + "/recent_changes.md").read()

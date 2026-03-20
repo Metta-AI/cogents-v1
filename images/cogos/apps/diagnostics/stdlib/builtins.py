@@ -18,11 +18,11 @@ def check(name, fn):
 # ── time_iso ─────────────────────────────────────────────────
 
 def test_time_iso():
-    t = stdlib.time.time()
+    t = time.time()
     if not isinstance(t, float):
-        raise Exception("stdlib.time.time() should return float, got: " + str(type(t)))
+        raise Exception("time.time() should return float, got: " + str(type(t)))
     if t < 1000000000:
-        raise Exception("stdlib.time.time() returned suspiciously small value: " + repr(t))
+        raise Exception("time.time() returned suspiciously small value: " + repr(t))
 
 check("time_iso", test_time_iso)
 

@@ -129,7 +129,7 @@ TOOL_CONFIG = {"tools": [
             "Available builtins: print, len, range, sorted, min, max, sum, "
             "str, int, float, list, dict, set, tuple, bool, isinstance, hasattr, getattr, "
             "type, map, filter, any, all, repr, json (pre-loaded). "
-            "No import statements — use stdlib.time for timestamps. "
+            "Use `import time` for timestamps, `import random` for randomness. "
             "Print results to see them."
         ),
         "inputSchema": {"json": {

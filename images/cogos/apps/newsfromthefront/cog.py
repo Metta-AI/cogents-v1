@@ -5,7 +5,7 @@ config = CogConfig(
     priority=100.0,
     capabilities=[
         "me", "procs", "channels", "discord",
-        "web_search", "secrets", "stdlib",
+        "web_search", "secrets",
     ],
     handlers=[
         "newsfromthefront:tick",

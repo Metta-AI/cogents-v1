@@ -11,7 +11,7 @@ history = log.read()
 print(history.content if not hasattr(history, 'error') else "")
 
 # Append a timestamped entry (creates the file if missing)
-log.append(f"\n--- {stdlib.time.strftime('%Y-%m-%dT%H:%M:%SZ', stdlib.time.gmtime())}\nSummary of what happened")
+log.append(f"\n--- {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\nSummary of what happened")
 
 # Read the full log after appending
 print(log.read().content)

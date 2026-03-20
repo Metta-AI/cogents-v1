@@ -1087,18 +1087,7 @@ BUILTIN_CAPABILITIES: list[dict] = [
         },
     },
     # ── System ──────────────────────────────────────────────────
-    # stdlib, alerts, resources, secrets, schemas
-    {
-        "name": "stdlib",
-        "description": "Python standard library utilities — time, random.",
-        "handler": "cogos.capabilities.stdlib.stdlib",
-        "instructions": (
-            "stdlib exposes Python standard library modules.\n"
-            "- stdlib.time — Python time module (time.time(), time.sleep(), time.strftime(), etc.)\n"
-            "- stdlib.random — Python random module (random.random(), random.randint(), random.choice(), etc.)\n"
-        ),
-        "schema": {},
-    },
+    # alerts, resources, secrets, schemas
     {
         "name": "alerts",
         "description": "Emit system alerts (warnings, errors) to the dashboard.",

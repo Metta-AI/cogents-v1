@@ -7,7 +7,7 @@ config = CogConfig(
     model=model("haiku"),
     capabilities=[
         "me", "procs", "discord", "channels",
-        "stdlib", "image", "blob", "secrets", "web",
+        "image", "blob", "secrets", "web",
     ],
     handlers=[
         "discord-cog:review",

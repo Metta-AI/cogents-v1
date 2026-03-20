@@ -64,7 +64,6 @@ def test_init_can_spawn_supervisor_with_delegatable_caps(tmp_path):
         "discord": None,
         "channels": None,
         "secrets": None,
-        "stdlib": None,
         "alerts": None,
         "asana": None,
         "email": None,

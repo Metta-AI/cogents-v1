@@ -42,7 +42,7 @@ Write `<org>/<repo>/summary.md` with these sections:
 Target ~30-50 lines. Add `Last scanned: YYYY-MM-DD` at the top.
 
 ```python
-today = stdlib.time.strftime("%Y-%m-%d")
+today = time.strftime("%Y-%m-%d")
 data.get(repo + "/summary.md").write(summary_content)
 ```
 

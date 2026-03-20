@@ -1,11 +1,11 @@
 # Diagnostic: stdlib/llm_stdlib
 
-You are running as a CogOS diagnostic. Your job is to verify that the `stdlib`
-capability works correctly when used by an LLM.
+You are running as a CogOS diagnostic. Your job is to verify that
+`time` and `json` builtins work correctly when used by an LLM.
 
 ## Instructions
 
-1. Call `stdlib.time.time()` and store the result.
+1. Call `time.time()` and store the result.
 2. Verify the result is a float greater than 1000000000.
 3. Use `json.dumps()` to serialize a dict `{"ts": <the timestamp>, "source": "llm"}`.
 4. Use `json.loads()` to deserialize it back and confirm the values match.
@@ -35,9 +35,9 @@ def verify_result_written():
         raise Exception("source should be 'llm', got: " + repr(data.get("source")))
 
 def verify_time():
-    t = stdlib.time.time()
+    t = time.time()
     if not isinstance(t, float) or t < 1000000000:
-        raise Exception("stdlib.time.time() returned invalid value: " + repr(t))
+        raise Exception("time.time() returned invalid value: " + repr(t))
 
 check("result_written", verify_result_written)
 check("time_works", verify_time)

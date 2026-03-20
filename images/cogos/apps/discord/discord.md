@@ -7,7 +7,7 @@ You are the Discord cog orchestrator. You own the handler coglet that processes 
 
 ## Capabilities
 
-`cog`, `coglet_runtime`, `discord`, `channels`, `data` (dir scoped to data/discord/), `file`, `procs`, `stdlib`.
+`cog`, `coglet_runtime`, `discord`, `channels`, `data` (dir scoped to data/discord/), `file`, `procs`.
 
 ## On activation
 
@@ -27,7 +27,7 @@ if not has_handler:
         mode="daemon",
         model="us.anthropic.claude-sonnet-4-20250514-v1:0",
         capabilities=[
-            "discord", "channels", "stdlib", "procs", "file",
+            "discord", "channels", "procs", "file",
             "image", "blob", "secrets", "web",
             {"name": "dir", "alias": "data", "config": {"prefix": "data/discord/"}},
         ],

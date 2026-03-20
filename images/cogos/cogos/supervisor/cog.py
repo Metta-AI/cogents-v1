@@ -6,7 +6,7 @@ config = CogConfig(
     emoji="🧠",
     capabilities=[
         "me", "procs", "discord", "channels",
-        "secrets", "stdlib", "alerts", "asana", "email", "github",
+        "secrets", "alerts", "asana", "email", "github",
         "web_search", "web_fetch", "web", "blob", "image",
         "cog_registry", "coglet_runtime", "fs_dir",
     ],

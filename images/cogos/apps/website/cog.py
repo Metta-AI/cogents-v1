@@ -6,7 +6,6 @@ config = CogConfig(
     executor="python",
     capabilities=[
         "me", "procs", "web", "channels",
-        "stdlib",
     ],
     handlers=["io:web:request"],
 )

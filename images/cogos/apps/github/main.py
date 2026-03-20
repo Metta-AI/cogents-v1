@@ -9,7 +9,7 @@ SOURCE_REPO = "metta-ai/cogos"
 
 worker_caps = {
     "github": None, "disk": disk,
-    "channels": None, "stdlib": None,
+    "channels": None,
 }
 
 def _make_scanner():
@@ -43,7 +43,7 @@ if channel == "github:discover":
 elif channel == "system:tick:hour" or not channel:
     # Check if daily scan is due
     last_scan = disk.get("last_scan.txt").read()
-    today = stdlib.time.strftime("%Y-%m-%d")
+    today = time.strftime("%Y-%m-%d")
     if not hasattr(last_scan, 'error') and last_scan.content.strip() == today:
         print("github: already scanned today")
         exit()

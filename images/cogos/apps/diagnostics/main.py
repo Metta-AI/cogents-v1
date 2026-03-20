@@ -2,7 +2,7 @@
 # Runs in the Python sandbox. All capabilities injected as globals.
 
 def _now():
-    t = stdlib.time.gmtime()
+    t = time.gmtime()
     return (str(t.tm_year) + "-" + str(t.tm_mon).zfill(2) + "-"
             + str(t.tm_mday).zfill(2) + "T" + str(t.tm_hour).zfill(2)
             + ":" + str(t.tm_min).zfill(2) + ":" + str(t.tm_sec).zfill(2) + "Z")
@@ -161,11 +161,11 @@ def diag_me():
     return checks
 
 def diag_stdlib():
-    """Test stdlib.time, json roundtrip."""
+    """Test time, json roundtrip."""
     checks = []
 
     def test_time():
-        t = stdlib.time.time()
+        t = time.time()
         if not isinstance(t, float) or t < 1000000000:
             raise Exception("got " + repr(t))
     checks.append(check("time", test_time))
@@ -355,7 +355,7 @@ ALL_DIAGNOSTICS = {
     "procs": diag_procs,
     "child_exit": diag_child_exit,
     "me": diag_me,
-    "stdlib": diag_stdlib,
+    "builtins": diag_stdlib,
     "discord": diag_discord,
     "web": diag_web,
     "blob": diag_blob,

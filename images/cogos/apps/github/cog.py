@@ -6,7 +6,7 @@ config = CogConfig(
     executor="python",
     capabilities=[
         "me", "procs", "github",
-        "channels", "stdlib",
+        "channels",
     ],
     handlers=[
         "system:tick:hour",

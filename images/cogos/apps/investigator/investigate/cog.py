@@ -4,6 +4,6 @@ config = CogConfig(
     mode="one_shot",
     executor="llm",
     capabilities=[
-        "history", "channels", "stdlib", "discord", "alerts",
+        "history", "channels", "discord", "alerts",
     ],
 )

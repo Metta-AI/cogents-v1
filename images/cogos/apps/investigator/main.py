@@ -196,7 +196,6 @@ def spawn_investigation(incident, active):
         capabilities={
             "history": None,
             "channels": None,
-            "stdlib": None,
             "discord": None,
             "alerts": None,
             "disk": disk,

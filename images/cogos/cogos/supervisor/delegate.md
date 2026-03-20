@@ -32,7 +32,7 @@ _cap_map = {
     "discord": discord, "channels": channels, "dir": root, "data": root,
     "alerts": alerts, "blob": blob, "image": image, "file": file,
     "web_search": web_search, "web_fetch": web_fetch, "web": web,
-    "asana": asana, "email": email, "github": github, "stdlib": stdlib,
+    "asana": asana, "email": email, "github": github,
     "secrets": secrets,
 }
 caps = {}

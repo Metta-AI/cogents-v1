@@ -7,7 +7,7 @@ try:
         "_diag/scope/writer",
         content='data.get("scope_test.txt").write("scoped")\nprint("ok")',
         executor="python", mode="one_shot",
-        capabilities={"data": data, "me": me, "stdlib": stdlib},
+        capabilities={"data": data, "me": me},
     )
     if hasattr(handle, "error"):
         raise Exception(str(handle.error))

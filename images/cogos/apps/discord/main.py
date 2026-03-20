@@ -17,7 +17,7 @@ r = procs.spawn("discord/handler",
     model="us.anthropic.claude-sonnet-4-20250514-v1:0",
     idle_timeout_ms=300000,
     capabilities={
-        "discord": None, "channels": None, "stdlib": None,
+        "discord": None, "channels": None,
         "procs": None,
         "image": None, "blob": None, "secrets": None, "web": None,
         "disk": disk,

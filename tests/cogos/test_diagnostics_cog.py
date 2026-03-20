@@ -18,7 +18,7 @@ class TestDiagnosticsCog:
 
     def test_has_diagnostic_subdirs(self):
         expected_dirs = {
-            "files", "channels", "procs", "me", "scheduler", "stdlib",
+            "files", "channels", "procs", "me", "scheduler",
             "discord", "web", "blob", "image", "email", "asana",
             "github", "alerts", "includes",
         }
@@ -65,6 +65,6 @@ class TestDiagnosticsCog:
         import re
         main_content = (DIAGNOSTICS_DIR / "main.py").read_text()
         diag_keys = set(re.findall(r'"(\w+)":\s*diag_\w+', main_content))
-        expected = {"files", "channels", "procs", "me", "stdlib"}
+        expected = {"files", "channels", "procs", "me"}
         missing = expected - diag_keys
         assert not missing, f"Missing diagnostics: {missing}"

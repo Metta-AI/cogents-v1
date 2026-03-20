@@ -7,7 +7,7 @@ config = CogConfig(
     handlers=["system:diagnostics"],
     capabilities=[
         "me", "procs",
-        "channels", "stdlib", "history",
+        "channels", "history",
         "discord", "email", "asana", "github",
         "web", "web_search", "web_fetch",
         "blob", "image", "alerts",

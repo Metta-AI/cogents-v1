@@ -63,7 +63,7 @@ class TestBootState:
         repo = _boot(tmp_path)
         caps = {c.name for c in repo.list_capabilities()}
         assert len(caps) >= 7
-        for expected in ("discord", "file", "stdlib", "channels", "procs"):
+        for expected in ("discord", "file", "channels", "procs"):
             assert expected in caps, f"Missing capability: {expected}"
 
     def test_init_process_exists(self, tmp_path):

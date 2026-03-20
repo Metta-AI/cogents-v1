@@ -25,7 +25,7 @@ cogent local cogos status
 cogent local cogos capability list
 ```
 
-- [ ] Lists all capabilities (channels, dir, discord, email, file, github, me, procs, resources, scheduler, schemas, secrets, stdlib, web_fetch, web_search, asana)
+- [ ] Lists all capabilities (channels, dir, discord, email, file, github, me, procs, resources, scheduler, schemas, secrets, web_fetch, web_search, asana)
 - [ ] All show `enabled: True`
 
 ```bash

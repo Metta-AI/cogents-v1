@@ -10,11 +10,11 @@ You are the failure investigator. The failure context has been prepended above t
 
 - `json` is pre-loaded. **Do NOT use `import`** — it does not exist.
 - Variables **persist** between `run_code` calls.
-- Available objects: `history`, `channels`, `data` (dir), `file`, `stdlib`, `discord`, `alerts`.
+- Available objects: `history`, `channels`, `data` (dir), `file`, `discord`, `alerts`.
 - `data` is a directory scoped to `data/investigator/`. Use `data.get("key")` to get a file handle, then `.read()`, `.write(content)`, `.append(text)`.
 - `/mnt/repo` has the CogOS source code (read-only). Use `file.read("/mnt/repo/path")` to inspect.
 - `/mnt/boot` has the runtime code (read-only). Use `file.read("/mnt/boot/path")` to inspect.
-- Use `stdlib.time.time()` for timestamps. Use `stdlib.time.strftime(...)` for formatting.
+- Use `time.time()` for timestamps. Use `time.strftime(...)` for formatting.
 - Pydantic models: access fields with `.field_name`, not `.get("field_name")`.
 
 ## Investigation steps

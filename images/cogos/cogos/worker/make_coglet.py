@@ -43,7 +43,7 @@ def make_coglet(reason: str, cog_dir: Path = None):
     )
 
     # Pick capabilities based on task content
-    caps = ["discord", "channels", "stdlib"]
+    caps = ["discord", "channels"]
 
     reason_lower = reason.lower()
     cap_keywords = {

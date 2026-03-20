@@ -4,7 +4,7 @@ config = CogConfig(
     mode="one_shot",
     emoji="🔧",
     capabilities=[
-        "discord", "channels", "stdlib",
+        "discord", "channels",
         "web_search", "web_fetch", "web", "blob", "image",
         "asana", "email", "github", "secrets",
     ],
