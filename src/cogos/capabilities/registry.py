@@ -391,12 +391,12 @@ BUILTIN_CAPABILITIES: list[dict] = [
     },
     {
         "name": "secrets",
-        "description": "Retrieve secrets from AWS SSM Parameter Store or Secrets Manager.",
+        "description": "Retrieve secrets from the runtime's secret store.",
         "handler": "cogos.capabilities.secrets.SecretsCapability",
         "instructions": (
             "Use secrets to retrieve API keys, tokens, and other sensitive values.\n"
             "- secrets.get(key) — retrieve a secret by name\n"
-            "Tries SSM Parameter Store first, then falls back to Secrets Manager.\n"
+            "The secret store is provided by the cogtainer runtime.\n"
             "JSON values are automatically parsed. Never log or emit secret values."
         ),
         "schema": {
