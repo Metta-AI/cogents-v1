@@ -129,6 +129,7 @@ class TestExecutorFlow:
         assert executed == 1
 
         updated = repo.get_process(p.id)
+        assert updated is not None
         assert updated.status == ProcessStatus.WAITING
 
     def test_run_records_token_counts(self, tmp_path):
@@ -166,6 +167,7 @@ class TestExecutorFlow:
         assert executed == 0
 
         updated = repo.get_process(p.id)
+        assert updated is not None
         assert updated.status == ProcessStatus.DISABLED
 
     def test_no_work_returns_zero(self, tmp_path):
