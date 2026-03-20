@@ -232,3 +232,19 @@ class AwsRuntime(CogtainerRuntime):
         """Remove cogent from status table."""
         ddb = self._session.resource("dynamodb", region_name=self._region)
         ddb.Table(self._status_table).delete_item(Key={"cogent_name": name})
+
+    # ── Queue messaging ──────────────────────────────────────
+
+    def send_queue_message(self, queue_name: str, body: str, *, dedup_id: str | None = None) -> None:
+        sqs = self._session.client("sqs", region_name=self._region)
+        url = self.get_queue_url(queue_name)
+        kwargs: dict = {"QueueUrl": url, "MessageBody": body}
+        if dedup_id:
+            kwargs["MessageDeduplicationId"] = dedup_id
+            kwargs["MessageGroupId"] = "default"
+        sqs.send_message(**kwargs)
+
+    def get_queue_url(self, queue_name: str) -> str:
+        sts = self._session.client("sts", region_name=self._region)
+        account_id = sts.get_caller_identity()["Account"]
+        return f"https://sqs.{self._region}.amazonaws.com/{account_id}/{queue_name}"

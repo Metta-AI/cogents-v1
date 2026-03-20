@@ -55,3 +55,11 @@ class CogtainerRuntime(ABC):
     @abstractmethod
     def destroy_cogent(self, name: str) -> None:
         """Remove a cogent and all its data."""
+
+    @abstractmethod
+    def send_queue_message(self, queue_name: str, body: str, *, dedup_id: str | None = None) -> None:
+        """Send a message to a named queue."""
+
+    @abstractmethod
+    def get_queue_url(self, queue_name: str) -> str:
+        """Return the URL for a named queue."""

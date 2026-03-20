@@ -137,3 +137,11 @@ class LocalRuntime(CogtainerRuntime):
         cogent_dir = self._data_dir / name
         if cogent_dir.exists():
             shutil.rmtree(cogent_dir)
+
+    # ── Queue messaging ──────────────────────────────────────
+
+    def send_queue_message(self, queue_name: str, body: str, *, dedup_id: str | None = None) -> None:
+        logger.info("local queue message [%s]: %s", queue_name, body[:200])
+
+    def get_queue_url(self, queue_name: str) -> str:
+        return f"local://{queue_name}"
