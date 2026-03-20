@@ -174,11 +174,22 @@ class LLMClient:
         provider: str = "bedrock",
     ) -> None:
         self._provider = provider
-        self._bedrock = bedrock_client or boto3.client(
-            "bedrock-runtime",
-            region_name=region,
-            config=BotoConfig(retries={"max_attempts": 12, "mode": "adaptive"}),
-        )
+        self._openrouter = None
+
+        if provider == "openrouter":
+            # OpenRouter provider — no Bedrock client needed
+            from cogtainer.llm.openrouter import OpenRouterProvider
+            api_key = os.environ.get("OPENROUTER_API_KEY", "")
+            default_model = os.environ.get("DEFAULT_MODEL", "")
+            self._openrouter = OpenRouterProvider(api_key=api_key, default_model=default_model)
+            self._bedrock = bedrock_client  # may be None, that's fine
+        else:
+            self._bedrock = bedrock_client or boto3.client(
+                "bedrock-runtime",
+                region_name=region,
+                config=BotoConfig(retries={"max_attempts": 12, "mode": "adaptive"}),
+            )
+
         api_key = _resolve_anthropic_api_key(anthropic_api_key)
         self._anthropic = None
         if api_key:
@@ -192,9 +203,21 @@ class LLMClient:
             raise RuntimeError("LLM_PROVIDER=anthropic but no API key found and/or anthropic package not installed")
 
     def converse(self, **kwargs: Any) -> dict:
+        if self._provider == "openrouter":
+            return self._converse_openrouter(**kwargs)
         if self._provider == "anthropic":
             return self._converse_anthropic_primary(**kwargs)
         return self._converse_bedrock_primary(**kwargs)
+
+    def _converse_openrouter(self, **kwargs: Any) -> dict:
+        """OpenRouter provider — uses the cogtainer OpenRouterProvider."""
+        assert self._openrouter is not None
+        return self._openrouter.converse(
+            messages=kwargs["messages"],
+            system=kwargs.get("system", []),
+            tool_config=kwargs.get("toolConfig", {}),
+            model=kwargs.get("modelId"),
+        )
 
     # Bedrock error codes that should trigger Anthropic fallback.
     _FALLBACK_ERROR_CODES = {"ThrottlingException", "ValidationException", "ServiceUnavailableException", "ResourceNotFoundException", "InternalFailure"}

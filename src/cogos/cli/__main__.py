@@ -487,6 +487,17 @@ def process_run(name: str, executor_override: str | None, event: str | None):
         from cogos.executor.handler import get_config
         from cogos.runtime.local import run_and_complete
 
+        # Inject cogtainer LLM config into env so executor picks it up
+        ctx = click.get_current_context()
+        runtime = ctx.obj.get("runtime")
+        if runtime and hasattr(runtime, "_entry") and runtime._entry.llm:
+            llm = runtime._entry.llm
+            os.environ.setdefault("LLM_PROVIDER", llm.provider)
+            os.environ.setdefault("DEFAULT_MODEL", llm.model)
+            if llm.api_key_env:
+                # Ensure the API key env var name is available for the LLM client
+                os.environ.setdefault("OPENROUTER_API_KEY", os.environ.get(llm.api_key_env, ""))
+
         config = get_config()
         repo.update_process_status(p.id, ProcessStatus.RUNNING)
 
@@ -494,7 +505,7 @@ def process_run(name: str, executor_override: str | None, event: str | None):
         repo.create_run(run)
         click.echo(f"Starting local run {run.id} for {name}...")
 
-        bedrock = _bedrock_client()
+        bedrock = _bedrock_client() if config.llm_provider == "bedrock" else None
         event_data = json.loads(event) if event else {}
         try:
             run = run_and_complete(p, event_data, run, config, repo, bedrock_client=bedrock)
@@ -504,15 +515,17 @@ def process_run(name: str, executor_override: str | None, event: str | None):
             run.status = RunStatus.FAILED
             run.error = str(exc)
 
-        click.echo(f"  Run status: {run.status}")
-        if run.status == RunStatus.COMPLETED:
-            click.echo(f"Run completed in {run.duration_ms or 0}ms")
-            click.echo(f"  Tokens: {run.tokens_in} in, {run.tokens_out} out")
-            if run.result:
-                click.echo(f"  Output: {json.dumps(run.result)[:500]}")
+        # Re-read from DB to get final status (run_and_complete updates DB, not local object)
+        db_run = repo.get_run(run.id)
+        final_status = db_run.status if db_run else run.status
+        click.echo(f"  Run status: {final_status}")
+        if final_status == RunStatus.COMPLETED:
+            r = db_run or run
+            click.echo(f"Run completed in {r.duration_ms or 0}ms")
+            click.echo(f"  Tokens: {r.tokens_in} in, {r.tokens_out} out")
+            if r.result:
+                click.echo(f"  Output: {json.dumps(r.result)[:500]}")
         else:
-            # Re-read from DB to get error message
-            db_run = repo.get_run(run.id)
             error = (db_run.error if db_run else None) or run.error or "(unknown)"
             click.echo(f"Run failed: {error}")
     else:

@@ -76,6 +76,10 @@ def create(
             api_key_env=llm_api_key_env or "",
         )
 
+    # Default data_dir for local/docker
+    if ctype in ("local", "docker") and not data_dir:
+        data_dir = str(Path.home() / ".cogos" / "cogtainers" / name)
+
     entry = CogtainerEntry(
         type=ctype,
         region=region,
