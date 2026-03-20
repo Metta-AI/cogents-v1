@@ -501,6 +501,7 @@ class TestListIssues:
             mock_gh.get_repo.return_value = mock_repo
             G.return_value = mock_gh
             results = cap.list_issues("o", "r")
+            assert not isinstance(results, GitHubError)
             assert len(results) == 1
 
 
