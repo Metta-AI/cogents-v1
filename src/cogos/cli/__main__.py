@@ -1208,8 +1208,12 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
-def _read_pid(name: str) -> int | None:
-    f = _PID_DIR / f"{name}.pid"
+def _pid_file(name: str, port: int) -> Path:
+    return _PID_DIR / f"{name}-{port}.pid"
+
+
+def _read_pid(name: str, port: int) -> int | None:
+    f = _pid_file(name, port)
     if not f.exists():
         return None
     pid = int(f.read_text().strip())
@@ -1219,20 +1223,20 @@ def _read_pid(name: str) -> int | None:
     return None
 
 
-def _write_pid(name: str, pid: int) -> None:
+def _write_pid(name: str, port: int, pid: int) -> None:
     _PID_DIR.mkdir(parents=True, exist_ok=True)
-    (_PID_DIR / f"{name}.pid").write_text(str(pid))
+    _pid_file(name, port).write_text(str(pid))
 
 
-def _kill_pid(name: str) -> bool:
-    pid = _read_pid(name)
+def _kill_pid(name: str, port: int) -> bool:
+    pid = _read_pid(name, port)
     if pid is None:
         return False
     try:
         os.kill(pid, signal.SIGTERM)
     except OSError:
         pass
-    (_PID_DIR / f"{name}.pid").unlink(missing_ok=True)
+    _pid_file(name, port).unlink(missing_ok=True)
     return True
 
 
@@ -1262,9 +1266,9 @@ def dashboard_start():
 
     be_port, fe_port = _read_ports()
 
-    # Check if already running
-    be_pid = _read_pid("backend")
-    fe_pid = _read_pid("frontend")
+    # Check if already running (port-scoped so other checkouts don't interfere)
+    be_pid = _read_pid("backend", be_port)
+    fe_pid = _read_pid("frontend", fe_port)
     if be_pid and fe_pid:
         click.echo(f"Dashboard already running (backend={be_pid}, frontend={fe_pid})")
         click.echo(f"  http://localhost:{fe_port}")
@@ -1289,7 +1293,7 @@ def dashboard_start():
         stderr=_sp.STDOUT,
         start_new_session=True,
     )
-    _write_pid("backend", be_proc.pid)
+    _write_pid("backend", be_port, be_proc.pid)
 
     # Start frontend
     fe_proc = _sp.Popen(
@@ -1300,7 +1304,7 @@ def dashboard_start():
         stderr=_sp.STDOUT,
         start_new_session=True,
     )
-    _write_pid("frontend", fe_proc.pid)
+    _write_pid("frontend", fe_port, fe_proc.pid)
 
     click.echo(f"Dashboard started (backend={be_proc.pid}, frontend={fe_proc.pid})")
     click.echo(f"  http://localhost:{fe_port}")
@@ -1312,9 +1316,9 @@ def dashboard_stop():
     """Stop the dashboard backend + frontend."""
     be_port, fe_port = _read_ports()
     stopped = []
-    if _kill_pid("backend"):
+    if _kill_pid("backend", be_port):
         stopped.append("backend")
-    if _kill_pid("frontend"):
+    if _kill_pid("frontend", fe_port):
         stopped.append("frontend")
     # Also kill by port in case PIDs are stale
     _kill_port(be_port)
