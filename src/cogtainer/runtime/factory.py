@@ -19,7 +19,7 @@ def create_runtime(
         return LocalRuntime(entry=entry, llm=llm)
 
     if entry.type == "aws":
-        from polis.aws import get_polis_session
+        from cogtainer.aws import get_polis_session
 
         from cogtainer.runtime.aws import AwsRuntime
 

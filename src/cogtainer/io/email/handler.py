@@ -1,6 +1,6 @@
 """Email ingest Lambda — receives parsed emails from Cloudflare Email Worker.
 
-Deployed once in polis. Resolves the target cogent's DB name from DynamoDB,
+Resolves the target cogent's DB name from DynamoDB,
 then inserts the event via RDS Data API using the shared Aurora cluster.
 """
 
@@ -126,7 +126,6 @@ def _try_asana_auto_accept(cogent_name: str, payload: dict) -> None:
 
 def handler(event, context):
     """Lambda handler — expects API Gateway / Function URL proxy event."""
-    # Extract bearer token
     headers = event.get("headers", {})
     auth = headers.get("authorization", headers.get("Authorization", ""))
     token = auth.removeprefix("Bearer ").strip()
@@ -162,7 +161,6 @@ def handler(event, context):
         event_id, cogent_name, payload.get("from"), payload.get("subject"),
     )
 
-    # Auto-accept Asana invites
     try:
         _try_asana_auto_accept(cogent_name, payload)
     except Exception:

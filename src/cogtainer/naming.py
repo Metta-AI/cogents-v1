@@ -1,8 +1,4 @@
-"""Polis naming helpers — centralizes all AWS resource name prefixes.
-
-All AWS resource names derived from the "cogent-" prefix live here.
-Flip RESOURCE_PREFIX to "cogos" when ready for the AWS migration.
-"""
+"""Naming helpers — centralizes all AWS resource name prefixes."""
 
 from __future__ import annotations
 

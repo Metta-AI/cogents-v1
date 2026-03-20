@@ -1,4 +1,4 @@
-"""AWS helpers for polis account operations."""
+"""AWS helpers for cogtainer account operations."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import time
 
 import boto3
 
-from polis.config import deploy_config
+from cogtainer.deploy_config import deploy_config
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ def _assume_role(session: boto3.Session, account_id: str, role_name: str) -> bot
     """Assume a role in the given account."""
     sts = session.client("sts")
     role_arn = f"arn:aws:iam::{account_id}:role/{role_name}"
-    resp = sts.assume_role(RoleArn=role_arn, RoleSessionName="polis-cli")
+    resp = sts.assume_role(RoleArn=role_arn, RoleSessionName="cogtainer-cli")
     creds = resp["Credentials"]
     return boto3.Session(
         aws_access_key_id=creds["AccessKeyId"],

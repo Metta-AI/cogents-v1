@@ -5,8 +5,8 @@ from __future__ import annotations
 import click
 
 from cli import DefaultCommandGroup, get_cogent_name  # noqa: F401
-from polis import naming
-from polis.aws import DEFAULT_ORG_PROFILE, ORG_PROFILE_ENV
+from cogtainer import naming
+from cogtainer.aws import DEFAULT_ORG_PROFILE, ORG_PROFILE_ENV
 
 _PROFILE_HELP = (
     f"AWS profile for polis account (default: ${ORG_PROFILE_ENV} or {DEFAULT_ORG_PROFILE})"
@@ -36,13 +36,13 @@ def status_cmd(ctx: click.Context):
     table.add_column("Status")
     table.add_column("Details")
 
-    from polis.aws import get_polis_session, set_org_profile
+    from cogtainer.aws import get_polis_session, set_org_profile
 
     set_org_profile()
     try:
         session, _ = get_polis_session()
     except Exception as e:
-        table.add_row("Polis", "[red]cannot connect[/red]", str(e)[:60])
+        table.add_row("AWS", "[red]cannot connect[/red]", str(e)[:60])
         console.print(table)
         return
 
@@ -189,7 +189,7 @@ def status_cmd(ctx: click.Context):
 @click.pass_context
 def cleanup_cmd(ctx: click.Context, profile: str | None, keep: int, dry_run: bool):
     """Clean up old ECS task definitions and stale Lambda functions."""
-    from polis.aws import get_polis_session, resolve_org_profile, set_org_profile
+    from cogtainer.aws import get_polis_session, resolve_org_profile, set_org_profile
 
     name = get_cogent_name(ctx)
     safe_name = name.replace(".", "-")
@@ -208,7 +208,7 @@ def cleanup_cmd(ctx: click.Context, profile: str | None, keep: int, dry_run: boo
 def _cleanup_task_definitions(
     session: object, safe_name: str, keep: int, dry_run: bool
 ) -> None:
-    from polis.aws import DEFAULT_REGION
+    from cogtainer.aws import DEFAULT_REGION
 
     ecs_client = session.client("ecs", region_name=DEFAULT_REGION)  # type: ignore[union-attr]
     prefix = f"{naming.RESOURCE_PREFIX}-{safe_name}-"
@@ -260,7 +260,7 @@ def _cleanup_task_definitions(
 
 
 def _cleanup_stale_lambdas(session: object, safe_name: str, dry_run: bool) -> None:
-    from polis.aws import DEFAULT_REGION
+    from cogtainer.aws import DEFAULT_REGION
 
     lambda_client = session.client("lambda", region_name=DEFAULT_REGION)  # type: ignore[union-attr]
     prefix = f"{naming.RESOURCE_PREFIX}-{safe_name}-"
@@ -317,7 +317,7 @@ def await_cmd(prefix: str, tag: str | None, timeout: int, profile: str | None):
     import subprocess
     import time
 
-    from polis.aws import get_polis_session, set_org_profile
+    from cogtainer.aws import get_polis_session, set_org_profile
 
     if tag:
         expected_tag = tag

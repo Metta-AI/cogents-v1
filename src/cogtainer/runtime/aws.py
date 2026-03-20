@@ -119,7 +119,7 @@ class AwsRuntime(CogtainerRuntime):
     # ── File storage ─────────────────────────────────────────
 
     def put_file(self, cogent_name: str, key: str, data: bytes) -> str:
-        from polis.naming import bucket_name
+        from cogtainer.naming import bucket_name
 
         s3 = self._session.client("s3", region_name=self._region)
         s3.put_object(
@@ -130,7 +130,7 @@ class AwsRuntime(CogtainerRuntime):
         return key
 
     def get_file(self, cogent_name: str, key: str) -> bytes:
-        from polis.naming import bucket_name
+        from cogtainer.naming import bucket_name
 
         s3 = self._session.client("s3", region_name=self._region)
         resp = s3.get_object(
@@ -142,7 +142,7 @@ class AwsRuntime(CogtainerRuntime):
     # ── Events ───────────────────────────────────────────────
 
     def emit_event(self, cogent_name: str, event: dict) -> None:
-        from polis.naming import safe
+        from cogtainer.naming import safe
 
         eb = self._session.client("events", region_name=self._region)
         safe_name = safe(cogent_name)
@@ -160,7 +160,7 @@ class AwsRuntime(CogtainerRuntime):
     # ── Executor ─────────────────────────────────────────────
 
     def spawn_executor(self, cogent_name: str, process_id: str) -> None:
-        from polis.naming import safe
+        from cogtainer.naming import safe
 
         lam = self._session.client("lambda", region_name=self._region)
         safe_name = safe(cogent_name)

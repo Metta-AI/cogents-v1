@@ -54,9 +54,9 @@ def _ensure_db_env(cogent_name: str) -> None:
         )
 
     try:
-        from polis.aws import get_polis_session, set_org_profile
+        from cogtainer.aws import get_polis_session, set_org_profile
     except ImportError:
-        # polis not available — skip legacy DB env setup
+        # cogtainer.aws not available — skip legacy DB env setup
         return
 
     safe_name = cogent_name.replace(".", "-")

@@ -170,8 +170,8 @@ class TestIngestLambda:
         return {"headers": headers, "body": json.dumps(body)}
 
     def test_ingest_valid(self):
-        with patch("polis.io.email.handler._insert_event", return_value="evt-1") as mock_insert:
-            from polis.io.email.handler import handler
+        with patch("cogtainer.io.email.handler._insert_event", return_value="evt-1") as mock_insert:
+            from cogtainer.io.email.handler import handler
             resp = handler(
                 self._make_event(
                     {"event_type": "email:received", "source": "cloudflare-email-worker",
@@ -186,7 +186,7 @@ class TestIngestLambda:
                                                  {"from": "a@b.com", "subject": "Hi", "cogent": "ovo"})
 
     def test_ingest_unauthorized(self):
-        from polis.io.email.handler import handler
+        from cogtainer.io.email.handler import handler
         resp = handler(
             self._make_event(
                 {"event_type": "email:received", "source": "x", "payload": {"cogent": "ovo"}},
@@ -197,7 +197,7 @@ class TestIngestLambda:
         assert resp["statusCode"] == 401
 
     def test_ingest_no_token(self):
-        from polis.io.email.handler import handler
+        from cogtainer.io.email.handler import handler
         resp = handler(
             self._make_event({"event_type": "email:received", "source": "x", "payload": {"cogent": "ovo"}}),
             None,
@@ -205,7 +205,7 @@ class TestIngestLambda:
         assert resp["statusCode"] == 401
 
     def test_ingest_missing_cogent(self):
-        from polis.io.email.handler import handler
+        from cogtainer.io.email.handler import handler
         resp = handler(
             self._make_event(
                 {"event_type": "email:received", "source": "x", "payload": {"from": "a@b.com"}},

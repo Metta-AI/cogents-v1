@@ -25,7 +25,7 @@ from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
-from polis import naming
+from cogtainer import naming
 
 _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent.parent)
 

@@ -12,9 +12,9 @@ import boto3
 import click
 
 from cli import DefaultCommandGroup, get_cogent_name
-from polis import naming
-from polis.aws import DEFAULT_ORG_PROFILE, DEFAULT_REGION, ORG_PROFILE_ENV, resolve_org_profile, set_org_profile
-from polis.config import PolisConfig
+from cogtainer import naming
+from cogtainer.aws import DEFAULT_ORG_PROFILE, DEFAULT_REGION, ORG_PROFILE_ENV, resolve_org_profile, set_org_profile
+from cogtainer.deploy_config import PolisConfig
 
 _PROFILE_HELP = f"AWS profile (default: ${ORG_PROFILE_ENV} or {DEFAULT_ORG_PROFILE})"
 
@@ -74,7 +74,7 @@ def update():
 
 def _get_session(profile: str | None = None) -> boto3.Session:
     """Get a boto3 session for the polis account (all cogtainer resources live there)."""
-    from polis.aws import get_polis_session
+    from cogtainer.aws import get_polis_session
 
     set_org_profile(profile)
     session, _ = get_polis_session()
@@ -90,7 +90,7 @@ def _ensure_db_env(name: str, profile: str | None = None) -> None:
     if os.environ.get("DB_CLUSTER_ARN") and os.environ.get("DB_SECRET_ARN"):
         return
 
-    from polis.aws import get_polis_session
+    from cogtainer.aws import get_polis_session
 
     set_org_profile(profile)
     session, _ = get_polis_session()
@@ -160,7 +160,7 @@ def _package_lambda_code() -> bytes:
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        # Add source code (cogtainer/, memory/, channels/, polis/, etc.)
+        # Add source code (cogtainer/, memory/, channels/, etc.)
         for root, _dirs, files in os.walk(src_dir):
             if "__pycache__" in root or ".egg-info" in root:
                 continue
@@ -319,7 +319,7 @@ def _update_ecs_image(ecs_client, session, service_arn: str, tag: str) -> tuple[
 
     Returns (new_task_def_arn, old_task_def_arn).
     """
-    from polis.aws import POLIS_ACCOUNT_ID
+    from cogtainer.aws import POLIS_ACCOUNT_ID
 
     repo_uri = f"{POLIS_ACCOUNT_ID}.dkr.ecr.{DEFAULT_REGION}.amazonaws.com/cogent"
     new_image = f"{repo_uri}:{tag}"
@@ -477,7 +477,7 @@ def update_rds(ctx: click.Context, profile: str | None, force: bool):
 
 def _get_polis_admin_session(profile: str | None = None):
     """Get a polis session with full admin (OrganizationAccountAccessRole)."""
-    from polis.aws import POLIS_ACCOUNT_ID, _assume_role
+    from cogtainer.aws import POLIS_ACCOUNT_ID, _assume_role
 
     resolved_profile = resolve_org_profile(profile)
     org_session = boto3.Session(profile_name=resolved_profile, region_name=DEFAULT_REGION)
@@ -744,8 +744,8 @@ def update_dashboard(ctx: click.Context, docker: bool, skip_health: bool, sha: s
     click.echo("  Purging CDN cache...")
     t1 = time.monotonic()
     try:
-        from polis.cloudflare import purge_cache
-        from polis.secrets.store import SecretStore
+        from cogtainer.cloudflare import purge_cache
+        from cogtainer.secrets.store import SecretStore
 
         store = SecretStore(session=session)
         purge_cache(store)
@@ -792,7 +792,7 @@ def _docker_build_push_deploy(ctx, session, name, safe_name, project_root, skip_
     import base64
     import subprocess
 
-    from polis.aws import POLIS_ACCOUNT_ID
+    from cogtainer.aws import POLIS_ACCOUNT_ID
 
     # Build and upload frontend assets to S3 first
     _build_and_upload_frontend(session, safe_name, project_root)
@@ -933,7 +933,7 @@ def update_stack(ctx: click.Context, profile: str | None):
     """Full CDK stack update via the polis CDK app."""
     import subprocess
 
-    from polis.aws import get_polis_session, resolve_org_profile, set_profile
+    from cogtainer.aws import get_polis_session, resolve_org_profile, set_profile
 
     name = get_cogent_name(ctx)
     safe_name = name.replace(".", "-")
@@ -989,7 +989,7 @@ def update_stack(ctx: click.Context, profile: str | None):
         "-c",
         f"shared_alb_security_group_id={shared_alb_sg_id}",
         "--app",
-        "python -m polis.cdk.app",
+        "python -m cogtainer.cdk.app",
         "--require-approval",
         "never",
     ]

@@ -8,7 +8,7 @@ from cogtainer.update_cli import (
     _is_dashboard_service_name,
     update,
 )
-from polis.aws import POLIS_ACCOUNT_ID
+from cogtainer.aws import POLIS_ACCOUNT_ID
 
 
 class _FakeEcsClient:

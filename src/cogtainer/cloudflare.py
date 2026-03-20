@@ -6,9 +6,9 @@ import logging
 
 import requests
 
-from polis.aws import ORG_EMAIL_DOMAIN
-from polis.config import deploy_config
-from polis.secrets.store import SecretStore
+from cogtainer.aws import ORG_EMAIL_DOMAIN
+from cogtainer.deploy_config import deploy_config
+from cogtainer.secrets.store import SecretStore
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +63,7 @@ def _list_access_policies(account_id: str, app_id: str, api_token: str) -> list[
 
 
 def ensure_access(store: SecretStore, domain: str) -> dict:
-    """Create or update the Cloudflare Access Application for cogent dashboards.
-
-    Sets up a wildcard self-hosted app for *.{domain} with:
-      - Policy: allow org emails (from deploy_config)
-      - Policy: allow any valid service token (PAT bypass)
-      - Policy: bypass CF Access entirely (dashboard has its own API key auth)
-
-    Returns the Access Application dict.
-    """
+    """Create or update the Cloudflare Access Application for cogent dashboards."""
     cf = _load_cf_config(store)
     account_id = cf["account_id"]
     api_token = cf["api_token"]
@@ -87,7 +79,6 @@ def ensure_access(store: SecretStore, domain: str) -> dict:
     }
 
     if app:
-        # Update existing
         resp = requests.put(
             f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app['id']}",
             headers=_headers(api_token),
@@ -97,7 +88,6 @@ def ensure_access(store: SecretStore, domain: str) -> dict:
         app = resp.json()["result"]
         logger.info("Updated Access Application: %s", app["id"])
     else:
-        # Create new
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps",
             headers=_headers(api_token),
@@ -107,9 +97,7 @@ def ensure_access(store: SecretStore, domain: str) -> dict:
         app = resp.json()["result"]
         logger.info("Created Access Application: %s", app["id"])
 
-    # Ensure policies exist
     _ensure_policies(account_id, app["id"], api_token)
-
     return app
 
 
@@ -118,7 +106,6 @@ def _ensure_policies(account_id: str, app_id: str, api_token: str) -> None:
     existing = _list_access_policies(account_id, app_id, api_token)
     existing_names = {p["name"] for p in existing}
 
-    # Policy 1: allow org emails
     if _EMAIL_POLICY_NAME not in existing_names:
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app_id}/policies",
@@ -133,7 +120,6 @@ def _ensure_policies(account_id: str, app_id: str, api_token: str) -> None:
         resp.raise_for_status()
         logger.info("Created policy: %s", _EMAIL_POLICY_NAME)
 
-    # Policy 2: allow service tokens (PAT bypass)
     if "allow-service-tokens" not in existing_names:
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app_id}/policies",
@@ -148,7 +134,6 @@ def _ensure_policies(account_id: str, app_id: str, api_token: str) -> None:
         resp.raise_for_status()
         logger.info("Created policy: allow-service-tokens")
 
-    # Policy 3: bypass CF Access entirely — dashboard has its own API key auth
     if "bypass-all" not in existing_names:
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app_id}/policies",
@@ -170,18 +155,12 @@ def ensure_dns_record(
     target: str,
     domain: str,
 ) -> dict:
-    """Create or update a proxied CNAME record for a cogent subdomain.
-
-    Args:
-        subdomain: e.g. "dr-alpha" (without the domain suffix)
-        target: ALB DNS name to point to
-    """
+    """Create or update a proxied CNAME record for a cogent subdomain."""
     cf = _load_cf_config(store)
     zone_id = cf["zone_id"]
     api_token = cf["api_token"]
     fqdn = f"{subdomain}.{domain}"
 
-    # Check if record exists
     resp = requests.get(
         f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
         headers=_headers(api_token),
@@ -198,7 +177,6 @@ def ensure_dns_record(
     }
 
     if existing:
-        # Update
         record_id = existing[0]["id"]
         resp = requests.put(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records/{record_id}",
@@ -208,7 +186,6 @@ def ensure_dns_record(
         resp.raise_for_status()
         logger.info("Updated DNS record: %s -> %s", fqdn, target)
     else:
-        # Create
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
             headers=_headers(api_token),
@@ -225,10 +202,7 @@ def delete_dns_record(
     subdomain: str,
     domain: str,
 ) -> bool:
-    """Delete a Cloudflare DNS record for a cogent subdomain.
-
-    Returns True if deleted, False if not found.
-    """
+    """Delete a Cloudflare DNS record for a cogent subdomain."""
     cf = _load_cf_config(store)
     zone_id = cf["zone_id"]
     api_token = cf["api_token"]
@@ -271,10 +245,7 @@ def purge_cache(store: SecretStore) -> None:
 
 
 def delete_access(store: SecretStore) -> bool:
-    """Delete the Cloudflare Access Application (and its policies).
-
-    Returns True if deleted, False if not found.
-    """
+    """Delete the Cloudflare Access Application (and its policies)."""
     cf = _load_cf_config(store)
     account_id = cf["account_id"]
     api_token = cf["api_token"]

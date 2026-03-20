@@ -217,7 +217,7 @@ def _get_aws_session(
     profile: str | None = None,
 ) -> tuple:
     """Get an AWS session for the polis account. Separated for testability."""
-    from polis.aws import get_polis_session, set_org_profile
+    from cogtainer.aws import get_polis_session, set_org_profile
 
     if profile:
         set_org_profile(profile)

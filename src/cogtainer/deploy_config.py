@@ -1,4 +1,4 @@
-"""Polis configuration: organization, domain, cogent roster."""
+"""Deploy configuration: organization, domain, cogent roster."""
 
 from __future__ import annotations
 
