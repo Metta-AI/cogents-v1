@@ -1,4 +1,4 @@
-"""IO token access: fetches tokens from AWS Secrets Manager with env var fallback."""
+"""IO token access: fetches tokens from the secrets provider with env var fallback."""
 
 from __future__ import annotations
 
@@ -7,20 +7,15 @@ import logging
 import os
 from typing import Any
 
-import boto3
+from cogos.capabilities._secrets_helper import fetch_secret
 
 logger = logging.getLogger(__name__)
-
-
-def _get_secrets_client(region: str | None = None):
-    region = region or os.environ.get("AWS_REGION", "us-east-1")
-    return boto3.client("secretsmanager", region_name=region)
 
 
 def get_io_token(channel: str) -> str | None:
     """Get a channel's access token.
 
-    Checks env var <CHANNEL>_BOT_TOKEN first, then Secrets Manager.
+    Checks env var <CHANNEL>_BOT_TOKEN first, then the secrets provider.
     """
     env_key = f"{channel.upper()}_BOT_TOKEN"
     env_token = os.environ.get(env_key)
@@ -34,13 +29,11 @@ def get_io_token(channel: str) -> str | None:
         return None
 
     try:
-        sm = _get_secrets_client()
         secret_id = f"identity_service/{cogent_name}/{channel}"
-        resp = sm.get_secret_value(SecretId=secret_id)
-        data = json.loads(resp["SecretString"])
-        return data.get("access_token")
+        raw = fetch_secret(secret_id, field="access_token")
+        return raw
     except Exception:
-        logger.exception("Failed to fetch %s token from Secrets Manager", channel)
+        logger.exception("Failed to fetch %s token from secrets provider", channel)
         return None
 
 
@@ -52,10 +45,9 @@ def get_io_secret(channel: str) -> dict[str, Any] | None:
         return None
 
     try:
-        sm = _get_secrets_client()
         secret_id = f"identity_service/{cogent_name}/{channel}"
-        resp = sm.get_secret_value(SecretId=secret_id)
-        return json.loads(resp["SecretString"])
+        raw = fetch_secret(secret_id)
+        return json.loads(raw)
     except Exception:
-        logger.exception("Failed to fetch %s secret from Secrets Manager", channel)
+        logger.exception("Failed to fetch %s secret from secrets provider", channel)
         return None
