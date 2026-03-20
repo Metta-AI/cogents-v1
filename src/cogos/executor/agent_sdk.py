@@ -203,7 +203,7 @@ async def _execute_agent_sdk_process(
             run.tokens_out = usage.get("output_tokens", 0)
             run.cost_usd = Decimal(str(msg.total_cost_usd or 0))
             if msg.subtype == "success":
-                run.result = msg.result
+                run.result = {"text": msg.result} if msg.result else None
             else:
                 run.error = f"Agent stopped: {msg.subtype}"
 

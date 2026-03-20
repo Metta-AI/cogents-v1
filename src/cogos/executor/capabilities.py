@@ -71,8 +71,8 @@ def build_process_capabilities(
                 kwargs["secrets_provider"] = runtime.get_secrets_provider()
 
             instance = handler_cls(repo, process_id, **kwargs)
-            if pc.config:
-                instance = instance.scope(**pc.config)
+            if pc.config and hasattr(instance, "scope"):
+                instance = instance.scope(**pc.config)  # type: ignore[union-attr]
 
             result[ns] = instance
         except (ImportError, AttributeError) as exc:
