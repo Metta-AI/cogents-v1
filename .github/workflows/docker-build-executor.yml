@@ -17,26 +17,54 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  load-targets:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
     steps:
-      - name: Generate CI app token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v4
+      - name: Parse deploy targets
+        id: targets
+        run: |
+          pip install pyyaml -q
+          python -c "
+          import yaml, json
+          with open('cogtainers.ci.yml') as f:
+              cfg = yaml.safe_load(f) or {}
+          targets = []
+          for name, entry in (cfg.get('cogtainers') or {}).items():
+              components = entry.get('components', 'all')
+              if components == 'all' or 'lambdas' in components:
+                  targets.append({
+                      'name': name,
+                      'ecr_repo': entry.get('ecr_repo', 'cogent'),
+                      'aws_role': entry.get('aws_role', ''),
+                      'region': entry.get('region', 'us-east-1'),
+                      's3_bucket': entry.get('s3_artifacts_bucket', 'cogent-polis-ci-artifacts'),
+                  })
+          if not targets:
+              targets = [{'name': 'default', 'ecr_repo': 'cogent', 'aws_role': '', 'region': 'us-east-1', 's3_bucket': 'cogent-polis-ci-artifacts'}]
+          print(json.dumps({'include': targets}))
+          " > /tmp/matrix.json
+          echo "matrix=$(cat /tmp/matrix.json)" >> "$GITHUB_OUTPUT"
 
+  build:
+    needs: load-targets
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.load-targets.outputs.matrix) }}
+    steps:
       - uses: actions/checkout@v4
 
       - name: Build and push executor image
         id: build
         uses: ./.github/actions/ecr-build
         with:
-          image_name: cogent
+          image_name: ${{ matrix.ecr_repo }}
           dockerfile: src/cogtainer/docker/Dockerfile
           context: .
-          aws_role: ${{ vars.AWS_ROLE }}
+          aws_role: ${{ matrix.aws_role || vars.AWS_ROLE }}
+          aws_region: ${{ matrix.region }}
           tag_prefix: executor
 
       - name: Set up Python
@@ -64,28 +92,50 @@ jobs:
       - name: Upload Lambda zip to S3
         uses: ./.github/actions/s3-upload
         with:
-          aws_role: ${{ vars.AWS_ROLE }}
+          aws_role: ${{ matrix.aws_role || vars.AWS_ROLE }}
+          aws_region: ${{ matrix.region }}
           source_path: /tmp/lambda.zip
           s3_key: lambda/${{ github.sha }}/lambda.zip
+          bucket: ${{ matrix.s3_bucket }}
 
       - name: Summary
         run: |
-          echo "### Executor Built" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Executor Built (${{ matrix.name }})" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Docker Tags:**" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "${{ steps.build.outputs.image_uri }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Lambda Zip:** \`s3://cogent-polis-ci-artifacts/lambda/${{ github.sha }}/lambda.zip\` (${{ env.SIZE }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Lambda Zip:** \`s3://${{ matrix.s3_bucket }}/lambda/${{ github.sha }}/lambda.zip\` (${{ env.SIZE }})" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Deploy:** \`cogos <name> cogtainer update ecs --tag executor-${{ steps.build.outputs.short_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  update-versions:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate CI app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Get short SHA
+        id: vars
+        run: echo "short_sha=$(git rev-parse --short ${{ github.sha }})" >> "$GITHUB_OUTPUT"
 
       - name: Update versions defaults (executor)
         uses: ./.github/actions/update-versions
         with:
           component: executor
-          version: ${{ steps.build.outputs.short_sha }}
+          version: ${{ steps.vars.outputs.short_sha }}
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Update versions defaults (lambda)
