@@ -14,7 +14,8 @@ CogOS uses Claude on AWS Bedrock. You need an AWS account with Bedrock model acc
 
 ```bash
 # 1. Install
-uv sync --all-extras
+uv init my-cogent && cd my-cogent
+uv add cogos
 
 # 2. Boot the default image
 uv run cogos local cogos image boot cogos --clean

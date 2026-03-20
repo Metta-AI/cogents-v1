@@ -11,6 +11,26 @@ from uuid import UUID
 
 import click
 
+
+def _resolve_image_dir(name: str) -> Path | None:
+    """Find an image directory by name, checking multiple locations."""
+    # 1. CWD images/ (user project)
+    cwd_images = Path.cwd() / "images" / name
+    if cwd_images.is_dir():
+        return cwd_images
+
+    # 2. Repo root images/ (dev checkout)
+    repo_images = Path(__file__).resolve().parents[3] / "images" / name
+    if repo_images.is_dir():
+        return repo_images
+
+    # 3. Bundled package images (pip install)
+    bundled = Path(__file__).resolve().parents[1] / "_bundled_images" / name
+    if bundled.is_dir():
+        return bundled
+
+    return None
+
 from cli.local_dev import apply_local_checkout_env, repo_root, resolve_dashboard_ports
 
 _bedrock_session = None
@@ -179,14 +199,18 @@ def boot(ctx, name, clean, dry_run, v_executor, v_dashboard, v_dashboard_fronten
     )
     from cogos.files.store import FileStore
 
-    repo_root = Path(__file__).resolve().parents[3]
-    image_dir = repo_root / "images" / name
-    if not image_dir.is_dir():
-        click.echo(f"Image not found: {image_dir}")
+    image_dir = _resolve_image_dir(name)
+    if image_dir is None:
+        click.echo(f"Image not found: {name}")
+        click.echo("Searched: ./images/, repo root, and bundled package images.")
         return
 
     # 1. Resolve versions
-    defaults = load_defaults(image_dir)
+    if os.environ.get("USE_LOCAL_DB") == "1":
+        from cogos.image.versions import KNOWN_COMPONENTS
+        defaults = {c: "local" for c in KNOWN_COMPONENTS}
+    else:
+        defaults = load_defaults(image_dir)
     overrides = {}
     for key, val in [("executor", v_executor), ("dashboard", v_dashboard),
                      ("dashboard_frontend", v_dashboard_frontend),
@@ -258,8 +282,7 @@ def snapshot(ctx: click.Context, name: str):
     """Snapshot running CogOS state into an image."""
     from cogos.image.snapshot import snapshot_image
 
-    repo_root = Path(__file__).resolve().parents[3]
-    output_dir = repo_root / "images" / name
+    output_dir = Path.cwd() / "images" / name
     if output_dir.exists():
         click.echo(f"Image already exists: {output_dir}")
         click.echo("Remove it first or choose a different name.")
@@ -276,24 +299,32 @@ def image_list():
     """List available images."""
     from cogos.image.spec import load_image
 
-    repo_root = Path(__file__).resolve().parents[3]
-    images_dir = repo_root / "images"
-    if not images_dir.is_dir():
-        click.echo("No images/ directory found.")
-        return
-
-    for d in sorted(images_dir.iterdir()):
-        if not d.is_dir() or d.name.startswith("."):
+    search_dirs = [
+        Path.cwd() / "images",
+        Path(__file__).resolve().parents[3] / "images",
+        Path(__file__).resolve().parents[1] / "_bundled_images",
+    ]
+    seen: set[str] = set()
+    found_any = False
+    for images_dir in search_dirs:
+        if not images_dir.is_dir():
             continue
-        try:
-            spec = load_image(d)
-            click.echo(
-                f"  {d.name:20s}  {len(spec.capabilities)} caps, "
-                f"{len(spec.resources)} resources, {len(spec.processes)} procs, "
-                f"{len(spec.cron_rules)} cron, {len(spec.files)} files"
-            )
-        except Exception as e:
-            click.echo(f"  {d.name:20s}  (error: {e})")
+        for d in sorted(images_dir.iterdir()):
+            if not d.is_dir() or d.name.startswith(".") or d.name in seen:
+                continue
+            seen.add(d.name)
+            found_any = True
+            try:
+                spec = load_image(d)
+                click.echo(
+                    f"  {d.name:20s}  {len(spec.capabilities)} caps, "
+                    f"{len(spec.resources)} resources, {len(spec.processes)} procs, "
+                    f"{len(spec.cron_rules)} cron, {len(spec.files)} files"
+                )
+            except Exception as e:
+                click.echo(f"  {d.name:20s}  (error: {e})")
+    if not found_any:
+        click.echo("No images found.")
 
 
 def _publish_process_event(repo, process, payload: dict) -> None:

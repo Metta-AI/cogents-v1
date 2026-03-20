@@ -68,6 +68,9 @@ build-backend = "hatchling.build"
 sources = ["src"]
 packages = ["src/cli", "src/cogents", "src/cogos", "src/cogtainer", "src/dashboard", "src/memory", "src/polis", "src/run"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"images" = "cogos/_bundled_images"
+
 [tool.pyright]
 pythonVersion = "3.12"
 include = ["src/cogtainer", "src/cli", "src/memory", "src/polis", "src/dashboard", "tests"]
