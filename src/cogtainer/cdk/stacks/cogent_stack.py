@@ -401,9 +401,9 @@ class CogentStack(Stack):
             health_check=elbv2.HealthCheck(
                 path="/healthz",
                 healthy_http_codes="200",
-                interval=Duration.seconds(30),
+                interval=Duration.seconds(10),
                 healthy_threshold_count=2,
-                unhealthy_threshold_count=5,
+                unhealthy_threshold_count=3,
             ),
         )
 
@@ -445,6 +445,9 @@ class CogentStack(Stack):
         )
 
         db_env = {
+            # HOSTNAME must be explicit — ECS overrides Dockerfile ENV with task hostname
+            "HOSTNAME": "0.0.0.0",
+            "PORT": "5174",
             "COGENT_NAME": cogent_name,
             "COGTAINER_NAME": cogtainer_name,
             "DASHBOARD_COGENT_NAME": cogent_name,
@@ -591,9 +594,7 @@ class CogentStack(Stack):
         )
 
         # Grant ECR pull to execution role
-        bridge_exec_role = bridge_task_def.execution_role
-        assert isinstance(bridge_exec_role, iam.Role)
-        bridge_exec_role.add_to_policy(
+        bridge_task_def.add_to_execution_role_policy(
             iam.PolicyStatement(
                 actions=[
                     "ecr:GetAuthorizationToken",
