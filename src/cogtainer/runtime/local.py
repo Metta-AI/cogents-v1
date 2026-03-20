@@ -27,6 +27,10 @@ class LocalRuntime(CogtainerRuntime):
         self._data_dir = Path(os.path.expanduser(os.path.expandvars(raw)))
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
+        from cogtainer.secrets import LocalSecretsProvider
+
+        self._secrets = LocalSecretsProvider(data_dir=str(self._data_dir))
+
     # ── Repository ───────────────────────────────────────────
 
     def get_repository(self, cogent_name: str) -> Any:
@@ -80,6 +84,8 @@ class LocalRuntime(CogtainerRuntime):
             "COGENT": cogent_name,
             "USE_LOCAL_DB": "1",
             "COGOS_LOCAL_DATA": str(cogent_dir),
+            "SECRETS_PROVIDER": "local",
+            "SECRETS_DATA_DIR": str(self._data_dir),
         }
         subprocess.Popen(
             [sys.executable, "-m", "cogos.executor", process_id],
@@ -99,6 +105,9 @@ class LocalRuntime(CogtainerRuntime):
         cogent_dir = self._data_dir / name
         cogent_dir.mkdir(parents=True, exist_ok=True)
         (cogent_dir / "files").mkdir(exist_ok=True)
+
+    def get_secrets_provider(self):
+        return self._secrets
 
     def destroy_cogent(self, name: str) -> None:
         cogent_dir = self._data_dir / name

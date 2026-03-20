@@ -36,6 +36,10 @@ class AwsRuntime(CogtainerRuntime):
         )
         self._db_info_cache: dict[str, str] = {}
 
+        from cogtainer.secrets import AwsSecretsProvider
+
+        self._secrets = AwsSecretsProvider(region=self._region, session=session)
+
     def _safe(self, name: str) -> str:
         return name.replace(".", "-")
 
@@ -220,6 +224,9 @@ class AwsRuntime(CogtainerRuntime):
             rds_client, db_info["cluster_arn"], db_info["secret_arn"], db_name
         )
         logger.info("Schema applied to %s", db_name)
+
+    def get_secrets_provider(self):
+        return self._secrets
 
     def destroy_cogent(self, name: str) -> None:
         """Remove cogent from status table."""

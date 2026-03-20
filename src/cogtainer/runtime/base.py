@@ -49,5 +49,9 @@ class CogtainerRuntime(ABC):
         """Provision a new cogent."""
 
     @abstractmethod
+    def get_secrets_provider(self) -> Any:
+        """Return the SecretsProvider for this runtime."""
+
+    @abstractmethod
     def destroy_cogent(self, name: str) -> None:
         """Remove a cogent and all its data."""
