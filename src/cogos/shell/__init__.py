@@ -53,7 +53,12 @@ class CogentShell:
 
         try:
             import boto3
-            state.bedrock_client = boto3.client("bedrock-runtime", region_name="us-east-1")
+            from botocore.config import Config as BotoConfig
+            state.bedrock_client = boto3.client(
+                "bedrock-runtime",
+                region_name="us-east-1",
+                config=BotoConfig(retries={"max_attempts": 12, "mode": "adaptive"}),
+            )
         except Exception:
             pass
 

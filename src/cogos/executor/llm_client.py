@@ -7,8 +7,6 @@ import logging
 import os
 from typing import Any
 
-import boto3
-from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
@@ -188,11 +186,12 @@ class LLMClient:
             self._openrouter = OpenRouterProvider(api_key=api_key, default_model=default_model)
             self._bedrock = bedrock_client  # may be None, that's fine
         else:
-            self._bedrock = bedrock_client or boto3.client(
-                "bedrock-runtime",
-                region_name=region,
-                config=BotoConfig(retries={"max_attempts": 12, "mode": "adaptive"}),
-            )
+            if bedrock_client is None and provider == "bedrock":
+                raise ValueError(
+                    "bedrock_client is required when provider='bedrock'. "
+                    "The caller must create and pass a bedrock-runtime client."
+                )
+            self._bedrock = bedrock_client
 
         api_key = _resolve_anthropic_api_key(anthropic_api_key, secrets_provider=secrets_provider)
         self._anthropic = None

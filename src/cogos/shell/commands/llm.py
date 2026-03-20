@@ -143,14 +143,9 @@ def _execute_prompt(state: ShellState, content: str, *, verbose: bool = False) -
         from cogos.executor.session_store import SessionStore
         from cogos.files.context_engine import ContextEngine
 
-        import boto3
-        from botocore.config import Config as BotoConfig
-
-        bedrock = kwargs.get("bedrock_client") or boto3.client(
-            "bedrock-runtime",
-            region_name=config.region,
-            config=BotoConfig(retries={"max_attempts": 12, "mode": "adaptive"}),
-        )
+        bedrock = kwargs.get("bedrock_client") or state.bedrock_client
+        if bedrock is None:
+            raise RuntimeError("No bedrock client available — cannot execute LLM prompt")
 
         file_store = FileStore(repo)
         ctx = ContextEngine(file_store)

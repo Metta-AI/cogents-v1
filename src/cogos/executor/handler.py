@@ -635,6 +635,15 @@ def execute_process(
         return _execute_python_process(process, event_data, run, config, repo, trace_id=trace_id)
 
     from cogos.executor.llm_client import LLMClient
+    if bedrock_client is None and config.llm_provider not in ("anthropic", "openrouter"):
+        runtime = _get_runtime()
+        import boto3
+        from botocore.config import Config as BotoConfig
+        bedrock_client = boto3.client(
+            "bedrock-runtime",
+            region_name=config.region,
+            config=BotoConfig(retries={"max_attempts": 12, "mode": "adaptive"}),
+        )
     llm = LLMClient(bedrock_client=bedrock_client, region=config.region, provider=config.llm_provider, secrets_provider=_get_runtime().get_secrets_provider())
 
     # Build system prompt using the shared ContextEngine
