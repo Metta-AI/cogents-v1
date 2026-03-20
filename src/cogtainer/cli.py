@@ -87,11 +87,11 @@ def status_cmd(ctx: click.Context):
             else:
                 table.add_row(f"Lambda ({suffix})", "[red]error[/red]", err[:60])
 
-    # Aurora Serverless (shared cluster from polis stack)
+    # Aurora Serverless (shared cluster from DynamoDB)
     try:
-        polis_resp = cf.describe_stacks(StackName="cogent-polis")
-        polis_outputs = {o["OutputKey"]: o["OutputValue"] for o in polis_resp["Stacks"][0].get("Outputs", [])}
-        cluster_arn = polis_outputs.get("SharedDbClusterArn", "")
+        ddb = session.resource("dynamodb", region_name="us-east-1")
+        item = ddb.Table("cogent-status").get_item(Key={"cogent_name": name}).get("Item", {})
+        cluster_arn = item.get("database", {}).get("cluster_arn", "")
     except Exception:
         cluster_arn = ""
     if cluster_arn:
@@ -110,7 +110,7 @@ def status_cmd(ctx: click.Context):
         except Exception as e:
             table.add_row("Aurora", "[red]error[/red]", str(e)[:60])
     else:
-        table.add_row("Aurora", "[dim]no output[/dim]", "SharedDbClusterArn not in polis stack outputs")
+        table.add_row("Aurora", "[dim]no config[/dim]", "database not in cogent-status table")
 
     # ECR — latest image for this cogent
     try:

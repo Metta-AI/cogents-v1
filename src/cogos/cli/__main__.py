@@ -53,7 +53,6 @@ def _ensure_db_env(cogent_name: str) -> None:
             aws_session_token=frozen.token,
         )
 
-    from polis import naming
     from polis.aws import get_polis_session, set_org_profile
 
     safe_name = cogent_name.replace(".", "-")
@@ -65,20 +64,20 @@ def _ensure_db_env(cogent_name: str) -> None:
     except Exception:
         return
 
-    cf = session.client("cloudformation", region_name="us-east-1")
-
+    # Look up DB connection info from DynamoDB cogent-status table
+    ddb = session.resource("dynamodb", region_name="us-east-1")
     try:
-        resp = cf.describe_stacks(StackName=naming.polis_stack_name())
+        item = ddb.Table("cogent-status").get_item(Key={"cogent_name": cogent_name}).get("Item", {})
+        db_info = item.get("database", {})
     except Exception:
-        return
-    outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
+        db_info = {}
 
-    if "SharedDbClusterArn" in outputs:
-        os.environ.setdefault("DB_RESOURCE_ARN", outputs["SharedDbClusterArn"])
-        os.environ.setdefault("DB_CLUSTER_ARN", outputs["SharedDbClusterArn"])
-    if "SharedDbSecretArn" in outputs:
-        os.environ.setdefault("DB_SECRET_ARN", outputs["SharedDbSecretArn"])
-    os.environ.setdefault("DB_NAME", db_name)
+    if db_info.get("cluster_arn"):
+        os.environ.setdefault("DB_RESOURCE_ARN", db_info["cluster_arn"])
+        os.environ.setdefault("DB_CLUSTER_ARN", db_info["cluster_arn"])
+    if db_info.get("secret_arn"):
+        os.environ.setdefault("DB_SECRET_ARN", db_info["secret_arn"])
+    os.environ.setdefault("DB_NAME", db_info.get("db_name", db_name))
 
     creds = session.get_credentials().get_frozen_credentials()
     os.environ["AWS_ACCESS_KEY_ID"] = creds.access_key

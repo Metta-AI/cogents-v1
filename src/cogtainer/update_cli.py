@@ -95,15 +95,19 @@ def _ensure_db_env(name: str, profile: str | None = None) -> None:
     set_org_profile(profile)
     session, _ = get_polis_session()
 
-    cf = session.client("cloudformation", region_name=DEFAULT_REGION)
-    resp = cf.describe_stacks(StackName=naming.polis_stack_name())
-    outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
+    # Look up DB connection info from DynamoDB cogent-status table
+    ddb = session.resource("dynamodb", region_name=DEFAULT_REGION)
+    try:
+        item = ddb.Table("cogent-status").get_item(Key={"cogent_name": name}).get("Item", {})
+        db_info = item.get("database", {})
+    except Exception:
+        db_info = {}
 
-    if "SharedDbClusterArn" in outputs:
-        os.environ["DB_CLUSTER_ARN"] = outputs["SharedDbClusterArn"]
-        os.environ["DB_RESOURCE_ARN"] = outputs["SharedDbClusterArn"]
-    if "SharedDbSecretArn" in outputs:
-        os.environ["DB_SECRET_ARN"] = outputs["SharedDbSecretArn"]
+    if db_info.get("cluster_arn"):
+        os.environ["DB_CLUSTER_ARN"] = db_info["cluster_arn"]
+        os.environ["DB_RESOURCE_ARN"] = db_info["cluster_arn"]
+    if db_info.get("secret_arn"):
+        os.environ["DB_SECRET_ARN"] = db_info["secret_arn"]
 
     creds = session.get_credentials().get_frozen_credentials()
     os.environ["AWS_ACCESS_KEY_ID"] = creds.access_key
@@ -955,19 +959,17 @@ def update_stack(ctx: click.Context, profile: str | None):
     except Exception:
         click.echo("Warning: Could not resolve polis ECR repo. Using default image.")
 
-    # Resolve shared DB ARNs from polis stack
+    # Resolve shared DB ARNs from DynamoDB cogent-status table
     shared_db_cluster_arn = ""
     shared_db_secret_arn = ""
     try:
-        cfn = session.client("cloudformation", region_name=DEFAULT_REGION)
-        polis_outputs = {
-            o["OutputKey"]: o["OutputValue"]
-            for o in cfn.describe_stacks(StackName=naming.polis_stack_name())["Stacks"][0].get("Outputs", [])
-        }
-        shared_db_cluster_arn = polis_outputs.get("SharedDbClusterArn", "")
-        shared_db_secret_arn = polis_outputs.get("SharedDbSecretArn", "")
+        ddb = session.resource("dynamodb", region_name=DEFAULT_REGION)
+        item = ddb.Table("cogent-status").get_item(Key={"cogent_name": name}).get("Item", {})
+        db_info = item.get("database", {})
+        shared_db_cluster_arn = db_info.get("cluster_arn", "")
+        shared_db_secret_arn = db_info.get("secret_arn", "")
     except Exception:
-        click.echo("Warning: Could not resolve shared DB from polis stack.")
+        click.echo("Warning: Could not resolve shared DB from cogent-status table.")
 
     click.echo(f"Updating CDK stack for cogent-{name}...")
     cmd = [
