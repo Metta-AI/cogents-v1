@@ -64,18 +64,18 @@ def test_generate_docker_compose_multiple_cogents():
     assert "8081:8080" in beta_ports
 
 
-def test_generate_docker_compose_no_llm():
-    entry = CogtainerEntry(type="docker", data_dir="/data/dev")
+def test_generate_docker_compose_default_llm():
+    entry = CogtainerEntry(type="docker", data_dir="/data/dev", llm=LLMConfig(provider="bedrock", model="test-model", api_key_env=""))
     result = generate_compose(entry, "dev", ["bot"])
     parsed = yaml.safe_load(result)
 
     disp = parsed["services"]["dispatcher-bot"]
-    assert "LLM_PROVIDER" not in disp["environment"]
-    assert "DEFAULT_MODEL" not in disp["environment"]
+    assert disp["environment"]["LLM_PROVIDER"] == "bedrock"
+    assert disp["environment"]["DEFAULT_MODEL"] == "test-model"
 
 
 def test_generate_docker_compose_default_image():
-    entry = CogtainerEntry(type="docker")
+    entry = CogtainerEntry(type="docker", llm=LLMConfig(provider="bedrock", model="test-model", api_key_env=""))
     result = generate_compose(entry, "test", ["x"])
     parsed = yaml.safe_load(result)
 

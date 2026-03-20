@@ -16,6 +16,7 @@ def aws_runtime() -> AwsRuntime:
     entry = CogtainerEntry(
         type="aws",
         region="us-east-1",
+        llm=LLMConfig(provider="bedrock", model="test-model", api_key_env=""),
     )
     llm = MagicMock()
     session = MagicMock()

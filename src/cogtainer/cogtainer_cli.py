@@ -45,9 +45,9 @@ def cli() -> None:
 @cli.command()
 @click.argument("name")
 @click.option("--type", "ctype", required=True, type=click.Choice(["aws", "local", "docker"]))
-@click.option("--llm-provider", default=None)
-@click.option("--llm-model", default=None)
-@click.option("--llm-api-key-env", default=None)
+@click.option("--llm-provider", default="bedrock", help="LLM provider (bedrock, openrouter, anthropic)")
+@click.option("--llm-model", default="us.anthropic.claude-sonnet-4-20250514-v1:0", help="Model name/ID")
+@click.option("--llm-api-key-env", default="", help="Env var holding the API key (optional for bedrock)")
 @click.option("--region", default=None)
 @click.option("--data-dir", default=None)
 @click.option("--domain", default=None)
@@ -68,13 +68,11 @@ def create(
         click.echo(f"Cogtainer '{name}' already exists.")
         raise SystemExit(1)
 
-    llm = None
-    if llm_provider:
-        llm = LLMConfig(
-            provider=llm_provider,
-            model=llm_model or "",
-            api_key_env=llm_api_key_env or "",
-        )
+    llm = LLMConfig(
+        provider=llm_provider,
+        model=llm_model,
+        api_key_env=llm_api_key_env,
+    )
 
     # Default data_dir for local/docker
     if ctype in ("local", "docker") and not data_dir:
@@ -145,7 +143,7 @@ def list_cmd() -> None:
 
     for name, entry in sorted(cfg.cogtainers.items()):
         default = " (default)" if cfg.defaults.cogtainer == name else ""
-        provider = entry.llm.provider if entry.llm else "-"
+        provider = entry.llm.provider
         click.echo(f"  {name}  type={entry.type}  llm={provider}{default}")
 
 
@@ -173,9 +171,8 @@ def status(name: str | None) -> None:
         click.echo(f"  data_dir: {entry.data_dir}")
     if entry.domain:
         click.echo(f"  domain: {entry.domain}")
-    if entry.llm:
-        click.echo(f"  llm.provider: {entry.llm.provider}")
-        click.echo(f"  llm.model: {entry.llm.model}")
+    click.echo(f"  llm.provider: {entry.llm.provider}")
+    click.echo(f"  llm.model: {entry.llm.model}")
 
 
 @cli.command("compose")
@@ -268,6 +265,11 @@ def discover_aws(region: str, profile: str | None) -> None:
             type="aws",
             region=region,
             account_id=account_id,
+            llm=LLMConfig(
+                provider="bedrock",
+                model="us.anthropic.claude-sonnet-4-20250514-v1:0",
+                api_key_env="",
+            ),
         )
         if len(cfg.cogtainers) == 1:
             cfg.defaults.cogtainer = "aws"
