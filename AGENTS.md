@@ -273,6 +273,100 @@ curl -H 'X-Api-Key: <pat>' https://<safe-name>.<your-domain>/api/cogents/<name>/
 
 3. Or use the `dashboard.test` skill which automates PAT-authenticated UI and API testing against the deployed dashboard.
 
+## AWS Debugging — NEVER just wait and retry
+
+When deploying to AWS, **actively diagnose failures**. Do not sleep/poll CloudFormation and hope it works. Follow this protocol:
+
+### 1. Check CloudFormation events (not just status)
+
+```python
+from polis.aws import get_polis_session, set_org_profile
+set_org_profile()
+session, _ = get_polis_session()
+cf = session.client('cloudformation', region_name='us-east-1')
+
+# Events show WHAT failed and WHY
+resp = cf.describe_stack_events(StackName='cogtainer-agora-alpha')
+for e in resp['StackEvents'][:10]:
+    reason = e.get('ResourceStatusReason', '')
+    if reason:
+        print(f"{e['LogicalResourceId']}: {e['ResourceStatus']} - {reason[:150]}")
+```
+
+### 2. When ECS service won't stabilize, check the TASKS
+
+Don't wait 40 minutes for CloudFormation timeout. Check immediately:
+
+```python
+ecs = session.client('ecs', region_name='us-east-1')
+
+# Running tasks — are containers actually up?
+running = ecs.list_tasks(cluster='cogtainer-agora', desiredStatus='RUNNING')
+
+# Stopped tasks — WHY did they stop?
+stopped = ecs.list_tasks(cluster='cogtainer-agora', desiredStatus='STOPPED', maxResults=3)
+tasks = ecs.describe_tasks(cluster='cogtainer-agora', tasks=stopped['taskArns'])
+for t in tasks['tasks']:
+    print(f"StopCode: {t.get('stopCode')} Reason: {t.get('stoppedReason')}")
+    for c in t['containers']:
+        print(f"  {c['name']}: exit={c.get('exitCode')} reason={c.get('reason')}")
+```
+
+Common ECS failures:
+- **`ResourceInitializationError: unable to pull`** → execution role missing ECR auth permissions
+- **`EssentialContainerExited` exit=1** → container crashed, check CloudWatch logs
+- **`Target.Timeout`** → health check port not exposed or wrong port in target group
+- **`CannotPullContainerError`** → wrong image tag or ECR repo doesn't exist
+
+### 3. Check CloudWatch logs for the actual container output
+
+```python
+logs = session.client('logs', region_name='us-east-1')
+import time
+
+# List log groups to find the right one
+resp = logs.describe_log_groups(logGroupNamePrefix='cogtainer-agora-alpha')
+for lg in resp['logGroups']:
+    print(lg['logGroupName'])
+
+# Get recent logs
+resp = logs.filter_log_events(
+    logGroupName='<log-group-name>',
+    startTime=int((time.time() - 300) * 1000),  # last 5 min
+    limit=30,
+)
+for e in resp['events']:
+    print(e['message'].strip())
+```
+
+### 4. Check ALB target group health
+
+```python
+elbv2 = session.client('elbv2', region_name='us-east-1')
+resp = elbv2.describe_target_groups()
+for tg in resp['TargetGroups']:
+    if 'cogtai' in tg['TargetGroupName']:
+        health = elbv2.describe_target_health(TargetGroupArn=tg['TargetGroupArn'])
+        for t in health['TargetHealthDescriptions']:
+            state = t['TargetHealth']['State']
+            desc = t['TargetHealth'].get('Description', '')
+            print(f"{tg['TargetGroupName']}: {state} {desc}")
+```
+
+### 5. Cancel stuck deploys instead of waiting
+
+```python
+cf.cancel_update_stack(StackName='cogtainer-agora-alpha')
+```
+
+### Key rules
+
+- **NEVER `sleep 120` and check status.** Check ECS tasks, logs, and target health IMMEDIATELY.
+- **NEVER retry a deploy without understanding why it failed.** Read the logs first.
+- **If a container exits with code 1**, the answer is in CloudWatch logs, not in CloudFormation events.
+- **If health checks fail**, check: (a) is the container actually running? (b) is the correct port exposed? (c) does the security group allow traffic?
+- **If ECR pull fails**, the execution role needs `ecr:GetAuthorizationToken` + `ecr:BatchGetImage` on `Resource: "*"`.
+
 ## Dashboard Testing with agent-browser
 
 Use the `agent-browser` skill to test the CogOS Dashboard interactively.
