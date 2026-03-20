@@ -31,7 +31,7 @@ class SecretError(BaseModel):
 
 
 class SecretsCapability(Capability):
-    """Secret retrieval from AWS SSM or Secrets Manager.
+    """Secret retrieval from the runtime's secret store.
 
     Usage:
         secrets.get("my-api-key")
@@ -66,27 +66,12 @@ class SecretsCapability(Capability):
 
     def get(self, key: str) -> SecretValue | SecretError:
         self._check("get", key=key)
-        import boto3
-
         try:
-            # Try SSM Parameter Store first
-            client = boto3.client("ssm")
-            resp = client.get_parameter(Name=key, WithDecryption=True)
-            value = resp["Parameter"]["Value"]
-            return SecretValue(key=key, value=value)
-        except Exception:
-            pass
-
-        try:
-            client = boto3.client("secretsmanager")
-            resp = client.get_secret_value(SecretId=key)
-            value = resp.get("SecretString")
-            if value is None:
-                return SecretError(key=key, error="Secret is binary, not string")
+            value = self._secrets_provider.get_secret(key)
             try:
                 parsed = json.loads(value)
                 return SecretValue(key=key, value=parsed)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError):
                 return SecretValue(key=key, value=value)
         except Exception as exc:
             return SecretError(key=key, error=str(exc))
