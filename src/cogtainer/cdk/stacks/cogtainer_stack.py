@@ -165,18 +165,18 @@ class CogtainerStack(cdk.Stack):
                 zone_name=domain,
             )
 
-        # --- Admin role: grant the polis admin access to cogtainer resources ---
-        admin_role_name = self.node.try_get_context("admin_role_name") or "cogent-polis-admin"
-        try:
-            admin_role = iam.Role.from_role_name(
-                self, "AdminRole", admin_role_name,
-                mutable=True,
-            )
-            self.status_table.grant_read_write_data(admin_role)
-            self.db_cluster.grant_data_api_access(admin_role)
-            self.ecr_repo.grant_pull_push(admin_role)
-        except Exception:
-            pass  # role may not exist yet on first deploy
+        # --- Grant existing roles access to cogtainer resources ---
+        for role_id, role_name in [
+            ("AdminRole", self.node.try_get_context("admin_role_name") or "cogent-polis-admin"),
+            ("CIRole", self.node.try_get_context("ci_role_name") or "github-actions-cogents"),
+        ]:
+            try:
+                role = iam.Role.from_role_name(self, role_id, role_name, mutable=True)
+                self.status_table.grant_read_write_data(role)
+                self.db_cluster.grant_data_api_access(role)
+                self.ecr_repo.grant_pull_push(role)
+            except Exception:
+                pass  # role may not exist yet on first deploy
 
         # --- Outputs ---
         CfnOutput(self, "CogtainerName", value=cogtainer_name)
