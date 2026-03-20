@@ -121,3 +121,102 @@ def build_mcp_server(capabilities: dict[str, Any]) -> Any:
     callable_tools = build_tool_functions(capabilities)
     sdk_tools = [ct.unwrap() for ct in callable_tools]
     return create_sdk_mcp_server(name="cogent", version="1.0.0", tools=sdk_tools)
+
+
+def to_sdk_model(model_id: str) -> str:
+    name = model_id
+    for prefix in ("us.anthropic.", "anthropic."):
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+    if name.endswith(":0"):
+        name = name[:-2]
+    if name.endswith("-v1"):
+        name = name[:-3]
+    return name
+
+
+import asyncio
+from decimal import Decimal
+from uuid import UUID
+
+from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
+
+from cogos.db.models import Process, Run
+from cogos.db.repository import Repository
+from cogos.executor.capabilities import build_process_capabilities
+
+
+def execute_agent_sdk_process(
+    process: Process,
+    event_data: dict,
+    run: Run,
+    config: Any,
+    repo: Repository,
+    *,
+    trace_id: UUID | None = None,
+) -> Run:
+    return asyncio.run(_execute_agent_sdk_process(process, event_data, run, config, repo, trace_id=trace_id))
+
+
+async def _execute_agent_sdk_process(
+    process: Process,
+    event_data: dict,
+    run: Run,
+    config: Any,
+    repo: Repository,
+    *,
+    trace_id: UUID | None = None,
+) -> Run:
+    capabilities = build_process_capabilities(process.id, repo, run_id=run.id, trace_id=trace_id)
+
+    tools = build_tool_functions(capabilities)
+    server = create_sdk_mcp_server(name="cogent", version="1.0.0", tools=[t.unwrap() for t in tools])
+    tool_names = [f"mcp__cogent__{t.__tool_name__}" for t in tools]
+
+    from cogos.files.context_engine import ContextEngine
+    from cogos.files.store import FileStore
+
+    file_store = FileStore(repo)
+    ctx = ContextEngine(file_store)
+    system_prompt = ctx.generate_full_prompt(process)
+    if not system_prompt:
+        system_prompt = "You are a CogOS process. Follow your instructions and use capabilities to accomplish your task."
+
+    user_text = _build_user_message(process, event_data, repo)
+
+    model = to_sdk_model(process.model or config.default_model)
+    run.model_version = process.model or config.default_model
+
+    options = ClaudeAgentOptions(
+        mcp_servers={"cogent": server},
+        allowed_tools=tool_names,
+        permission_mode="bypassPermissions",
+        max_turns=getattr(config, "max_turns", 20),
+        system_prompt=system_prompt,
+        model=model,
+    )
+
+    async for msg in query(prompt=user_text, options=options):
+        if isinstance(msg, ResultMessage):
+            usage = msg.usage or {}
+            run.tokens_in = usage.get("input_tokens", 0)
+            run.tokens_out = usage.get("output_tokens", 0)
+            run.cost_usd = Decimal(str(msg.total_cost_usd or 0))
+            if msg.subtype == "success":
+                run.result = msg.result
+            else:
+                run.error = f"Agent stopped: {msg.subtype}"
+
+    return run
+
+
+def _build_user_message(process: Process, event_data: dict, repo: Repository) -> str:
+    user_text = ""
+    web_request = event_data.get("web_request")
+    if web_request:
+        user_text += f"Incoming web request:\n{json.dumps(web_request, indent=2)}\n"
+    if event_data.get("payload"):
+        user_text += f"Message payload: {json.dumps(event_data['payload'], indent=2)}\n"
+    if not user_text.strip():
+        user_text = "Execute your task."
+    return user_text

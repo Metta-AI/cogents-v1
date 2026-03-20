@@ -316,8 +316,11 @@ def handler(event: dict, context: Any = None) -> dict:
         run.status = RunStatus.COMPLETED
         duration_ms = int((time.time() - start_time) * 1000)
 
-        cost = _estimate_cost(run.model_version or "", run.tokens_in, run.tokens_out)
-        run.cost_usd = cost
+        if run.cost_usd is None or run.cost_usd == 0:
+            cost = _estimate_cost(run.model_version or "", run.tokens_in, run.tokens_out)
+            run.cost_usd = cost
+        else:
+            cost = run.cost_usd
 
         repo.complete_run(
             run.id,
@@ -379,8 +382,11 @@ def handler(event: dict, context: Any = None) -> dict:
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
 
-        cost = _estimate_cost(run.model_version or "", run.tokens_in, run.tokens_out)
-        run.cost_usd = cost
+        if run.cost_usd is None or run.cost_usd == 0:
+            cost = _estimate_cost(run.model_version or "", run.tokens_in, run.tokens_out)
+            run.cost_usd = cost
+        else:
+            cost = run.cost_usd
 
         # Preserve THROTTLED status set by execute_process
         final_status = run.status if run.status == RunStatus.THROTTLED else RunStatus.FAILED
@@ -618,6 +624,10 @@ def execute_process(
     """Execute a process run — via runtime converse loop (LLM) or direct Python sandbox."""
     if process.executor == "python":
         return _execute_python_process(process, event_data, run, config, repo, trace_id=trace_id)
+
+    if process.executor == "agent_sdk":
+        from cogos.executor.agent_sdk import execute_agent_sdk_process
+        return execute_agent_sdk_process(process, event_data, run, config, repo, trace_id=trace_id)
 
     from cogos.executor.llm_client import LLMClient
     runtime = _get_runtime()
