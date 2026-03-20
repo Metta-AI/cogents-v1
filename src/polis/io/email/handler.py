@@ -9,11 +9,13 @@ import hmac
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 import boto3
+import requests
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -87,6 +89,41 @@ def _insert_event(cogent_name: str, event_type: str, source: str, payload: dict)
     return event_id
 
 
+def _extract_asana_accept_link(html_body: str) -> str | None:
+    """Extract Asana invitation accept link from email HTML body."""
+    pattern = r'href="(https://app\.asana\.com/[^"]*)"'
+    for m in re.finditer(pattern, html_body):
+        url = m.group(1)
+        if "accept" in url or "invitation" in url:
+            return url
+    return None
+
+
+def _try_asana_auto_accept(cogent_name: str, payload: dict) -> None:
+    """If the email is an Asana invite, auto-accept and update DynamoDB status."""
+    sender = str(payload.get("from", ""))
+    if "asana.com" not in sender.lower():
+        return
+
+    html_body = payload.get("html_body", "") or payload.get("body", "")
+    link = _extract_asana_accept_link(html_body)
+    if not link:
+        logger.warning("No accept link in Asana email cogent=%s subject=%s", cogent_name, payload.get("subject"))
+        return
+
+    logger.info("Auto-accepting Asana invite cogent=%s", cogent_name)
+    resp = requests.get(link, allow_redirects=True)
+    if resp.status_code < 400:
+        logger.info("Asana invite accepted cogent=%s", cogent_name)
+        _get_dynamo_table().update_item(
+            Key={"cogent_name": cogent_name},
+            UpdateExpression="SET asana_status = :s",
+            ExpressionAttributeValues={":s": "active"},
+        )
+    else:
+        logger.error("Failed to accept Asana invite cogent=%s status=%s", cogent_name, resp.status_code)
+
+
 def handler(event, context):
     """Lambda handler — expects API Gateway / Function URL proxy event."""
     # Extract bearer token
@@ -124,4 +161,11 @@ def handler(event, context):
         "Ingested email event %s cogent=%s from=%s subject=%s",
         event_id, cogent_name, payload.get("from"), payload.get("subject"),
     )
+
+    # Auto-accept Asana invites
+    try:
+        _try_asana_auto_accept(cogent_name, payload)
+    except Exception:
+        logger.exception("Asana auto-accept failed cogent=%s", cogent_name)
+
     return {"statusCode": 200, "body": json.dumps({"event_id": event_id})}
