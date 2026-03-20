@@ -277,7 +277,7 @@ class CogentStack(Stack):
         # -----------------------------------------------------------------
         CfnOutput(self, "CogentName", value=cogent_name)
         CfnOutput(self, "CogentRoleArn", value=self.cogent_role.role_arn)
-        CfnOutput(self, "SessionsBucket", value=self.sessions_bucket.bucket_name)
+        CfnOutput(self, "SessionsBucketName", value=self.sessions_bucket.bucket_name)
         CfnOutput(self, "IngressQueueUrl", value=self.ingress_queue.queue_url)
         if self.dashboard_url:
             CfnOutput(self, "DashboardUrl", value=self.dashboard_url)
