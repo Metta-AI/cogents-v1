@@ -164,5 +164,42 @@ def status(name: str | None) -> None:
         click.echo(f"  llm.model: {entry.llm.model}")
 
 
+@cli.command("compose")
+@click.argument("name")
+@click.option("--cogent", "cogent_names", multiple=True, help="Cogent names (repeatable)")
+@click.option("--output", "output_path", default=None, help="Output path (default: data_dir/docker-compose.yml)")
+def compose(name: str, cogent_names: tuple[str, ...], output_path: str | None) -> None:
+    """Generate docker-compose.yml for a docker cogtainer."""
+    cfg = _load()
+
+    if name not in cfg.cogtainers:
+        click.echo(f"Cogtainer '{name}' not found.")
+        raise SystemExit(1)
+
+    entry = cfg.cogtainers[name]
+    if entry.type != "docker":
+        click.echo(f"Cogtainer '{name}' is type '{entry.type}', not 'docker'.")
+        raise SystemExit(1)
+
+    if not cogent_names:
+        click.echo("Specify at least one --cogent name.")
+        raise SystemExit(1)
+
+    from cogtainer.docker_compose import generate_compose
+
+    content = generate_compose(entry, name, list(cogent_names))
+
+    if output_path:
+        out = Path(output_path)
+    elif entry.data_dir:
+        out = Path(entry.data_dir) / "docker-compose.yml"
+    else:
+        out = Path("docker-compose.yml")
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(content)
+    click.echo(f"Wrote {out}")
+
+
 if __name__ == "__main__":
     cli()
