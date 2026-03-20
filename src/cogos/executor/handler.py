@@ -231,7 +231,7 @@ def _reply_trace_link(repo, process: Process, event_data: dict, trace_id: UUID) 
             "content": f"\U0001f50d Trace: {trace_link}",
             "reply_to": message_id,
         }
-        _send_sqs(_with_reply_meta(body, process_id=process.id, run_id=None, trace_id=trace_id))
+        _send_sqs(_with_reply_meta(body, process_id=process.id, run_id=None, trace_id=trace_id), runtime=_get_runtime())
     except Exception:
         logger.debug("Failed to reply with trace link", exc_info=True)
 

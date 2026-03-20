@@ -13,7 +13,7 @@ Webhook lifecycle:
     - Creates one if it doesn't exist (using the bot token)
     - Posts via the webhook URL with the given username
 
-Token source: agora/discord secret in AWS Secrets Manager (bot_token or access_token field).
+Token source: agora/discord secret via SecretsProvider.
 """
 
 from __future__ import annotations
@@ -23,27 +23,27 @@ import logging
 import sys
 import urllib.request
 
-import boto3
-
 logger = logging.getLogger(__name__)
 
 DISCORD_API = "https://discord.com/api/v10"
 
 
-def _get_bot_token() -> str:
-    """Get the Discord bot token from agora/discord in Secrets Manager."""
-    from cogtainer.aws import get_polis_session, set_org_profile
+def _get_bot_token(secrets_provider=None) -> str:
+    """Get the Discord bot token from agora/discord via secrets provider."""
+    if secrets_provider is None:
+        from cogtainer.secrets import AwsSecretsProvider
+        secrets_provider = AwsSecretsProvider()
 
-    set_org_profile()
-    session, _ = get_polis_session()
-    sm = session.client("secretsmanager", region_name="us-east-1")
-    secret = json.loads(
-        sm.get_secret_value(SecretId="agora/discord")["SecretString"]
-    )
-    token = secret.get("bot_token") or secret.get("access_token", "")
-    if not token:
-        raise RuntimeError("No bot token found in agora/discord secret.")
-    return token
+    try:
+        token = secrets_provider.get_secret("agora/discord", field="bot_token")
+    except (KeyError, Exception):
+        try:
+            token = secrets_provider.get_secret("agora/discord", field="access_token")
+        except (KeyError, Exception):
+            token = ""
+    if token:
+        return token
+    raise RuntimeError("No bot token found in agora/discord secret.")
 
 
 def _api(method: str, path: str, token: str, body: dict | None = None) -> dict | list:

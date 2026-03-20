@@ -8,7 +8,6 @@ import os
 import time
 from uuid import UUID, uuid4
 
-import boto3
 from pydantic import BaseModel
 
 from cogos.capabilities.base import Capability
@@ -54,20 +53,13 @@ _DEFAULT_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 _DISCORD_REPLIES_QUEUE = os.environ.get("DISCORD_REPLIES_QUEUE", "cogent-polis-discord-replies")
 
 
-def _get_queue_url() -> str:
-    override = os.environ.get("DISCORD_REPLY_QUEUE_URL")
-    if override:
-        return override
-    region = os.environ.get("AWS_REGION", _DEFAULT_REGION)
-    account_id = boto3.client("sts").get_caller_identity()["Account"]
-    return f"https://sqs.{region}.amazonaws.com/{account_id}/{_DISCORD_REPLIES_QUEUE}"
-
-
-def _send_sqs(body: dict) -> None:
-    region = os.environ.get("AWS_REGION", _DEFAULT_REGION)
-    url = _get_queue_url()
-    client = boto3.client("sqs", region_name=region)
-    client.send_message(QueueUrl=url, MessageBody=json.dumps(body))
+def _send_sqs(body: dict, *, runtime=None) -> None:
+    """Send a message to the Discord replies SQS queue via runtime."""
+    if runtime is None:
+        from cogtainer.runtime.factory import create_executor_runtime
+        runtime = create_executor_runtime()
+    queue_name = _DISCORD_REPLIES_QUEUE
+    runtime.send_queue_message(queue_name, json.dumps(body))
 
 
 def _with_reply_meta(body: dict, *, process_id: UUID, run_id: UUID | None, trace_id: UUID | None = None, cogent_name: str = "") -> dict:
@@ -188,7 +180,7 @@ class DiscordCapability(Capability):
             body["files"] = file_specs
 
         try:
-            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name))
+            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name), runtime=self._runtime)
             return SendResult(channel=channel, content_length=len(content))
         except Exception as e:
             return DiscordError(error=str(e))
@@ -210,7 +202,7 @@ class DiscordCapability(Capability):
                 "channel": channel,
                 "message_id": message_id,
                 "emoji": emoji,
-            }, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name))
+            }, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name), runtime=self._runtime)
             return SendResult(channel=channel, content_length=0, type="reaction")
         except Exception as e:
             return DiscordError(error=str(e))
@@ -239,7 +231,7 @@ class DiscordCapability(Capability):
             body["message_id"] = message_id
 
         try:
-            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name))
+            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name), runtime=self._runtime)
             return SendResult(channel=channel, content_length=len(content), type="thread_create")
         except Exception as e:
             return DiscordError(error=str(e))
@@ -267,7 +259,7 @@ class DiscordCapability(Capability):
             body["files"] = file_specs
 
         try:
-            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name))
+            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name), runtime=self._runtime)
             return SendResult(channel=f"dm:{user_id}", content_length=len(content), type="dm")
         except Exception as e:
             return DiscordError(error=str(e))
