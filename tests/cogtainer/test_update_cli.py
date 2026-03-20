@@ -11,6 +11,7 @@ from cogtainer.update_cli import (
     _is_dashboard_service_name,
     update,
 )
+from polis.aws import DEFAULT_ORG_PROFILE, POLIS_ACCOUNT_ID
 
 
 class _FakeEcsClient:
@@ -69,8 +70,8 @@ def test_is_dashboard_service_name_rejects_non_dashboard_services():
 def test_find_dashboard_service_prefers_dashboard_service_over_discord():
     ecs_client = _FakeEcsClient(
         [
-            "arn:aws:ecs:us-east-1:901289084804:service/cogent-polis/cogent-dr-gamma-discord",
-            "arn:aws:ecs:us-east-1:901289084804:service/cogent-polis/cogent-dr-gamma-cogtainer-DashService09A25EB6-mc4IBPRXHnGZ",
+            f"arn:aws:ecs:us-east-1:{POLIS_ACCOUNT_ID}:service/cogent-polis/cogent-dr-gamma-discord",
+            f"arn:aws:ecs:us-east-1:{POLIS_ACCOUNT_ID}:service/cogent-polis/cogent-dr-gamma-cogtainer-DashService09A25EB6-mc4IBPRXHnGZ",
         ]
     )
 
@@ -80,7 +81,9 @@ def test_find_dashboard_service_prefers_dashboard_service_over_discord():
 
 
 def test_find_dashboard_service_raises_when_dashboard_service_missing():
-    ecs_client = _FakeEcsClient(["arn:aws:ecs:us-east-1:901289084804:service/cogent-polis/cogent-dr-gamma-discord"])
+    ecs_client = _FakeEcsClient(
+        [f"arn:aws:ecs:us-east-1:{POLIS_ACCOUNT_ID}:service/cogent-polis/cogent-dr-gamma-discord"]
+    )
 
     with pytest.raises(Exception, match="No dashboard service found"):
         _find_dashboard_service(ecs_client, "dr-gamma")
@@ -128,7 +131,7 @@ def test_update_stack_no_per_cogent_discord_management(monkeypatch):
         {
             "describe_repositories": (
                 lambda self, repositoryNames: {
-                    "repositories": [{"repositoryUri": "901289084804.dkr.ecr.us-east-1.amazonaws.com/cogent"}]
+                    "repositories": [{"repositoryUri": f"{POLIS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/cogent"}]
                 }
             )
         },
@@ -140,9 +143,9 @@ def test_update_stack_no_per_cogent_discord_management(monkeypatch):
         secrets_client=_FakeSecretsClient(exists=True),
     )
 
-    monkeypatch.setattr("polis.aws.resolve_org_profile", lambda profile=None: "softmax-org")
+    monkeypatch.setattr("polis.aws.resolve_org_profile", lambda profile=None: DEFAULT_ORG_PROFILE)
     monkeypatch.setattr("polis.aws.set_profile", lambda profile: None)
-    monkeypatch.setattr("polis.aws.get_polis_session", lambda: (session, "901289084804"))
+    monkeypatch.setattr("polis.aws.get_polis_session", lambda: (session, POLIS_ACCOUNT_ID))
 
     class _Result:
         returncode = 0

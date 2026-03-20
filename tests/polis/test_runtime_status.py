@@ -1,6 +1,10 @@
 import pytest
 
+from polis.aws import POLIS_ACCOUNT_ID
+from polis.config import PolisConfig
 from polis.runtime_status import load_status_manifest, resolve_runtime_status
+
+_DEFAULT_DOMAIN = PolisConfig().domain
 
 
 class FakeEcsClient:
@@ -52,7 +56,7 @@ def test_load_status_manifest_prefers_output_and_backfills_dashboard_url():
             },
             {
                 "OutputKey": "DashboardUrl",
-                "OutputValue": "https://dr-gamma.softmax-cogents.com",
+                "OutputValue": f"https://dr-gamma.{_DEFAULT_DOMAIN}",
             },
         ],
         "Tags": [{"Key": "cogent_name", "Value": "ignored-by-manifest"}],
@@ -63,7 +67,7 @@ def test_load_status_manifest_prefers_output_and_backfills_dashboard_url():
     assert manifest["version"] == 1
     assert manifest["cogent_name"] == "dr.gamma"
     assert manifest["dashboard"]["container_name"] == "web"
-    assert manifest["dashboard"]["url"] == "https://dr-gamma.softmax-cogents.com"
+    assert manifest["dashboard"]["url"] == f"https://dr-gamma.{_DEFAULT_DOMAIN}"
 
 
 def test_load_status_manifest_requires_explicit_identity():
@@ -112,20 +116,20 @@ def test_resolve_runtime_status_uses_live_component_images():
         [
             {
                 "name": "web",
-                "image": "901289084804.dkr.ecr.us-east-1.amazonaws.com/cogent:dr-gamma-dashboard",
+                "image": f"{POLIS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/cogent:dr-gamma-dashboard",
             }
         ],
     )
     ecs_client.add_task_definition(
         discord_task_definition,
-        [{"name": "bridge", "image": "901289084804.dkr.ecr.us-east-1.amazonaws.com/cogent:discord-bridge"}],
+        [{"name": "bridge", "image": f"{POLIS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/cogent:discord-bridge"}],
     )
     ecs_client.add_task_definition(
         executor_task_definition,
         [
             {
                 "name": "Executor",
-                "image": "901289084804.dkr.ecr.us-east-1.amazonaws.com/cogent:executor-dr-gamma",
+                "image": f"{POLIS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/cogent:executor-dr-gamma",
             }
         ],
     )
@@ -145,7 +149,7 @@ def test_resolve_runtime_status_uses_live_component_images():
         "dashboard": {
             "service_arn": dashboard_service_arn,
             "container_name": "web",
-            "url": "https://dr-gamma.softmax-cogents.com",
+            "url": f"https://dr-gamma.{_DEFAULT_DOMAIN}",
         },
         "discord": {
             "service_arn": discord_service_arn,
@@ -179,8 +183,8 @@ def test_resolve_runtime_status_uses_live_component_images():
     assert snapshot["executor"]["image"].endswith(":executor-dr-gamma")
     assert snapshot["discord"]["image"].endswith(":discord-bridge")
     assert snapshot["image_tag"].endswith(":dr-gamma-dashboard")
-    assert snapshot["dashboard_url"] == "https://dr-gamma.softmax-cogents.com"
-    assert snapshot["domain"] == "dr-gamma.softmax-cogents.com"
+    assert snapshot["dashboard_url"] == f"https://dr-gamma.{_DEFAULT_DOMAIN}"
+    assert snapshot["domain"] == f"dr-gamma.{_DEFAULT_DOMAIN}"
     assert snapshot["certificate_arn"].endswith("/abc")
     assert snapshot["channels"] == {"github": "ok"}
     assert snapshot["updated_at"] == 123
