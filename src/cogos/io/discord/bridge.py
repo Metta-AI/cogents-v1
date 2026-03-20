@@ -109,6 +109,25 @@ def _reply_queue_latency_ms(body: dict) -> int | None:
     return max(0, int(time.time() * 1000) - queued_at_ms)
 
 
+def _fetch_bot_token_from_secrets() -> str:
+    """Fetch the Discord bot token from agora/discord in Secrets Manager."""
+    sm = boto3.client(
+        "secretsmanager",
+        region_name=os.environ.get("AWS_REGION", "us-east-1"),
+    )
+    try:
+        secret = json.loads(
+            sm.get_secret_value(SecretId="agora/discord")["SecretString"]
+        )
+        token = secret.get("bot_token") or secret.get("access_token", "")
+        if token:
+            logger.info("Loaded Discord bot token from agora/discord")
+            return token
+    except Exception:
+        logger.debug("Could not fetch bot token from agora/discord", exc_info=True)
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Multi-tenant Bridge class
 # ---------------------------------------------------------------------------
@@ -124,8 +143,11 @@ class DiscordBridge:
     def __init__(self):
         self.bot_token = os.environ.get("DISCORD_BOT_TOKEN", "")
         if not self.bot_token:
+            self.bot_token = _fetch_bot_token_from_secrets()
+        if not self.bot_token:
             raise RuntimeError(
-                "No Discord token found. Set DISCORD_BOT_TOKEN env var."
+                "No Discord token found. Set DISCORD_BOT_TOKEN env var "
+                "or store bot_token in polis/discord secret."
             )
 
         self.reply_queue_url = os.environ.get(

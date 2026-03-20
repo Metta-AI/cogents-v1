@@ -18,23 +18,24 @@ All team communication happens on **Discord** (not Slack). When you see `#channe
 
 ### Posting to Discord
 
-Use the Discord MCP plugin tools (provided by the `plugin:discord:discord` MCP server):
+Post announcements using `cogos.io.discord.announce`, which creates per-cogent webhooks (named `cogent-{username}`) so messages appear under the cogent's identity:
 
-- **`mcp__plugin_discord_discord__reply`** — Send a message to a channel. Pass `chat_id` (the channel ID) and `text`. Optionally attach files via `files` (list of absolute paths).
-- **`mcp__plugin_discord_discord__fetch_messages`** — Read message history from a channel.
-- **`mcp__plugin_discord_discord__react`** — Add an emoji reaction to a message.
-- **`mcp__plugin_discord_discord__edit_message`** — Edit a message you previously sent.
+```bash
+# Post as the current checkout's identity
+PYTHONPATH=src python -m cogos.io.discord.announce \
+  --channel-id 1454583125786230906 \
+  --username "cogents.0" \
+  --message "Pushed to main: ..."
+
+# Or from Python
+from cogos.io.discord.announce import post
+post(channel_id="1454583125786230906", username="cogents.0", message="...")
+```
+
+The bot token is fetched from `agora/discord` in AWS Secrets Manager.
 
 Key channel IDs:
 - `#cogents` — `1454583125786230906` (announcements, deploy summaries, status updates)
-
-Example — announce a push:
-```
-mcp__plugin_discord_discord__reply(
-  chat_id="1454583125786230906",
-  text="**cogents.0** pushed to main: <summary>"
-)
-```
 
 Discord messages have a 2000-character limit — split longer posts into multiple messages.
 
