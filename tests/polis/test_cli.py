@@ -178,3 +178,89 @@ def test_status_renders_stored_snapshot_without_listing_dashboard_services(monke
     assert "executor-dr-gamma" in rendered
     assert "1/2 rules enabled" in rendered
     assert not fake_session.ecs.list_services_called
+
+
+def test_cogents_create_shows_confirmation_plan(monkeypatch):
+    """The create command should show a plan and ask for confirmation."""
+    output = io.StringIO()
+    monkeypatch.setattr(
+        cli_mod,
+        "console",
+        Console(file=output, force_terminal=False, color_system=None, width=160),
+    )
+    monkeypatch.setattr(cli_mod, "get_polis_session", lambda: (FakeSession(), None))
+
+    runner = CliRunner()
+    result = runner.invoke(polis, ["cogents", "create", "test-bot"], input="n\n")
+
+    rendered = output.getvalue()
+    assert "test-bot" in rendered
+    assert "Discord" in rendered or "discord" in rendered.lower()
+    assert "Email" in rendered or "SES" in rendered
+    assert "Asana" in rendered or "asana" in rendered.lower()
+    assert "GitHub" in rendered or "github" in rendered.lower()
+    assert "Domain registered" not in rendered
+
+
+class FakeStatusTableForSingle:
+    def __init__(self, item):
+        self._item = item
+
+    def get_item(self, Key):
+        return {"Item": self._item}
+
+
+class FakeDynamoForSingle:
+    def __init__(self, item):
+        self._table = FakeStatusTableForSingle(item)
+
+    def Table(self, name):
+        return self._table
+
+
+class FakeSessionForStatus:
+    def __init__(self, dynamo):
+        self._dynamo = dynamo
+
+    def client(self, name, **kwargs):
+        if name == "secretsmanager":
+            return FakeSecretsManagerClient()
+        raise AssertionError(f"Unexpected client: {name}")
+
+    def resource(self, name):
+        assert name == "dynamodb"
+        return self._dynamo
+
+
+def test_cogents_status_shows_formatted_table(monkeypatch):
+    output = io.StringIO()
+    item = {
+        "cogent_name": "scout",
+        "stack_status": "UPDATE_COMPLETE",
+        "domain": f"scout.{_DEFAULT_DOMAIN}",
+        "dashboard_url": f"https://scout.{_DEFAULT_DOMAIN}",
+        "email": "scout@softmax-cogents.com",
+        "discord_role_id": "999",
+        "asana_user_gid": "456",
+        "asana_status": "active",
+        "github_type": "github_app",
+    }
+    dynamo = FakeDynamoForSingle(item)
+    session = FakeSessionForStatus(dynamo)
+
+    monkeypatch.setattr(
+        cli_mod,
+        "console",
+        Console(file=output, force_terminal=False, color_system=None, width=160),
+    )
+    monkeypatch.setattr(cli_mod, "get_polis_session", lambda: (session, None))
+
+    runner = CliRunner()
+    result = runner.invoke(polis, ["cogents", "status", "scout"])
+
+    rendered = output.getvalue()
+    assert "scout" in rendered
+    assert "Discord" in rendered
+    assert "Email" in rendered
+    assert "Asana" in rendered
+    assert "GitHub" in rendered

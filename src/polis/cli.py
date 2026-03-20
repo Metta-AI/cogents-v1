@@ -13,6 +13,7 @@ import requests
 from rich.console import Console
 from rich.table import Table
 
+from polis import naming
 from polis.aws import (
     DEFAULT_ORG_PROFILE,
     ORG_PROFILE_ENV,
@@ -24,7 +25,15 @@ from polis.aws import (
     set_profile,
 )
 from polis.config import PolisConfig
-from polis import naming
+from polis.provisioning import (
+    destroy_asana_guest,
+    destroy_discord_role,
+    destroy_ses_email,
+    provision_asana_guest,
+    provision_discord_role,
+    provision_github_credentials,
+    provision_ses_email,
+)
 from polis.quotas import QuotaEnsureResult, ensure_service_quota_targets
 from polis.secrets.store import SecretStore
 
@@ -388,6 +397,9 @@ def status():
 
         ct.add_row("Channels", ch_str)
         ct.add_row("Secrets", f"[cyan]{len(secs)}[/cyan]" if secs else "[dim]-[/dim]")
+
+        _add_external_service_rows(ct, item, name)
+
         console.print(ct)
 
     # -- ECR Images table ------------------------------------------------
@@ -590,6 +602,24 @@ def cogents_create(ctx: click.Context, name: str):
 
     subdomain = _cogent_subdomain(name, config.domain)
     safe_name = name.replace(".", "-")
+
+    # Show confirmation plan
+    plan = Table(title=f"Provisioning Plan: {name}")
+    plan.add_column("Resource", style="bold")
+    plan.add_column("Details")
+    plan.add_row("Domain", subdomain)
+    plan.add_row("Database", f"cogent_{safe_name.replace('-', '_')}")
+    plan.add_row("CDK Stack", naming.stack_name(name))
+    plan.add_row("Email (SES)", f"{name}@{config.domain}")
+    plan.add_row("Discord Role", f"cogent-{name}")
+    plan.add_row("Asana Guest", f"{name}@{config.domain}")
+    plan.add_row("GitHub", "shared app credentials")
+    console.print(plan)
+
+    if not click.confirm("Proceed?"):
+        console.print("[yellow]Aborted.[/yellow]")
+        return
+
     console.print(f"Creating cogent identity: [bold]{name}[/bold]")
 
     # 1. Cloudflare DNS — placeholder CNAME (will be updated to ALB after stack deploy)
@@ -742,6 +772,69 @@ def cogents_create(ctx: click.Context, name: str):
     )
     console.print("  [green]Cogent stack deployed[/green]")
 
+    # 8. Email (SES) — must be first, other services send invites to it
+    email_result = None
+    try:
+        console.print("  Creating SES email identity...")
+        ses = session.client("sesv2")
+        email_result = provision_ses_email(
+            ses_client=ses, store=store, cogent_name=name, domain=config.domain,
+        )
+        console.print(f"  [green]Email: {email_result['email']}[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]SES email: {e}[/yellow]")
+
+    # 9. Discord Role
+    discord_result = None
+    try:
+        console.print("  Creating Discord role...")
+        discord_result = provision_discord_role(store=store, cogent_name=name)
+        console.print(f"  [green]Discord role: {discord_result['role_name']} ({discord_result['role_id']})[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]Discord role: {e}[/yellow]")
+
+    # 10. Asana Guest Invite
+    asana_result = None
+    try:
+        console.print("  Inviting to Asana workspace...")
+        asana_result = provision_asana_guest(store=store, cogent_name=name, domain=config.domain)
+        console.print(f"  [green]Asana guest: {asana_result['user_gid']} (invited)[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]Asana invite: {e}[/yellow]")
+
+    # 11. GitHub Credentials
+    github_result = None
+    try:
+        console.print("  Setting up GitHub credentials...")
+        github_result = provision_github_credentials(store=store, cogent_name=name)
+        console.print(f"  [green]GitHub: {github_result['type']}[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]GitHub credentials: {e}[/yellow]")
+
+    # Update DynamoDB with external service info
+    update_expr_parts = ["updated_at = :ts"]
+    expr_values: dict[str, object] = {":ts": int(time.time())}
+    if email_result:
+        update_expr_parts.append("email = :email")
+        expr_values[":email"] = email_result["email"]
+    if discord_result:
+        update_expr_parts.append("discord_role_id = :drid")
+        expr_values[":drid"] = discord_result["role_id"]
+    if asana_result:
+        update_expr_parts.append("asana_user_gid = :agid")
+        update_expr_parts.append("asana_status = :as")
+        expr_values[":agid"] = asana_result["user_gid"]
+        expr_values[":as"] = "invited"
+    if github_result:
+        update_expr_parts.append("github_type = :gt")
+        expr_values[":gt"] = github_result["type"]
+
+    table_resource.update_item(
+        Key={"cogent_name": name},
+        UpdateExpression="SET " + ", ".join(update_expr_parts),
+        ExpressionAttributeValues=expr_values,
+    )
+
     # Summary
     console.print()
     table = Table(title=f"Cogent Identity: {name}")
@@ -751,6 +844,14 @@ def cogents_create(ctx: click.Context, name: str):
     table.add_row("Certificate", cert_arn)
     table.add_row("Sessions Bucket", naming.bucket_name(name))
     table.add_row("Identity Secret", identity_path)
+    if email_result:
+        table.add_row("Email", email_result["email"])
+    if discord_result:
+        table.add_row("Discord Role", f"{discord_result['role_name']} ({discord_result['role_id']})")
+    if asana_result:
+        table.add_row("Asana", f"{asana_result['user_gid']} (invited)")
+    if github_result:
+        table.add_row("GitHub", github_result["type"])
     console.print(table)
     console.print(f"\n[green]Cogent {name} registered in polis.[/green]")
 
@@ -808,6 +909,26 @@ def cogents_destroy(ctx: click.Context, name: str):
         console.print("  [green]Deleted status record[/green]")
     except Exception as e:
         console.print(f"  [yellow]Status cleanup: {e}[/yellow]")
+
+    # Clean up external services
+    try:
+        destroy_discord_role(store=store, cogent_name=name)
+        console.print("  [green]Deleted Discord role[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]Discord role cleanup: {e}[/yellow]")
+
+    try:
+        ses = session.client("sesv2")
+        destroy_ses_email(ses_client=ses, cogent_name=name, domain=config.domain)
+        console.print("  [green]Deleted SES email identity[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]SES cleanup: {e}[/yellow]")
+
+    try:
+        destroy_asana_guest(store=store, cogent_name=name)
+        console.print("  [green]Removed Asana guest[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]Asana cleanup: {e}[/yellow]")
 
     # 4. Delete all secrets under cogent/{name}/
     store = SecretStore(session=session)
@@ -880,12 +1001,47 @@ def cogents_status(name: str):
     table_resource = ddb.Table("cogent-status")  # type: ignore[attr-defined]
 
     item = table_resource.get_item(Key={"cogent_name": name}).get("Item")
-
     if not item:
         console.print(f"[red]No status found for cogent: {name}[/red]")
         return
 
-    console.print_json(json.dumps(item, default=str))
+    ct = Table(title=f"[bold]{name}[/bold]", show_header=False, padding=(0, 1))
+    ct.add_column("Component", style="bold")
+    ct.add_column("Status")
+
+    # Infrastructure
+    ct.add_row("Stack", _cell(item.get("stack_status")))
+    ct.add_row("Domain", item.get("domain", "-"))
+    ct.add_row("Dashboard URL", item.get("dashboard_url", "-"))
+
+    dashboard = _component_state(item.get("dashboard"))
+    executor = _component_state(item.get("executor"))
+    ct.add_row("Dashboard", _cell(_component_status(dashboard)))
+    ct.add_row("Executor Image", _cell(_component_image(executor)))
+
+    _add_external_service_rows(ct, item, name)
+
+    console.print(ct)
+
+
+def _add_external_service_rows(ct: Table, item: dict, name: str) -> None:
+    """Add external service status rows to a Rich table."""
+    email = item.get("email")
+    ct.add_row("Email", f"[green]{email}[/green]" if email else "[dim]-[/dim]")
+
+    discord_role = item.get("discord_role_id")
+    ct.add_row("Discord Role", f"[green]cogent-{name} ({discord_role})[/green]" if discord_role else "[dim]-[/dim]")
+
+    asana_gid = item.get("asana_user_gid")
+    asana_status = item.get("asana_status", "unknown")
+    if asana_gid:
+        style = "green" if asana_status == "active" else "yellow"
+        ct.add_row("Asana", f"[{style}]{asana_gid} ({asana_status})[/{style}]")
+    else:
+        ct.add_row("Asana", "[dim]-[/dim]")
+
+    github_type = item.get("github_type")
+    ct.add_row("GitHub", f"[green]{github_type}[/green]" if github_type else "[dim]-[/dim]")
 
 
 # ---------------------------------------------------------------------------
