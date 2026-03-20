@@ -102,32 +102,12 @@ def verify_ses_email(
     """
     address = f"{cogent_name}@{domain}"
 
-    if runtime:
-        verified = runtime.verify_email_domain(domain)
-        if verified:
-            logger.info("Domain %s already verified, %s can send", domain, address)
-            return {"address": address, "domain_verified": True}
-        logger.warning("Domain %s not verified. Run domain verification first.", domain)
-        return {"address": address, "domain_verified": False}
-
-    # Fallback to boto3 for backward compatibility
-    import boto3
-
-    ses = boto3.client("ses", region_name=region)
-
-    response = ses.get_identity_verification_attributes(Identities=[domain])
-    domain_status = response["VerificationAttributes"].get(domain, {}).get("VerificationStatus")
-
-    if domain_status == "Success":
-        logger.info("Domain %s already verified in SES, %s can send", domain, address)
+    verified = runtime.verify_email_domain(domain)
+    if verified:
+        logger.info("Domain %s already verified, %s can send", domain, address)
         return {"address": address, "domain_verified": True}
-
-    logger.warning(
-        "Domain %s not verified in SES (status=%s). Run SES domain verification first.",
-        domain,
-        domain_status,
-    )
-    return {"address": address, "domain_verified": False, "domain_status": domain_status}
+    logger.warning("Domain %s not verified. Run domain verification first.", domain)
+    return {"address": address, "domain_verified": False}
 
 
 def provision_email(
