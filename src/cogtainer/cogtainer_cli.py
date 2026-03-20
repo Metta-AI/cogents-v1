@@ -201,5 +201,71 @@ def compose(name: str, cogent_names: tuple[str, ...], output_path: str | None) -
     click.echo(f"Wrote {out}")
 
 
+def _get_aws_session(
+    region: str = "us-east-1",
+    profile: str | None = None,
+) -> tuple:
+    """Get an AWS session for the polis account. Separated for testability."""
+    from polis.aws import get_polis_session, set_org_profile
+
+    if profile:
+        set_org_profile(profile)
+    else:
+        set_org_profile()
+
+    return get_polis_session()
+
+
+@cli.command("discover-aws")
+@click.option("--region", default="us-east-1", help="AWS region")
+@click.option("--profile", default=None, help="AWS profile name")
+def discover_aws(region: str, profile: str | None) -> None:
+    """Discover existing AWS infrastructure and populate config."""
+    session, account_id = _get_aws_session(region=region, profile=profile)
+
+    # Scan DynamoDB cogent-status table
+    ddb = session.resource("dynamodb", region_name=region)
+    table = ddb.Table("cogent-status")
+
+    items: list[dict] = []
+    params: dict = {}
+    while True:
+        resp = table.scan(**params)
+        items.extend(resp.get("Items", []))
+        last_key = resp.get("LastEvaluatedKey")
+        if not last_key:
+            break
+        params["ExclusiveStartKey"] = last_key
+
+    cogent_names = sorted(
+        item["cogent_name"]
+        for item in items
+        if item.get("cogent_name")
+    )
+
+    if not cogent_names:
+        click.echo("No cogents found in AWS.")
+        return
+
+    # Create or preserve cogtainer entry
+    cfg = _load()
+    if "aws" not in cfg.cogtainers:
+        cfg.cogtainers["aws"] = CogtainerEntry(
+            type="aws",
+            region=region,
+            account_id=account_id,
+        )
+        if len(cfg.cogtainers) == 1:
+            cfg.defaults.cogtainer = "aws"
+        _save_config(cfg)
+        click.echo(f"Created cogtainer 'aws' (account={account_id}, region={region}).")
+    else:
+        click.echo("Cogtainer 'aws' already exists, keeping existing config.")
+
+    click.echo(f"Discovered {len(cogent_names)} cogent(s):")
+    for name in cogent_names:
+        click.echo(f"  - {name}")
+
+
 if __name__ == "__main__":
     cli()
