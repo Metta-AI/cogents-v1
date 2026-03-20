@@ -2,7 +2,7 @@
 
 ## Problem
 
-`src/polis/status.py` still contains compatibility logic for mixed-quality
+`src/cogtainer/status.py` still contains compatibility logic for mixed-quality
 rows in `cogent-status`.
 
 Today we still have helpers that:
@@ -38,14 +38,14 @@ The CLI should:
    emitting a separate runtime identity.
 4. Run a one-time cleanup for old `*-cogtainer` / duplicate status rows in
    `cogent-status`.
-5. Delete the normalization layer in `src/polis/status.py`.
+5. Delete the normalization layer in `src/cogtainer/status.py`.
 6. Move any remaining stack-naming helper into a small naming module if still
    needed.
 
 ## What Should Go Away
 
 If the plan above is completed, these should be removable from
-`src/polis/status.py`:
+`src/cogtainer/status.py`:
 
 - `safe_name_from_stack_name`
 - `status_stack_name`

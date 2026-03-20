@@ -10,4 +10,4 @@
 
 The CLI will read App ID and private key from Secrets Manager:
 
-    polis secrets set cogent/<name>/github --value '{"app_id":"<APP_ID>","private_key":"<CONTENTS_OF_PEM>"}'
+    cogtainer secrets set cogent/<name>/github --value '{"app_id":"<APP_ID>","private_key":"<CONTENTS_OF_PEM>"}'

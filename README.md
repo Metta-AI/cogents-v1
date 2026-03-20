@@ -98,10 +98,10 @@ Local mode is good for development. To deploy a cogent with persistent infrastru
 The short version:
 
 ```bash
-polis create                              # shared infrastructure (one-time)
-cogos <name> cogtainer create             # per-cogent infrastructure
-cogos <name> cogos image boot cogos       # load application image
-cogos <name> cogos io discord start       # start Discord bridge
+cogtainer create <name> --type aws        # cogtainer infrastructure (one-time)
+cogent create <name>                      # per-cogent infrastructure
+COGENT=<name> cogos image boot cogos      # load application image
+COGENT=<name> cogos io discord start      # start Discord bridge
 ```
 
 This requires AWS Organizations, a domain for DNS, and secrets configured in AWS Secrets Manager. See [AGENTS.md](AGENTS.md) for the full operational reference.
@@ -121,5 +121,5 @@ This requires AWS Organizations, a domain for DNS, and secrets configured in AWS
 - [AGENTS.md](AGENTS.md) — repo operating notes, deployment reference, infrastructure details
 - [docs/deploy.md](docs/deploy.md) — deployment guide
 - [docs/cogos/guide.md](docs/cogos/guide.md) — CogOS concepts and architecture
-- [docs/polis/](docs/polis/) — shared infrastructure (polis) design and CLI reference
+- [docs/cogtainer/](docs/cogtainer/) — cogtainer design and CLI reference
 - [tests/cogos/local_validation.md](tests/cogos/local_validation.md) — step-by-step local validation checklist

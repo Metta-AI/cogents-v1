@@ -1,6 +1,6 @@
-# Polis Design
+# Cogtainer Design
 
-Polis is the shared infrastructure hub for all cogents in an AWS Organization.
+A cogtainer is the self-contained infrastructure environment that hosts cogents. It can be an AWS account, a local Docker setup, or a local development environment.
 It provisions shared resources, manages credentials, and monitors cogent health.
 
 ## Architecture
@@ -14,7 +14,7 @@ Three layers:
 3. **Monitoring** — EventBridge-triggered Lambda polls CF/ECS/CloudWatch every
    60s, writes aggregated status to DynamoDB. CLI reads from DynamoDB.
 
-### What changed from the original polis
+### What changed from the original design
 
 - No Envoy sidecar or auth injector proxy
 - No WebSocket proxy or boundary stack
@@ -24,10 +24,10 @@ Three layers:
 ## Module Structure
 
 ```
-src/polis/
+src/cogtainer/
   __init__.py
   cli.py              # Click CLI
-  config.py            # PolisConfig model
+  config.py            # CogtainerConfig model
   aws.py               # AWS session/account helpers
   cdk/
     app.py             # CDK app entry point
@@ -44,9 +44,9 @@ src/polis/
 
 ## Infrastructure Layer (CDK)
 
-A single `PolisStack` with these resources:
+A single `CogtainerStack` with these resources:
 
-### ECS Cluster (`cogent-polis`)
+### ECS Cluster
 
 - Capacity providers: FARGATE + FARGATE_SPOT
 - Shared cluster where all cogent tasks run
@@ -61,7 +61,7 @@ A single `PolisStack` with these resources:
 
 ### Route53 Hosted Zone
 
-- Domain for cogent DNS (from `~/.cogos/config.yml`)
+- Domain for cogent DNS (from `~/.cogos/cogtainers.yml`)
 - Cogent accounts create subdomains via cross-account delegation
 
 ### DynamoDB Table (`cogent-status`)
@@ -94,7 +94,7 @@ fetch keys directly using their IAM task role.
 ```
 cogent/{cogent_name}/{channel}       # e.g., cogent/alpha/discord
 cogent/{cogent_name}/{channel}/meta  # optional metadata
-polis/shared/{key_name}              # org-wide shared keys
+cogtainer/shared/{key_name}          # org-wide shared keys
 ```
 
 ### SecretStore client (`secrets/store.py`)
@@ -110,7 +110,7 @@ Thin wrapper around boto3 Secrets Manager:
 ### Access control
 
 - Each cogent's ECS task role gets read access scoped to `cogent/{name}/*`
-- Polis admin role gets full read/write
+- Cogtainer admin role gets full read/write
 - Cross-account access via `aws:PrincipalOrgID` condition
 
 ### Rotation Lambda (`secrets/rotation/handler.py`)
@@ -129,11 +129,11 @@ Supported token types:
 ### CLI commands
 
 ```
-polis secrets list [--cogent NAME]
-polis secrets get <path>
-polis secrets set <path> [--value | --file]
-polis secrets delete <path>
-polis secrets rotate <path>
+cogtainer secrets list [--cogent NAME]
+cogtainer secrets get <path>
+cogtainer secrets set <path> [--value | --file]
+cogtainer secrets delete <path>
+cogtainer secrets rotate <path>
 ```
 
 ## Monitoring Layer
@@ -165,39 +165,27 @@ updated_at: int        # unix timestamp
 
 ## CLI
 
-Entry point: `polis` (defined in pyproject.toml as `polis.cli:polis`).
+Entry point: `cogtainer` (defined in pyproject.toml).
 
 ### Commands
 
 ```
-polis create                  # Create polis account + deploy CDK stack
-polis update                  # Update CDK stack
-polis destroy                 # Tear down CDK stack
-polis status                  # Show polis resource status
+cogtainer create <name> --type aws   # Create cogtainer + deploy CDK stack
+cogtainer update <name>              # Update CDK stack
+cogtainer destroy <name>             # Tear down CDK stack
+cogtainer status [<name>]            # Show cogtainer resource status
 
-polis secrets list [--cogent] # List secrets
-polis secrets get <path>      # Get a secret value
-polis secrets set <path>      # Set a secret
-polis secrets delete <path>   # Delete a secret
-polis secrets rotate <path>   # Trigger rotation
+cogtainer secrets list [--cogent]    # List secrets
+cogtainer secrets get <path>         # Get a secret value
+cogtainer secrets set <path>         # Set a secret
+cogtainer secrets delete <path>      # Delete a secret
+cogtainer secrets rotate <path>      # Trigger rotation
 
-polis cogents list            # List all cogents with DynamoDB status
-polis cogents status <name>   # Detailed status for one cogent
+cogent list                          # List all cogents with DynamoDB status
+cogent create <name>                 # Create a cogent in the current cogtainer
+cogent destroy <name>                # Destroy a cogent
 ```
 
 ## Configuration
 
-```python
-class CogentMeta(BaseModel):
-    description: str
-    personality: str | None = None
-
-class PolisConfig(BaseModel):
-    name: str              # from config: polis_name
-    organization: str      # from config: organization
-    owner: str             # from config: owner
-    domain: str            # from config: domain
-    cogents: dict[str, CogentMeta]
-```
-
-Stored as YAML in the polis account's configuration.
+Stored as YAML in `~/.cogos/cogtainers.yml`.

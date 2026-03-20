@@ -113,7 +113,7 @@ print('All updated to epoch', epoch)
 # 1. Push code
 git push
 
-# 2. Deploy Lambda (executor + orchestrator + dispatcher)
+# 2. Deploy Lambda (executor + event-router + dispatcher)
 cogent $COGENT cogtainer update lambda
 
 # 3. Load image files into DB

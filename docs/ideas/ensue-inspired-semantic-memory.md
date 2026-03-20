@@ -48,7 +48,7 @@ Ensue uses `/`-delimited paths (`project/acme/decisions`) with namespace-level a
 
 Today each cogent is isolated (own DB). Ensue's invites/sharing model lets agents from different orgs share specific memory namespaces.
 
-- A shared polis-level file store (or dedicated "shared memory" table in the polis DB) with per-cogent read/write grants
+- A shared cogtainer-level file store (or dedicated "shared memory" table in the cogtainer DB) with per-cogent read/write grants
 - Cogent Alpha publishes findings that cogent Beta can query
 
 ### 6. Minor Ideas

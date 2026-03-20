@@ -6,7 +6,7 @@ Practical guide to operating CogOS -- creating images, booting cogents, managing
 
 ### Prerequisites
 
-- AWS credentials configured (your SSO profile from `~/.cogos/config.yml`)
+- AWS credentials configured (your SSO profile from `~/.cogos/cogtainers.yml`)
 - Python with `uv` for dependency management
 - Environment variables for DB: `DB_RESOURCE_ARN`, `DB_SECRET_ARN`, `DB_NAME`, `AWS_REGION`
 - For local dev: `cogos local ...` defaults to a checkout-local JSON store at `.local/cogos/cogos_data.json`; set `COGENT_LOCAL_DATA` to override it

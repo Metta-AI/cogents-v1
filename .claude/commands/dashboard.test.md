@@ -11,12 +11,11 @@ cogent <name> dashboard show-pat
 This prints the PAT. Also fetch the CF service token:
 
 ```python
-from polis.aws import get_polis_session, set_profile
+from cogtainer.aws import get_cogtainer_session
 import json
-set_profile('!`.venv/bin/python scripts/deploy-config org_profile softmax-org`')
-session, _ = get_polis_session()
+session = get_cogtainer_session()
 sm = session.client('secretsmanager', region_name='us-east-1')
-cf_token = json.loads(sm.get_secret_value(SecretId="cogent/polis/cloudflare-service-token")["SecretString"])
+cf_token = json.loads(sm.get_secret_value(SecretId="cogtainer/shared/cloudflare-service-token")["SecretString"])
 api_key = json.loads(sm.get_secret_value(SecretId=f"cogent/<name>/dashboard-api-key")["SecretString"])["api_key"]
 ```
 

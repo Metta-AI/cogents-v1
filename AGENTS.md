@@ -36,58 +36,57 @@ src/
   memory/       # Persistent memory (PostgreSQL)
   cogos/io/     # External IO (Discord, GitHub, Asana, email)
   cli/          # Main cogos CLI
-  polis/        # Shared infrastructure hub (see docs/polis/)
   dashboard/    # Operational dashboard
   body/         # Agent runtime (ECS task)
   run/          # Run management CLI
 docs/
-  polis/        # Polis design and CLI reference
+  cogtainer/    # Cogtainer design and CLI reference
 tests/
 ```
 
-## Polis — Shared Infrastructure
+## Cogtainer — Infrastructure
 
-Polis manages the shared AWS resources that all cogents depend on: ECS cluster, ECR container registry, Route53 DNS, secrets, and monitoring.
+A cogtainer is the self-contained environment (AWS, local, or Docker) that hosts cogents. It manages shared AWS resources: ECS cluster, ECR container registry, Route53 DNS, secrets, and monitoring.
 
-- **Design**: [docs/polis/design.md](docs/polis/design.md) — Architecture, module structure, resource details
-- **CLI Reference**: [docs/polis/cli.md](docs/polis/cli.md) — All commands with examples and options
+- **Design**: [docs/cogtainer/design.md](docs/cogtainer/design.md) — Architecture, module structure, resource details
+- **CLI Reference**: [docs/cogtainer/cli.md](docs/cogtainer/cli.md) — All commands with examples and options
 
 Key commands:
 
 ```bash
-polis status                     # Show infrastructure health
-polis secrets list --cogent NAME # List a cogent's secrets
-polis cogents list               # All cogents with CPU/memory/channels
+cogtainer status                 # Show infrastructure health
+cogtainer status <name>          # Show a specific cogtainer's health
+cogent list                      # All cogents with CPU/memory/channels
 ```
 
 ## AWS Infrastructure
 
-Polis infrastructure details (account IDs, ECR URL, domain, SSO profile) are configured in `~/.cogos/config.yml` with fallbacks in `src/polis/config.py`. Use the CLI to discover them:
+Cogtainer infrastructure details (account IDs, ECR URL, domain, SSO profile) are configured in `~/.cogos/cogtainers.yml`. Use the CLI to discover them:
 
 ```bash
-polis status        # Show infrastructure details
-polis cogents list  # Show all cogent instances
+cogtainer status           # Show infrastructure details
+cogent list                # Show all cogent instances
 ```
 
 ## Secret Path Conventions
 
 ```
 cogent/{name}/{channel}    # Per-cogent channel creds (e.g., cogent/alpha/discord)
-polis/shared/{key}         # Org-wide shared keys (e.g., polis/shared/jwt-signing-key)
+cogtainer/shared/{key}     # Org-wide shared keys (e.g., cogtainer/shared/jwt-signing-key)
 ```
 
 ## Running a Cogent Locally vs on AWS
 
-Set `COGENT_ID=local` to run on this machine using LocalRepository. By default, each checkout gets its own local JSON store at `.local/cogos/cogos_data.json` under that repo. Set `COGENT_LOCAL_DATA` to override it. Any other cogent name targets that cogent's AWS infrastructure (RDS, Lambda, ECS).
+Set `COGENT=local` to run on this machine using LocalRepository. By default, each checkout gets its own local JSON store at `.local/cogos/cogos_data.json` under that repo. Set `COGENT_LOCAL_DATA` to override it. Any other cogent name targets that cogent's AWS infrastructure (RDS, Lambda, ECS).
 
-The `cogos` CLI reads the cogent name from the `COGENT_ID` env var or `default_cogent` in `~/.cogos/config.yml`.
+The `cogos` CLI reads the cogent name from the `COGENT` env var (with `COGTAINER` if multiple cogtainers are configured) or from `~/.cogos/cogtainers.yml`.
 
 ### Local: Run CogOS on this machine
 
 Requires AWS credentials for Bedrock (LLM calls). No Lambda, no RDS, no EventBridge.
 
 ```bash
-export COGENT_ID=local
+export COGENT=local
 
 # 1. Boot an image into local DB
 cogos image boot cogos --clean
@@ -105,7 +104,7 @@ cogos run list
 
 ### Validated Local Operations
 
-All of the following work with `COGENT_ID=local`:
+All of the following work with `COGENT=local`:
 
 | Operation | Command |
 |-----------|---------|
@@ -143,7 +142,7 @@ In production (Docker), both are served on a single port (8100) — Next.js is s
 ### Starting the dashboard
 
 ```bash
-# Background (recommended for dev, with COGENT_ID=local):
+# Background (recommended for dev, with COGENT=local):
 cogos dashboard start             # local JSON DB, runs in background
 cogos dashboard stop              # stop both servers
 cogos dashboard reload            # restart (stop + start)
@@ -160,22 +159,18 @@ cd dashboard/frontend && npm run dev
 
 ## Remote Deployment and Testing
 
-### Deploying polis (shared infrastructure)
+### Deploying a cogtainer (shared infrastructure)
 
-Polis manages shared resources (ECS cluster, ECR, Route53, DynamoDB, OIDC, secrets). Deploy via the `polis` CLI, **not** `cogtainer`:
+A cogtainer manages shared resources (ECS cluster, ECR, Route53, DynamoDB, OIDC, secrets). Deploy via the `cogtainer` CLI:
 
 ```bash
-polis create                    # First-time: create polis account + deploy all CDK stacks
-polis update                    # Update CDK stacks with code changes
-polis status                    # Check infrastructure health
-polis destroy                   # Tear down (prompts for confirmation)
+cogtainer create <name> --type aws  # First-time: create cogtainer + deploy all CDK stacks
+cogtainer update <name>             # Update CDK stacks with code changes
+cogtainer status [<name>]           # Check infrastructure health
+cogtainer destroy <name>            # Tear down (prompts for confirmation)
 ```
 
-The CDK app is at `src/polis/cdk/app.py` and deploys two stacks:
-- `cogent-polis` — ECS cluster, ECR repo, Route53, DynamoDB, watcher Lambda, GitHub Actions OIDC
-- `cogent-secrets` — Rotation Lambda, cross-account SecretsReaderRole
-
-See [docs/polis/cli.md](docs/polis/cli.md) for full reference.
+See [docs/cogtainer/cli.md](docs/cogtainer/cli.md) for full reference.
 
 ### CI Docker builds (GitHub Actions)
 
@@ -194,16 +189,16 @@ All `cogtainer update` commands check that a CI-built ECR image exists for the c
 
 ```bash
 # Wait for CI to finish building
-cogos <name> cogtainer await                          # Wait for executor-<sha>
-cogos <name> cogtainer await --prefix dashboard       # Wait for dashboard-<sha>
-cogos <name> cogtainer await --tag dashboard-latest   # Wait for specific tag
+COGENT=<name> cogos cogtainer await                          # Wait for executor-<sha>
+COGENT=<name> cogos cogtainer await --prefix dashboard       # Wait for dashboard-<sha>
+COGENT=<name> cogos cogtainer await --tag dashboard-latest   # Wait for specific tag
 
 # Deploy dashboard image to ECS
-cogos <name> cogtainer update ecs --tag dashboard-latest
-cogos <name> cogtainer update ecs --tag dashboard-abc1234
+COGENT=<name> cogos cogtainer update ecs --tag dashboard-latest
+COGENT=<name> cogos cogtainer update ecs --tag dashboard-abc1234
 
 # Deploy executor code to Lambda (no Docker needed)
-cogos <name> cogtainer update lambda
+COGENT=<name> cogos cogtainer update lambda
 ```
 
 Local builds (`cogtainer build`, `dashboard deploy --docker`) still work when needed.
@@ -214,38 +209,38 @@ See [docs/deploy.md](docs/deploy.md) for the full reference. Match what changed 
 
 | What changed | Command |
 |---|---|
-| `images/**` only | `cogos <name> cogos image boot cogos` |
-| `src/cogos/executor/**`, `src/cogos/sandbox/**`, `src/cogos/capabilities/**` | `cogos <name> cogtainer update lambda` |
-| `src/cogos/db/migrations/**` | `cogos <name> cogtainer update rds` |
-| `dashboard/frontend/**` only | `cogos <name> dashboard deploy` |
-| `src/dashboard/**` (backend) | `cogos <name> dashboard deploy --docker` |
+| `images/**` only | `COGENT=<name> cogos image boot cogos` |
+| `src/cogos/executor/**`, `src/cogos/sandbox/**`, `src/cogos/capabilities/**` | `COGENT=<name> cogos cogtainer update lambda` |
+| `src/cogos/db/migrations/**` | `COGENT=<name> cogos cogtainer update rds` |
+| `dashboard/frontend/**` only | `COGENT=<name> cogos dashboard deploy` |
+| `src/dashboard/**` (backend) | `COGENT=<name> cogos dashboard deploy --docker` |
 | `src/cogtainer/docker/**` (Dockerfile/deps) | CI builds automatically; executor runs as Lambda, no ECS deploy needed |
-| `dashboard/Dockerfile`, backend deps | CI builds automatically; then `cogos <name> cogtainer update ecs --tag dashboard-latest` |
-| `src/cogtainer/cdk/**`, IAM, VPC, ALB changes | `cogos <name> cogtainer create` |
+| `dashboard/Dockerfile`, backend deps | CI builds automatically; then `COGENT=<name> cogos cogtainer update ecs --tag dashboard-latest` |
+| `src/cogtainer/cdk/**`, IAM, VPC, ALB changes | `cogent create <name>` |
 
 Common sequences:
 
 ```bash
 # Executor code change
-cogos <name> cogtainer update lambda
-cogos <name> cogos image boot cogos    # if image also changed
+COGENT=<name> cogos cogtainer update lambda
+COGENT=<name> cogos image boot cogos    # if image also changed
 
 # Schema migration + executor change
-cogos <name> cogtainer update rds
-cogos <name> cogtainer update lambda
+COGENT=<name> cogos cogtainer update rds
+COGENT=<name> cogos cogtainer update lambda
 
 # Full infrastructure change (CDK constructs, IAM, ALB)
-cogos <name> cogtainer create
-cogos <name> cogos image boot cogos
+cogent create <name>
+COGENT=<name> cogos image boot cogos
 ```
 
 ### Managing the Discord bridge (remote)
 
 ```bash
-cogos <name> cogos io discord start     # Scale ECS service to 1 task
-cogos <name> cogos io discord stop      # Scale to 0
-cogos <name> cogos io discord restart   # Force new deployment
-cogos <name> cogos io discord status    # Check running/desired counts
+COGENT=<name> cogos io discord start     # Scale ECS service to 1 task
+COGENT=<name> cogos io discord stop      # Scale to 0
+COGENT=<name> cogos io discord restart   # Force new deployment
+COGENT=<name> cogos io discord status    # Check running/desired counts
 ```
 
 ### Testing a deployed dashboard
@@ -253,8 +248,8 @@ cogos <name> cogos io discord status    # Check running/desired counts
 1. Create a PAT (Personal Access Token) for API access:
 
 ```bash
-cogos <name> dashboard create-pat
-cogos <name> cogtainer create              # Apply ALB bypass rule
+COGENT=<name> cogos dashboard create-pat
+cogent create <name>                       # Apply ALB bypass rule
 ```
 
 2. Test with curl:
@@ -274,7 +269,7 @@ Use the `agent-browser` skill to test the CogOS Dashboard interactively.
 Start the dashboard:
 
 ```bash
-COGENT_ID=local cogos dashboard start
+COGENT=local cogos dashboard start
 ```
 
 Or manually:
@@ -390,7 +385,7 @@ When starting a new task with a clean repo, always pull latest first:
 git pull origin main          # Sync with remote before starting work
 uv sync --all-extras          # Install dependencies
 uv run pytest                 # Run tests
-uv run polis status           # Check infrastructure
+uv run cogtainer status       # Check infrastructure
 ```
 
 ## Git Workflow

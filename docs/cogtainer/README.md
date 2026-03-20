@@ -27,7 +27,7 @@ src/cogtainer/
 │   ├── local_repository.py  # JSON-file local dev repository
 │   └── migrations.py    # Schema apply/reset
 ├── docker/              # Dockerfile and Docker build context
-├── lambdas/             # Lambda function handlers (orchestrator, executor, dispatcher, ingress)
+├── lambdas/             # Lambda function handlers (event-router, executor, dispatcher, ingress)
 └── tools/               # Build and deploy tooling
 ```
 

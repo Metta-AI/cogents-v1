@@ -565,7 +565,7 @@ The executor uses `process.model` if set, otherwise falls back to a configurable
 
 All state lives in PostgreSQL, accessed via RDS Data API. Tables are prefixed with `cogos_` (process, handler, channel, channel_message, delivery, file, file_version, capability, process_capability, run, resource, resource_usage, schema, cron, conversation, alert, budget, trace).
 
-Channel messages are DB records matched by the scheduler -- no external event bus for CogOS-internal messaging (EventBridge was replaced by channels for inter-process communication). EventBridge is still used by the cogtainer layer for orchestrator triggers and dispatcher scheduling.
+Channel messages are DB records matched by the scheduler -- no external event bus for CogOS-internal messaging (EventBridge was replaced by channels for inter-process communication). EventBridge is still used by the cogtainer layer for event-router triggers and dispatcher scheduling.
 
 ## Source Structure
 

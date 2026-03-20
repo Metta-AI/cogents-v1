@@ -7,17 +7,17 @@ Operational UI for each cogent. Runs as a single Docker container serving both t
 - **Backend**: FastAPI (Python), serves `/api/cogents/{name}/*` and `/ws/cogents/{name}`
 - **Frontend**: Next.js static export, served by FastAPI when `DASHBOARD_STATIC_DIR` is set
 - **Database**: RDS Data API (same Aurora cluster as the cogtainer)
-- **Hosting**: ECS Fargate in the polis account (`cogent-polis` cluster), behind ALB with HTTPS
-- **Domain**: `{safe_name}.<your-domain>` (managed by polis)
+- **Hosting**: ECS Fargate in the cogtainer (`cogtainer` cluster), behind ALB with HTTPS
+- **Domain**: `{safe_name}.<your-domain>` (managed by cogtainer)
 
 ## Deployment
 
 ```bash
-cogos <name> dashboard deploy    # Delegates to: polis dashboard deploy <name>
+COGENT=<name> cogos dashboard deploy
 ```
 
-This runs `polis dashboard deploy` which:
-1. Reads cogent identity from polis secrets (cert ARN, domain)
+This:
+1. Reads cogent identity from cogtainer secrets (cert ARN, domain)
 2. Reads cogtainer stack outputs (DB ARNs)
 3. CDK deploys the dashboard stack (ALB, ECS service, task definition)
 4. Updates Route53 DNS to point at the ALB
@@ -25,8 +25,8 @@ This runs `polis dashboard deploy` which:
 ### First-time setup
 
 ```bash
-polis cogents create <name>       # Register identity (domain, cert, secrets)
-cogos <name> dashboard deploy    # Deploy the dashboard
+cogent create <name>                    # Register identity (domain, cert, secrets)
+COGENT=<name> cogos dashboard deploy    # Deploy the dashboard
 ```
 
 ## Docker Image
@@ -45,7 +45,7 @@ The container serves everything on one port:
 
 ```bash
 cogos local dashboard serve --db local   # Backend (8100) + Next.js dev server (5200 by default)
-cogos <name> dashboard serve --db prod  # Live DB via polis
+COGENT=<name> cogos dashboard serve --db prod  # Live DB via cogtainer
 ```
 
 In dev mode, Next.js proxies `/api/*` to the backend via `rewrites` in `next.config.ts`.
@@ -63,7 +63,7 @@ src/dashboard/
   db.py                                 # Repository singleton (Data API or local)
   routers/                              # API route handlers
 src/cli/dashboard.py                    # CLI: serve, deploy, login, keys
-src/polis/cli.py                        # polis dashboard deploy/destroy
+src/cli/cogtainer.py                    # cogtainer dashboard deploy/destroy
 ```
 
 ## Environment Variables (container)

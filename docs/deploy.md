@@ -8,9 +8,9 @@ Four deployable components:
 
 | Component | Infrastructure | Deploy tool |
 |-----------|---------------|-------------|
-| **Lambda functions** | orchestrator, executor, dispatcher, ingress | `cogtainer update lambda` |
+| **Lambda functions** | event-router, executor, dispatcher, ingress | `cogtainer update lambda` |
 | **Database schema** | Aurora PostgreSQL via RDS Data API | `cogtainer update rds` |
-| **Dashboard** | ECS Fargate on cogent-polis cluster | `dashboard deploy` |
+| **Dashboard** | ECS Fargate on cogtainer cluster | `dashboard deploy` |
 | **CDK stack** | All infrastructure definitions (IAM, VPC, ALB, ECS task defs) | `cogtainer create` |
 
 ## Decision Tree
