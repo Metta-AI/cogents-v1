@@ -1,18 +1,22 @@
 # Auto-approve PRs from repo admins that have auto-merge enabled.
-# Triggers after CI completes. Uses cogos-ci app token to submit an approving
-# review, then GitHub's built-in auto-merge handles the actual merge.
+# Two triggers cover the race between CI completion and auto-merge enablement:
+#   1. workflow_run: CI finishes after auto-merge is already enabled
+#   2. pull_request auto_merge_enabled: auto-merge is enabled after CI already passed
 name: Auto-approve admin PRs
 
 on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+  pull_request:
+    types: [auto_merge_enabled]
 
 jobs:
   auto-approve:
     if: >-
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success'
+      (github.event_name == 'pull_request') ||
+      (github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Generate CI app token
@@ -25,13 +29,22 @@ jobs:
       - name: Check eligibility and approve
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          WR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REPO: ${{ github.repository }}
         run: |
-          PR=$(gh api "repos/${REPO}/commits/${HEAD_SHA}/pulls" --jq '.[0].number')
-          if [ -z "$PR" ] || [ "$PR" = "null" ]; then
-            echo "No PR found for ${HEAD_SHA}"
-            exit 0
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            HEAD_SHA="$WR_HEAD_SHA"
+            PR=$(gh api "repos/${REPO}/commits/${HEAD_SHA}/pulls" --jq '.[0].number')
+            if [ -z "$PR" ] || [ "$PR" = "null" ]; then
+              echo "No PR found for ${HEAD_SHA}"
+              exit 0
+            fi
+          else
+            PR="$PR_NUMBER"
+            HEAD_SHA="$PR_HEAD_SHA"
           fi
 
           AUTO_MERGE=$(gh pr view "$PR" --repo "$REPO" --json autoMergeRequest --jq '.autoMergeRequest != null')
@@ -44,6 +57,22 @@ jobs:
           PERM=$(gh api "repos/${REPO}/collaborators/${AUTHOR}/permission" --jq .permission)
           if [ "$PERM" != "admin" ]; then
             echo "PR #${PR} author ${AUTHOR} is ${PERM}, not admin, skipping"
+            exit 0
+          fi
+
+          # For auto_merge_enabled trigger, verify CI has already passed
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            CI_OK=$(gh api "repos/${REPO}/commits/${HEAD_SHA}/check-runs" \
+              --jq '[.check_runs[] | select(.name == "test" or .name == "typecheck")] | if length < 2 then "pending" elif all(.conclusion == "success") then "success" else "pending" end')
+            if [ "$CI_OK" != "success" ]; then
+              echo "PR #${PR} CI not passing yet (${CI_OK}), skipping"
+              exit 0
+            fi
+          fi
+
+          ALREADY=$(gh pr view "$PR" --repo "$REPO" --json reviews --jq '[.reviews[] | select(.state == "APPROVED")] | length')
+          if [ "$ALREADY" != "0" ]; then
+            echo "PR #${PR} already approved, skipping"
             exit 0
           fi
 
