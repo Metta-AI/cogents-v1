@@ -1,6 +1,10 @@
 """CDK app entry point for cogtainer stacks.
 
-Usage (cogtainer infra):
+Usage (create account in management account):
+    npx cdk deploy --app "python -m cogtainer.cdk.app" \
+        -c cogtainer_name=<name> -c stage=account
+
+Usage (cogtainer infra, deployed to cogtainer account):
     npx cdk deploy --app "python -m cogtainer.cdk.app" -c cogtainer_name=<name>
 
 Usage (cogent within cogtainer):
@@ -17,6 +21,7 @@ os.environ.setdefault("JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION", "1")
 
 import aws_cdk as cdk
 
+from cogtainer.cdk.stacks.account_stack import AccountStack
 from cogtainer.cdk.stacks.cogent_stack import CogentStack
 from cogtainer.cdk.stacks.cogtainer_stack import CogtainerStack
 from cogtainer.config import CogtainerEntry, load_config
@@ -35,6 +40,18 @@ def build_app() -> cdk.App:
     if not cogtainer_name:
         print("ERROR: -c cogtainer_name=<name> is required", file=sys.stderr)
         sys.exit(1)
+
+    stage = _ctx(app, "stage")
+
+    # Stage: account — deploy to management account to create the child account
+    if stage == "account":
+        AccountStack(
+            app,
+            f"cogtainer-{cogtainer_name}-account",
+            cogtainer_name=cogtainer_name,
+            env=cdk.Environment(region=_ctx(app, "region", "us-east-1")),
+        )
+        return app
 
     cfg = load_config()
     entry: CogtainerEntry | None = cfg.cogtainers.get(cogtainer_name)
@@ -69,13 +86,25 @@ def build_app() -> cdk.App:
         if not db_cluster_arn or not db_secret_arn:
             import boto3
             try:
-                session = boto3.Session()
-                cf = session.client("cloudformation", region_name=entry.region or "us-east-1")
+                # Assume into cogtainer account to read stack outputs
+                org_session = boto3.Session()
+                region = entry.region or "us-east-1"
+                sts = org_session.client("sts")
+                role_arn = f"arn:aws:iam::{entry.account_id}:role/OrganizationAccountAccessRole"
+                creds = sts.assume_role(RoleArn=role_arn, RoleSessionName="cdk-resolve")["Credentials"]
+                session = boto3.Session(
+                    aws_access_key_id=creds["AccessKeyId"],
+                    aws_secret_access_key=creds["SecretAccessKey"],
+                    aws_session_token=creds["SessionToken"],
+                    region_name=region,
+                )
+                cf = session.client("cloudformation", region_name=region)
                 resp = cf.describe_stacks(StackName=f"cogtainer-{cogtainer_name}")
                 outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
                 db_cluster_arn = db_cluster_arn or outputs.get("DbClusterArn", "")
                 db_secret_arn = db_secret_arn or outputs.get("DbSecretArn", "")
                 event_bus_name = event_bus_name or outputs.get("EventBusName", f"cogtainer-{cogtainer_name}")
+                ecr_repo_uri = _ctx(app, "ecr_repo_uri") or outputs.get("ECRRepositoryUri", "")
             except Exception as e:
                 print(f"WARNING: Could not resolve cogtainer stack outputs: {e}", file=sys.stderr)
 

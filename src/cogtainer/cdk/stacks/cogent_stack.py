@@ -482,7 +482,7 @@ class CogentStack(Stack):
             dash_image = ecs.ContainerImage.from_registry(f"{ecr_repo_uri}:{dash_image_tag}")
         else:
             dash_image = ecs.ContainerImage.from_registry(
-                f"901289084804.dkr.ecr.us-east-1.amazonaws.com/cogtainer-{cogtainer_name}:{dash_image_tag}"
+                f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/cogtainer-{cogtainer_name}:{dash_image_tag}"
             )
 
         task_def.add_container(
@@ -629,7 +629,7 @@ class CogentStack(Stack):
             image = ecs.ContainerImage.from_registry(f"{ecr_repo_uri}:{image_tag}")
         else:
             image = ecs.ContainerImage.from_registry(
-                f"901289084804.dkr.ecr.us-east-1.amazonaws.com/cogtainer-{cogtainer_name}:{image_tag}"
+                f"{self.account}.dkr.ecr.{self.region}.amazonaws.com/cogtainer-{cogtainer_name}:{image_tag}"
             )
 
         bridge_env = {

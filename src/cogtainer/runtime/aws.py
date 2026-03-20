@@ -192,7 +192,7 @@ class AwsRuntime(CogtainerRuntime):
         return sorted(item["cogent_name"] for item in items if "cogent_name" in item)
 
     def create_cogent(self, name: str) -> None:
-        """Register a cogent in the status table and create its database."""
+        """Register a cogent in the status table, create its database, and deploy CDK stack."""
         safe = self._safe(name)
         db_name = f"cogent_{safe.replace('-', '_')}"
         db_info = self._get_db_info()
@@ -237,8 +237,33 @@ class AwsRuntime(CogtainerRuntime):
         )
         logger.info("Schema applied to %s", db_name)
 
+        # 4. Deploy per-cogent CDK stack
+        self._deploy_cogent_stack(name)
+
     def get_secrets_provider(self):
         return self._secrets
+
+    def _deploy_cogent_stack(self, cogent_name: str) -> None:
+        """Deploy the per-cogent CDK stack (Lambdas, ECS, EventBridge, etc.)."""
+        import os
+        import subprocess
+        import sys
+
+        from cogtainer.cogtainer_cli import resolve_org_profile
+
+        stack_name = f"cogtainer-{self._cogtainer_name}-{cogent_name}"
+        cmd = [
+            "npx", "cdk", "deploy", stack_name,
+            "--app", "python -m cogtainer.cdk.app",
+            "-c", f"cogtainer_name={self._cogtainer_name}",
+            "-c", f"cogent_name={cogent_name}",
+            "--require-approval", "never",
+        ]
+        env = {**os.environ, "AWS_PROFILE": resolve_org_profile()}
+        logger.info("Deploying CDK stack %s", stack_name)
+        result = subprocess.run(cmd, capture_output=False, env=env)
+        if result.returncode != 0:
+            raise RuntimeError(f"CDK deploy failed for {stack_name}")
 
     def destroy_cogent(self, name: str) -> None:
         """Remove cogent from status table."""

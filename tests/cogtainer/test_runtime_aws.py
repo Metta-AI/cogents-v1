@@ -158,7 +158,8 @@ def test_aws_runtime_create_cogent(aws_runtime: AwsRuntime):
     mock_table = MagicMock()
     aws_runtime._session.resource.return_value.Table.return_value = mock_table
 
-    with patch("cogos.db.migrations.apply_schema_with_client"):
+    with patch("cogos.db.migrations.apply_schema_with_client"), \
+         patch.object(aws_runtime, "_deploy_cogent_stack"):
         aws_runtime.create_cogent("alpha")
 
     mock_table.put_item.assert_called_once()

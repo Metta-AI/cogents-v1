@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import yaml
 from click.testing import CliRunner
 
@@ -37,6 +39,48 @@ def test_cogtainer_create_local(tmp_path, monkeypatch):
     assert cfg["defaults"]["cogtainer"] == "dev"
     # Data dir created
     assert (tmp_path / "data").is_dir()
+
+
+def test_cogtainer_create_aws(tmp_path, monkeypatch):
+    config_path = tmp_path / "cogtainers.yml"
+    monkeypatch.setenv("COGOS_CONFIG_PATH", str(config_path))
+
+    with patch("cogtainer.cogtainer_cli._cdk_create_account", return_value="111222333444"):
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "create", "prod",
+            "--type", "aws",
+            "--region", "us-west-2",
+        ])
+
+    assert result.exit_code == 0, result.output
+
+    cfg = _read_config(config_path)
+    assert "prod" in cfg["cogtainers"]
+    entry = cfg["cogtainers"]["prod"]
+    assert entry["type"] == "aws"
+    assert entry["account_id"] == "111222333444"
+    assert entry["region"] == "us-west-2"
+    assert cfg["defaults"]["cogtainer"] == "prod"
+
+
+def test_cogtainer_create_aws_default_region(tmp_path, monkeypatch):
+    config_path = tmp_path / "cogtainers.yml"
+    monkeypatch.setenv("COGOS_CONFIG_PATH", str(config_path))
+
+    with patch("cogtainer.cogtainer_cli._cdk_create_account", return_value="999888777666") as mock:
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "create", "prod",
+            "--type", "aws",
+        ])
+
+    assert result.exit_code == 0, result.output
+    mock.assert_called_once_with("prod", region="us-east-1", profile=None)
+
+    cfg = _read_config(config_path)
+    assert cfg["cogtainers"]["prod"]["account_id"] == "999888777666"
+    assert cfg["cogtainers"]["prod"]["region"] == "us-east-1"
 
 
 def test_cogtainer_list_empty(tmp_path, monkeypatch):

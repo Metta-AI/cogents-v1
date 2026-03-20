@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import click
@@ -37,6 +39,51 @@ def _save_config(cfg: CogtainersConfig) -> None:
         yaml.dump(cfg.model_dump(exclude_none=True), f, default_flow_style=False)
 
 
+DEFAULT_ORG_PROFILE = "softmax-org"
+ORG_PROFILE_ENV = "COGENT_ORG_PROFILE"
+
+
+def resolve_org_profile(profile: str | None = None) -> str:
+    """Resolve the org-admin AWS profile."""
+    for candidate in (profile, os.getenv(ORG_PROFILE_ENV)):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    return DEFAULT_ORG_PROFILE
+
+
+def _cdk_create_account(cogtainer_name: str, region: str, profile: str | None = None) -> str:
+    """Deploy the AccountStack via CDK and return the created account ID."""
+    resolved_profile = resolve_org_profile(profile)
+    stack_name = f"cogtainer-{cogtainer_name}-account"
+
+    click.echo(f"  Deploying account stack '{stack_name}' via CDK...")
+    cmd = [
+        "npx", "cdk", "deploy", stack_name,
+        "--app", "python -m cogtainer.cdk.app",
+        "-c", f"cogtainer_name={cogtainer_name}",
+        "-c", "stage=account",
+        "-c", f"region={region}",
+        "--require-approval", "never",
+    ]
+    env = {**os.environ, "AWS_PROFILE": resolved_profile}
+    result = subprocess.run(cmd, capture_output=False, env=env)
+    if result.returncode != 0:
+        click.echo("CDK deploy failed.")
+        sys.exit(result.returncode)
+
+    # Read account ID from stack outputs
+    import boto3
+    session = boto3.Session(profile_name=resolved_profile, region_name=region)
+    cfn = session.client("cloudformation")
+    resp = cfn.describe_stacks(StackName=stack_name)
+    outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
+    account_id = outputs.get("AccountId", "")
+    if not account_id:
+        raise RuntimeError(f"AccountId not found in {stack_name} outputs")
+    click.echo(f"  Account ID: {account_id}")
+    return account_id
+
+
 @click.group()
 def cli() -> None:
     """Manage cogtainers."""
@@ -51,6 +98,7 @@ def cli() -> None:
 @click.option("--region", default=None)
 @click.option("--data-dir", default=None)
 @click.option("--domain", default=None)
+@click.option("--profile", default=None, help="AWS profile name (for aws type)")
 def create(
     name: str,
     ctype: str,
@@ -60,11 +108,20 @@ def create(
     region: str | None,
     data_dir: str | None,
     domain: str | None,
+    profile: str | None,
 ) -> None:
     """Create a new cogtainer."""
     cfg = _load()
 
-    if name in cfg.cogtainers:
+    existing = cfg.cogtainers.get(name)
+    if existing:
+        # Allow re-running create to provision a missing AWS account
+        if ctype == "aws" and existing.type == "aws" and not existing.account_id:
+            click.echo(f"Cogtainer '{name}' exists without account_id, provisioning...")
+            existing.account_id = _cdk_create_account(name, region=region or "us-east-1", profile=profile)
+            _save_config(cfg)
+            click.echo(f"Updated cogtainer '{name}' (account_id={existing.account_id}).")
+            return
         click.echo(f"Cogtainer '{name}' already exists.")
         raise SystemExit(1)
 
@@ -73,6 +130,13 @@ def create(
         model=llm_model or "",
         api_key_env=llm_api_key_env or "",
     )
+
+    account_id = None
+
+    if ctype == "aws":
+        if not region:
+            region = "us-east-1"
+        account_id = _cdk_create_account(name, region=region, profile=profile)
 
     # Default data_dir for local/docker
     if ctype in ("local", "docker") and not data_dir:
@@ -89,6 +153,7 @@ def create(
     entry = CogtainerEntry(
         type=ctype,
         region=region,
+        account_id=account_id,
         domain=domain,
         data_dir=data_dir,
         llm=llm,
@@ -106,7 +171,7 @@ def create(
         Path(data_dir).mkdir(parents=True, exist_ok=True)
 
     _save_config(cfg)
-    click.echo(f"Created cogtainer '{name}' (type={ctype}).")
+    click.echo(f"Created cogtainer '{name}' (type={ctype}, account_id={account_id}).")
 
 
 @cli.command()

@@ -2,9 +2,32 @@
 
 from __future__ import annotations
 
+import boto3
+
 from cogtainer.config import CogtainerEntry
 from cogtainer.llm.provider import create_provider
 from cogtainer.runtime.base import CogtainerRuntime
+
+
+def _get_cogtainer_session(entry: CogtainerEntry) -> boto3.Session:
+    """Assume OrganizationAccountAccessRole into the cogtainer's account."""
+    from cogtainer.cogtainer_cli import resolve_org_profile
+
+    region = entry.region or "us-east-1"
+    org_session = boto3.Session(
+        profile_name=resolve_org_profile(),
+        region_name=region,
+    )
+    sts = org_session.client("sts")
+    role_arn = f"arn:aws:iam::{entry.account_id}:role/OrganizationAccountAccessRole"
+    resp = sts.assume_role(RoleArn=role_arn, RoleSessionName="cogtainer-cli")
+    creds = resp["Credentials"]
+    return boto3.Session(
+        aws_access_key_id=creds["AccessKeyId"],
+        aws_secret_access_key=creds["SecretAccessKey"],
+        aws_session_token=creds["SessionToken"],
+        region_name=region,
+    )
 
 
 def create_runtime(
@@ -19,11 +42,9 @@ def create_runtime(
         return LocalRuntime(entry=entry, llm=llm)
 
     if entry.type == "aws":
-        from cogtainer.aws import get_aws_session
-
         from cogtainer.runtime.aws import AwsRuntime
 
-        session, _ = get_aws_session()
+        session = _get_cogtainer_session(entry)
         return AwsRuntime(
             entry=entry, llm=llm, session=session, cogtainer_name=cogtainer_name
         )
