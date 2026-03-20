@@ -34,7 +34,7 @@ class AwsRuntime(CogtainerRuntime):
         self._status_table = (
             f"cogtainer-{cogtainer_name}-status" if cogtainer_name else _LEGACY_STATUS_TABLE
         )
-        self._db_info_cache: dict[str, dict] = {}
+        self._db_info_cache: dict[str, str] = {}
 
     def _safe(self, name: str) -> str:
         return name.replace(".", "-")

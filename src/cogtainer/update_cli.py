@@ -98,7 +98,7 @@ def _ensure_db_env(name: str, profile: str | None = None) -> None:
     # Look up DB connection info from DynamoDB cogent-status table
     ddb = session.resource("dynamodb", region_name=DEFAULT_REGION)
     try:
-        item = ddb.Table("cogent-status").get_item(Key={"cogent_name": name}).get("Item", {})
+        item = ddb.Table("cogent-status").get_item(Key={"cogent_name": name}).get("Item", {})  # type: ignore[union-attr]
         db_info = item.get("database", {})
     except Exception:
         db_info = {}

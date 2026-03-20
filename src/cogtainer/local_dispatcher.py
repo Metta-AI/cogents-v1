@@ -86,7 +86,7 @@ def run_tick(repo: Any, runtime: Any, cogent_name: str) -> dict:
             try:
                 dispatch_result = scheduler.dispatch_process(process_id=proc.id)
                 if hasattr(dispatch_result, "error"):
-                    logger.warning("Dispatch failed for %s: %s", proc.name, dispatch_result.error)
+                    logger.warning("Dispatch failed for %s: %s", proc.name, getattr(dispatch_result, "error", ""))
                     continue
                 runtime.spawn_executor(cogent_name, proc.id)
                 dispatched += 1

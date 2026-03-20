@@ -90,7 +90,7 @@ def status_cmd(ctx: click.Context):
     # Aurora Serverless (shared cluster from DynamoDB)
     try:
         ddb = session.resource("dynamodb", region_name="us-east-1")
-        item = ddb.Table("cogent-status").get_item(Key={"cogent_name": name}).get("Item", {})
+        item = ddb.Table("cogent-status").get_item(Key={"cogent_name": name}).get("Item", {})  # type: ignore[union-attr]
         cluster_arn = item.get("database", {}).get("cluster_arn", "")
     except Exception:
         cluster_arn = ""

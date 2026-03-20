@@ -69,9 +69,9 @@ def create(
         raise SystemExit(1)
 
     llm = LLMConfig(
-        provider=llm_provider,
-        model=llm_model,
-        api_key_env=llm_api_key_env,
+        provider=llm_provider or "bedrock",
+        model=llm_model or "",
+        api_key_env=llm_api_key_env or "",
     )
 
     # Default data_dir for local/docker
