@@ -33,11 +33,11 @@ llm> hello, what can you do?
 
 That's it. The shell calls Bedrock directly — no executor loop, no extra services.
 
-### What just happened
+### How it works
 
 - `cogos local` uses a JSON-backed local store (`.local/cogos/cogos_data.json`) instead of AWS RDS/Lambda. No cloud infrastructure needed beyond Bedrock.
-- `image boot cogos --clean` loaded the default cogent image from `images/cogos/` — capabilities, processes, handlers, and files.
-- `shell` opened an interactive session. `llm -i` starts a multi-turn conversation with your cogent via Bedrock.
+- `image boot cogos --clean` loads the default cogent image from `images/cogos/` — capabilities, processes, handlers, and files.
+- `shell` opens an interactive session. `llm -i` starts a multi-turn conversation with your cogent via Bedrock.
 
 Other shell commands: `help`, `llm -v <prompt>` (verbose with tool traces), `files ls`, `caps ls`, `procs ls`.
 
