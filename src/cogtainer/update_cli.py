@@ -745,7 +745,7 @@ def update_dashboard(ctx: click.Context, docker: bool, skip_health: bool, sha: s
     t1 = time.monotonic()
     try:
         from cogtainer.cloudflare import purge_cache
-        from cogtainer.secrets.store import SecretStore
+        from cogtainer.secret_store import SecretStore
 
         store = SecretStore(session=session)
         purge_cache(store)

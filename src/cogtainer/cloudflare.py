@@ -8,7 +8,7 @@ import requests
 
 from cogtainer.aws import ORG_EMAIL_DOMAIN
 from cogtainer.deploy_config import deploy_config
-from cogtainer.secrets.store import SecretStore
+from cogtainer.secret_store import SecretStore
 
 logger = logging.getLogger(__name__)
 
