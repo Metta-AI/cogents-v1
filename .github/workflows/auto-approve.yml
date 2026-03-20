@@ -1,14 +1,18 @@
-# Auto-approve PRs from repo admins so auto-merge doesn't block on reviews.
-# Uses the cogos-ci app token so the approval satisfies the ruleset's review requirement.
-name: Auto-approve admin PRs
+# Auto-merge PRs from repo admins that have auto-merge enabled.
+# Triggers after CI completes. Uses cogos-ci app token to bypass the ruleset's
+# review requirement (GitHub rulesets don't count app reviews, so we merge directly).
+name: Auto-merge admin PRs
 
 on:
-  pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 jobs:
-  auto-approve:
-    if: github.event.pull_request.draft == false
+  auto-merge:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Generate CI app token
@@ -18,16 +22,30 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-      - name: Check author permission
-        id: check
+      - name: Check eligibility and merge
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
         run: |
-          PERM=$(gh api repos/${{ github.repository }}/collaborators/${{ github.event.pull_request.user.login }}/permission --jq .permission)
-          echo "permission=$PERM" >> "$GITHUB_OUTPUT"
+          PR=$(gh api "repos/${REPO}/commits/${HEAD_SHA}/pulls" --jq '.[0].number')
+          if [ -z "$PR" ] || [ "$PR" = "null" ]; then
+            echo "No PR found for ${HEAD_SHA}"
+            exit 0
+          fi
 
-      - name: Approve PR
-        if: steps.check.outputs.permission == 'admin'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: gh pr review ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --approve
+          AUTO_MERGE=$(gh pr view "$PR" --repo "$REPO" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          if [ "$AUTO_MERGE" != "true" ]; then
+            echo "PR #${PR} does not have auto-merge enabled, skipping"
+            exit 0
+          fi
+
+          AUTHOR=$(gh pr view "$PR" --repo "$REPO" --json author --jq '.author.login')
+          PERM=$(gh api "repos/${REPO}/collaborators/${AUTHOR}/permission" --jq .permission)
+          if [ "$PERM" != "admin" ]; then
+            echo "PR #${PR} author ${AUTHOR} is ${PERM}, not admin, skipping"
+            exit 0
+          fi
+
+          echo "Merging PR #${PR} (author: ${AUTHOR}, permission: ${PERM})"
+          gh pr merge "$PR" --repo "$REPO" --squash
