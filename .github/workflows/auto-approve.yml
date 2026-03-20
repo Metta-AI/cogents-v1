@@ -1,3 +1,4 @@
+# Auto-approve PRs from repo admins so auto-merge doesn't block on reviews.
 name: Auto-approve admin PRs
 
 on:
