@@ -14,15 +14,26 @@ Built on the Viable System Model. Each cogent is an autonomous agent with its ow
 
 ## Communication
 
-All team communication happens on **Discord** (not Slack). When you see `#channel-name`, that refers to a Discord channel. Post updates using the Discord webhook stored in AWS Secrets Manager:
+All team communication happens on **Discord** (not Slack). When you see `#channel-name`, that refers to a Discord channel.
 
-```bash
-# Webhook secrets are at discord/channel-webhook/{channel} or discord/agent-webhook-url
-aws secretsmanager get-secret-value --secret-id "discord/agent-webhook-url" --query SecretString --output text
+### Posting to Discord
 
-# Post as a cogent identity:
-curl -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" \
-  -d '{"username": "<name>", "content": "message here"}'
+Use the Discord MCP plugin tools (provided by the `plugin:discord:discord` MCP server):
+
+- **`mcp__plugin_discord_discord__reply`** — Send a message to a channel. Pass `chat_id` (the channel ID) and `text`. Optionally attach files via `files` (list of absolute paths).
+- **`mcp__plugin_discord_discord__fetch_messages`** — Read message history from a channel.
+- **`mcp__plugin_discord_discord__react`** — Add an emoji reaction to a message.
+- **`mcp__plugin_discord_discord__edit_message`** — Edit a message you previously sent.
+
+Key channel IDs:
+- `#cogents` — `1454583125786230906` (announcements, deploy summaries, status updates)
+
+Example — announce a push:
+```
+mcp__plugin_discord_discord__reply(
+  chat_id="1454583125786230906",
+  text="**cogents.0** pushed to main: <summary>"
+)
 ```
 
 Discord messages have a 2000-character limit — split longer posts into multiple messages.
@@ -47,6 +58,8 @@ tests/
 ## Cogtainer — Infrastructure
 
 A cogtainer is the self-contained environment (AWS, local, or Docker) that hosts cogents. It manages shared AWS resources: ECS cluster, ECR container registry, Route53 DNS, secrets, and monitoring.
+
+**LLM config is always required.** `CogtainerEntry.llm` is non-optional for all cogtainer types (aws, local, docker). The CLI defaults to bedrock/claude-sonnet when no `--llm-*` flags are passed.
 
 - **Design**: [docs/cogtainer/design.md](docs/cogtainer/design.md) — Architecture, module structure, resource details
 - **CLI Reference**: [docs/cogtainer/cli.md](docs/cogtainer/cli.md) — All commands with examples and options
