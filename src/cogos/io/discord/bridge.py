@@ -167,13 +167,19 @@ class DiscordBridge:
     # Per-cogent repository management
     # ------------------------------------------------------------------
 
+    _REPO_FAILED = object()  # sentinel for repos that failed to connect
+
     def _get_repo(self, cogent_name: str):
         """Get or create a repository for the given cogent. Returns None if no DB config."""
-        if cogent_name in self._repos:
-            return self._repos[cogent_name]
+        cached = self._repos.get(cogent_name)
+        if cached is self._REPO_FAILED:
+            return None
+        if cached is not None:
+            return cached
 
         cfg = self._configs.get(cogent_name)
         if cfg is None or not cfg.db_resource_arn:
+            self._repos[cogent_name] = self._REPO_FAILED
             return None
 
         from cogos.db.factory import create_repository
@@ -184,8 +190,11 @@ class DiscordBridge:
                 secret_arn=cfg.db_secret_arn,
                 database=cfg.db_name,
             )
+            # Verify the schema exists with a quick probe
+            repo.get_channel_by_name("__probe__")
         except Exception:
-            logger.warning("Failed to create repository for %s", cogent_name, exc_info=True)
+            logger.warning("DB unavailable for cogent %s, skipping", cogent_name)
+            self._repos[cogent_name] = self._REPO_FAILED
             return None
         self._repos[cogent_name] = repo
         return repo

@@ -313,6 +313,23 @@ class PolisStack(cdk.Stack):
                 resources=["*"],
             )
         )
+        # SQS — manage discord reply queues and other SQS resources
+        self.admin_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "sqs:CreateQueue",
+                    "sqs:DeleteQueue",
+                    "sqs:GetQueueUrl",
+                    "sqs:GetQueueAttributes",
+                    "sqs:ListQueues",
+                    "sqs:SendMessage",
+                    "sqs:ReceiveMessage",
+                    "sqs:DeleteMessage",
+                    "sqs:SetQueueAttributes",
+                ],
+                resources=["*"],
+            )
+        )
         self.admin_role.add_to_policy(
             iam.PolicyStatement(
                 actions=[
@@ -556,8 +573,14 @@ class PolisStack(cdk.Stack):
         self.ci_artifacts_bucket.grant_read_write(self.github_actions_role)
         self.ci_artifacts_bucket.grant_read(self.admin_role)
 
-        # --- Shared Discord Bridge (single Fargate service for all cogents) ---
-        self._create_discord_bridge(config)
+        # --- Shared Discord Reply Queue ---
+        self.discord_reply_queue = sqs.Queue(
+            self,
+            "DiscordReplyQueue",
+            queue_name=naming.queue_name("polis", "discord-replies"),
+            visibility_timeout=Duration.seconds(60),
+            retention_period=Duration.days(1),
+        )
 
         # --- Outputs ---
         cdk.CfnOutput(self, "GitHubActionsRoleArn", value=self.github_actions_role.role_arn)
@@ -578,99 +601,5 @@ class PolisStack(cdk.Stack):
             cdk.CfnOutput(self, "SharedHttpsListenerArn", value=self.https_listener.listener_arn)
         cdk.CfnOutput(self, "SharedAlbSecurityGroupId", value=self.shared_alb.connections.security_groups[0].security_group_id)
 
-    def _create_discord_bridge(self, config: PolisConfig) -> None:
-        """Create the shared Discord bridge: SQS queue + Fargate service."""
-        vpc = ec2.Vpc.from_lookup(self, "DiscordVpc", is_default=True)
-
-        # SQS queue for outbound replies (capability -> bridge -> Discord)
-        self.discord_reply_queue = sqs.Queue(
-            self,
-            "DiscordReplyQueue",
-            queue_name=naming.queue_name("polis", "discord-replies"),
-            visibility_timeout=Duration.seconds(60),
-            retention_period=Duration.days(1),
-        )
-
-        # Bot token from Secrets Manager
-        bot_token_secret = secretsmanager.Secret.from_secret_name_v2(
-            self, "DiscordBotToken",
-            secret_name="polis/discord",
-        )
-
-        # Sessions bucket (shared polis-level)
-        sessions_bucket = s3.Bucket.from_bucket_name(
-            self, "SessionsBucket", naming.polis_bucket_name("sessions"),
-        )
-
-        # Task definition
-        task_def = ecs.FargateTaskDefinition(
-            self, "DiscordTaskDef",
-            family=naming.ecs_family("polis", "discord"),
-            cpu=256,
-            memory_limit_mib=512,
-        )
-
-        task_def.add_container(
-            "bridge",
-            image=ecs.ContainerImage.from_asset(
-                str(_PROJECT_ROOT),
-                file="src/cogos/io/discord/Dockerfile",
-                platform=aws_ecr_assets.Platform.LINUX_AMD64,
-            ),
-            environment={
-                "DISCORD_REPLY_QUEUE_URL": self.discord_reply_queue.queue_url,
-                "DYNAMO_TABLE": self.status_table.table_name,
-                "AWS_REGION": self.region,
-                "SESSIONS_BUCKET": sessions_bucket.bucket_name,
-            },
-            secrets={
-                "DISCORD_BOT_TOKEN": ecs.Secret.from_secrets_manager(
-                    bot_token_secret, field="access_token",
-                ),
-            },
-            logging=ecs.LogDrivers.aws_logs(stream_prefix="discord-bridge"),
-        )
-
-        # IAM: DynamoDB read on status table
-        self.status_table.grant_read_data(task_def.task_role)
-
-        # IAM: RDS Data API on *
-        role = task_def.task_role
-        assert isinstance(role, iam.Role)
-        role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["rds-data:ExecuteStatement", "rds-data:BatchExecuteStatement"],
-                resources=["*"],
-            )
-        )
-
-        # IAM: Secrets Manager GetSecretValue on *
-        role.add_to_policy(
-            iam.PolicyStatement(
-                actions=["secretsmanager:GetSecretValue"],
-                resources=["*"],
-            )
-        )
-
-        # IAM: SQS consume on reply queue
-        self.discord_reply_queue.grant_consume_messages(task_def.task_role)
-
-        # IAM: S3 read/write on blobs/*
-        sessions_bucket.grant_read_write(task_def.task_role, "blobs/*")
-
-        # Fargate service
-        sg = ec2.SecurityGroup(self, "DiscordSg", vpc=vpc, allow_all_outbound=True)
-
-        self.discord_service = ecs.FargateService(
-            self, "DiscordService",
-            service_name=naming.ecs_service_name("polis", "discord"),
-            cluster=self.cluster,
-            task_definition=task_def,
-            desired_count=1,
-            assign_public_ip=True,
-            security_groups=[sg],
-            vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PUBLIC,
-                one_per_az=True,
-            ),
-        )
+    # TODO: Add Discord Fargate service once VPC networking is resolved.
+    # For now the bridge runs locally or on existing per-cogent ECS services.
