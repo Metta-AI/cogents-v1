@@ -56,11 +56,10 @@ def main() -> None:
         )
         event_data = build_dispatch_event(repo, dispatch)
 
-    bedrock = None
-    if config.llm_provider == "bedrock":
-        import boto3
+    from cogtainer.runtime.factory import create_executor_runtime
 
-        bedrock = boto3.client("bedrock-runtime", region_name=config.region)
+    runtime = create_executor_runtime()
+    bedrock = runtime.get_bedrock_client()
 
     try:
         run_and_complete(process, event_data, run, config, repo, bedrock_client=bedrock)
