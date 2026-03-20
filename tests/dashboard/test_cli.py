@@ -2,6 +2,7 @@ from click.testing import CliRunner
 
 from cli.dashboard import dashboard
 from cli.local_dev import default_local_data_dir
+from polis.aws import DEFAULT_ORG_PROFILE
 
 
 def test_login_creates_key(tmp_path, monkeypatch):
@@ -170,7 +171,7 @@ def test_serve_db_prod_fails_fast_when_credentials_are_missing(tmp_path, monkeyp
     assert result.exit_code != 0
     assert not procs
     assert "did not resolve them" in result.output
-    assert "aws sso login --profile softmax-org" in result.output
+    assert f"aws sso login --profile {DEFAULT_ORG_PROFILE}" in result.output
 
 
 def test_serve_auto_fails_fast_when_live_db_env_is_missing(tmp_path, monkeypatch):
