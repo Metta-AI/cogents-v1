@@ -6,15 +6,19 @@ import os
 from pathlib import Path
 from typing import Callable
 
-import boto3
-
 SCHEMA_FILE = Path(__file__).parent.parent / "schema.sql"
 COGOS_MIGRATIONS_DIR = Path(__file__).parent
 
 
-def _get_data_client():
-    """Return (rds-data client, resource_arn, secret_arn, database)."""
-    client = boto3.client("rds-data", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+def _get_data_client(client=None):
+    """Return (rds-data client, resource_arn, secret_arn, database).
+
+    If *client* is provided it is used directly; otherwise a new boto3
+    client is created (lazy import).
+    """
+    if client is None:
+        import boto3
+        client = boto3.client("rds-data", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
     resource_arn = os.environ["DB_CLUSTER_ARN"]
     secret_arn = os.environ["DB_SECRET_ARN"]
     database = os.environ.get("DB_NAME", "cogent")
@@ -313,13 +317,16 @@ def apply_schema(
     resource_arn: str | None = None,
     secret_arn: str | None = None,
     database: str | None = None,
+    client=None,
 ) -> int:
     """Apply schema.sql if not already applied, then run incremental migrations."""
     if resource_arn and secret_arn:
-        client = boto3.client("rds-data", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+        if client is None:
+            import boto3
+            client = boto3.client("rds-data", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
         database = database or "cogent"
     else:
-        client, resource_arn, secret_arn, database = _get_data_client()
+        client, resource_arn, secret_arn, database = _get_data_client(client=client)
 
     current = get_current_version(client, resource_arn, secret_arn, database)
     if current is None:
@@ -364,13 +371,16 @@ def reset_schema(
     resource_arn: str | None = None,
     secret_arn: str | None = None,
     database: str | None = None,
+    client=None,
 ) -> int:
     """Drop all tables and re-apply schema. For testing only."""
     if resource_arn and secret_arn:
-        client = boto3.client("rds-data", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+        if client is None:
+            import boto3
+            client = boto3.client("rds-data", region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
         database = database or "cogent"
     else:
-        client, resource_arn, secret_arn, database = _get_data_client()
+        client, resource_arn, secret_arn, database = _get_data_client(client=client)
 
     drop_sql = """
         DROP TABLE IF EXISTS memory_version CASCADE;

@@ -91,12 +91,24 @@ class AwsRuntime(CogtainerRuntime):
             db_name = db_sub.get("db_name", db_name)
 
         client = self._session.client("rds-data", region_name=self._region)
+
+        def _nudge(queue_url: str, body: str) -> None:
+            sqs = self._session.client("sqs", region_name=self._region)
+            import time as _time
+            sqs.send_message(
+                QueueUrl=queue_url,
+                MessageBody=body,
+                MessageGroupId="ingress-wake",
+                MessageDeduplicationId=str(int(_time.time())),
+            )
+
         return Repository(
             client=client,
             resource_arn=cluster_arn,
             secret_arn=secret_arn,
             database=db_name,
             region=self._region,
+            nudge_callback=_nudge,
         )
 
     # ── LLM ──────────────────────────────────────────────────

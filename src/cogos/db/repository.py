@@ -11,8 +11,6 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-import boto3
-
 from cogos.db.models import (
     ALL_EPOCHS,
     Capability,
@@ -56,6 +54,7 @@ class Repository:
         secret_arn: str,
         database: str,
         region: str = "us-east-1",
+        nudge_callback: Any | None = None,
     ) -> None:
         self._client = client
         self._resource_arn = resource_arn
@@ -63,6 +62,7 @@ class Repository:
         self._database = database
         self._region = region
         self._ingress_queue_url = os.environ.get("COGOS_INGRESS_QUEUE_URL", "")
+        self._nudge_callback = nudge_callback
 
     def _nudge_ingress(self, *, process_id: UUID | None = None) -> None:
         """Send a message to the ingress SQS queue to trigger immediate dispatch.
@@ -73,18 +73,17 @@ class Repository:
         """
         if not self._ingress_queue_url:
             return
+        if self._nudge_callback is None:
+            return
         try:
             import json as _json
 
             body: dict = {"source": "channel_message"}
             if process_id is not None:
                 body["process_id"] = str(process_id)
-            sqs = boto3.client("sqs", region_name=self._region)
-            sqs.send_message(
-                QueueUrl=self._ingress_queue_url,
-                MessageBody=_json.dumps(body),
-                MessageGroupId="ingress-wake",
-                MessageDeduplicationId=str(int(time.time())),
+            self._nudge_callback(
+                self._ingress_queue_url,
+                _json.dumps(body),
             )
         except Exception:
             logger.debug("Failed to nudge ingress queue", exc_info=True)
@@ -96,6 +95,8 @@ class Repository:
         secret_arn: str | None = None,
         database: str | None = None,
         region: str | None = None,
+        client: Any | None = None,
+        nudge_callback: Any | None = None,
     ) -> Repository:
         resource_arn = resource_arn or os.environ.get("DB_RESOURCE_ARN", "") or os.environ.get("DB_CLUSTER_ARN", "")
         secret_arn = secret_arn or os.environ.get("DB_SECRET_ARN", "")
@@ -109,8 +110,10 @@ class Repository:
                 "(DB_RESOURCE_ARN/DB_CLUSTER_ARN, DB_SECRET_ARN, DB_NAME)"
             )
 
-        client = boto3.client("rds-data", region_name=region)
-        return cls(client, resource_arn, secret_arn, database, region)
+        if client is None:
+            import boto3
+            client = boto3.client("rds-data", region_name=region)
+        return cls(client, resource_arn, secret_arn, database, region, nudge_callback=nudge_callback)
 
     # ═══════════════════════════════════════════════════════════
     # HELPERS

@@ -12,6 +12,8 @@ def create_repository(
     secret_arn: str | None = None,
     database: str | None = None,
     region: str | None = None,
+    client: Any | None = None,
+    nudge_callback: Any | None = None,
 ) -> Any:
     """Create the active repository implementation for the current environment."""
     if os.environ.get("USE_LOCAL_DB") == "1":
@@ -26,4 +28,6 @@ def create_repository(
         secret_arn=secret_arn,
         database=database,
         region=region,
+        client=client,
+        nudge_callback=nudge_callback,
     )
