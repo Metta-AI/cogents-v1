@@ -84,6 +84,7 @@ def create_app() -> FastAPI:
         alerts,
         capabilities,
         channels,
+        chat,
         cogos_status,
         cron,
         diagnostics,
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(alerts.router, prefix="/api/cogents/{name}")
+    app.include_router(chat.router, prefix="/api/cogents/{name}")
     app.include_router(processes.router, prefix="/api/cogents/{name}")
     app.include_router(handlers.router, prefix="/api/cogents/{name}")
     app.include_router(files.router, prefix="/api/cogents/{name}")

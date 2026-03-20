@@ -17,6 +17,7 @@ import { CronPanel } from "@/components/cron/CronPanel";
 import { SetupPanel } from "@/components/setup/SetupPanel";
 import { DiagnosticsPanel } from "@/components/diagnostics/DiagnosticsPanel";
 import { TraceViewerPanel } from "@/components/trace-viewer/TraceViewerPanel";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 
 function getTabFromHash(): TabId {
   if (typeof window === "undefined") return "overview";
@@ -126,6 +127,7 @@ function Dashboard({ cogentName, activeTab, onTabChange, initialTraceId }: { cog
         }}
       >
         {activeTab === "overview" && <OverviewPanel data={data} />}
+        {activeTab === "chat" && <ChatPanel cogentName={cogentName} />}
         {activeTab === "processes" && (
           <ProcessesPanel
             processes={data.processes}
