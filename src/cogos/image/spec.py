@@ -28,9 +28,6 @@ def image_file_prefixes(image_dir: Path) -> list[str]:
     return ["mnt/boot/", "mnt/repo/"]
 
 
-# Files that are configuration, not content — excluded from spec.files
-_EXCLUDED_FILES = {"cog.py"}
-
 
 _image_cache: dict[str, ImageSpec] = {}
 
@@ -152,41 +149,36 @@ def load_image(image_dir: Path) -> ImageSpec:
                 continue
             exec(compile(py.read_text(), str(py), "exec"), builtins.copy())
 
-    # Load top-level files from known content directories under mnt/boot/.
-    # Directories named init/ and apps/ are structural — everything else is content.
-    _STRUCTURAL_DIRS = {"init", "apps", ".git"}
-    for child in sorted(image_dir.iterdir()):
-        if child.is_dir() and child.name not in _STRUCTURAL_DIRS:
-            for f in sorted(child.rglob("*")):
-                if f.is_file() and f.name not in _EXCLUDED_FILES:
-                    key = "mnt/boot/" + str(f.relative_to(image_dir))
-                    spec.files[key] = f.read_text()
+    # Upload all files under the image directory to mnt/boot/.
+    _SKIP_DIRS = {".git", "__pycache__"}
+    for f in sorted(image_dir.rglob("*")):
+        if not f.is_file():
+            continue
+        rel = f.relative_to(image_dir)
+        if any(part in _SKIP_DIRS for part in rel.parts):
+            continue
+        # App files strip the apps/ prefix so apps/myapp/x → mnt/boot/myapp/x
+        rel_str = str(rel)
+        if rel_str.startswith("apps/"):
+            rel_str = rel_str[len("apps/"):]
+        key = "mnt/boot/" + rel_str
+        try:
+            spec.files[key] = f.read_text()
+        except UnicodeDecodeError:
+            continue
 
-    # Load apps — each app has init/ for scripts and everything else is files.
-    # App files go under mnt/boot/<app_name>/ (stripping the apps/ prefix).
+    # Execute app init scripts (apps/*/init/*.py)
     apps_dir = image_dir / "apps"
     if apps_dir.is_dir():
         for app_dir in sorted(apps_dir.iterdir()):
             if not app_dir.is_dir():
                 continue
-            # App init scripts
             app_init = app_dir / "init"
             if app_init.is_dir():
                 for py in sorted(app_init.glob("*.py")):
                     if py.name.startswith("_"):
                         continue
                     exec(compile(py.read_text(), str(py), "exec"), builtins.copy())
-            # App files — everything under the app dir except init/, __pycache__/, and cog.py
-            for f in sorted(app_dir.rglob("*")):
-                rel_parts = f.relative_to(app_dir).parts
-                if (
-                    f.is_file()
-                    and "init" not in rel_parts
-                    and "__pycache__" not in rel_parts
-                    and f.name not in _EXCLUDED_FILES
-                ):
-                    key = "mnt/boot/" + str(f.relative_to(apps_dir))
-                    spec.files[key] = f.read_text()
 
     # Discover cogs — directories containing main.py or main.md
     from cogos.cog.cog import Cog, _is_cog_dir

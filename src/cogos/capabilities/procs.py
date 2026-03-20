@@ -151,14 +151,12 @@ class ProcsCapability(Capability):
 
         self._check("spawn")
 
+        init_spawning_detached = False
         if detached:
             init_id = self._init_process_id()
-            # If init is spawning detached children, don't set a parent —
-            # child exit notifications would wake init in an infinite loop.
-            if init_id and init_id == self.process_id:
-                parent_id = None
-            else:
-                parent_id = init_id if init_id else self.process_id
+            # Detached children are parented to init for tree display.
+            parent_id = init_id if init_id else self.process_id
+            init_spawning_detached = init_id is not None and init_id == self.process_id
         else:
             parent_id = self.process_id
 
@@ -334,9 +332,10 @@ class ProcsCapability(Capability):
 
         # Register parent for wakeup on the recv channel (child→parent) so
         # child:exited notifications create deliveries and wake the parent.
-        # Skip when parent_id is None (detached children spawned by init).
+        # Skip for init's own detached children — init would re-run its boot
+        # script on every child exit, creating an infinite loop.
         from cogos.db.models import Handler
-        if parent_id is not None:
+        if not init_spawning_detached:
             self.repo.create_handler(Handler(process=parent_id, channel=recv_ch_id, epoch=child_epoch))
 
         # Bind child to channel handlers if subscribe is set

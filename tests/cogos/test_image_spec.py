@@ -83,4 +83,4 @@ def test_load_image_no_files_dir():
         )
         spec = load_image(Path(td))
     assert len(spec.capabilities) == 1
-    assert spec.files == {}
+    assert "mnt/boot/init/capabilities.py" in spec.files

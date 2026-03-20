@@ -1,7 +1,7 @@
 # Organization Context
 
 <!-- Replace this file with your organization's context. -->
-<!-- This file is loaded into the cogent's identity via @{whoami/softmax.md} references. -->
+<!-- This file is loaded into the cogent's identity via mnt/boot/whoami/index.md. -->
 
 Your organization builds autonomous AI agents that work alongside humans as full members of engineering and operations teams.
 

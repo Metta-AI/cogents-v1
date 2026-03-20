@@ -383,7 +383,7 @@ class Repository:
                        :model, :model_constraints::jsonb, :return_schema::jsonb,
                        :idle_timeout_ms, :max_duration_ms, :max_retries, :retry_count, :retry_backoff_ms,
                        :clear_context, :tty, :metadata::jsonb, :epoch)
-               ON CONFLICT (name) DO UPDATE SET
+               ON CONFLICT (name, epoch) DO UPDATE SET
                    mode = EXCLUDED.mode, content = EXCLUDED.content,
                    priority = EXCLUDED.priority,
                    status = EXCLUDED.status,
@@ -446,8 +446,8 @@ class Repository:
 
     def get_process_by_name(self, name: str) -> Process | None:
         response = self._execute(
-            "SELECT * FROM cogos_process WHERE name = :name",
-            [self._param("name", name)],
+            "SELECT * FROM cogos_process WHERE name = :name AND epoch = :epoch",
+            [self._param("name", name), self._param("epoch", self.reboot_epoch)],
         )
         row = self._first_row(response)
         return self._process_from_row(row) if row else None

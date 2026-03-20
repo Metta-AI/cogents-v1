@@ -466,11 +466,13 @@ class LocalRepository(Repository):
     def upsert_process(self, p: Process) -> UUID:
         with self._writing():
             now = datetime.now(UTC)
+            if not p.epoch:
+                p.epoch = self._reboot_epoch
             existing = self._processes.get(p.id)
             if existing is None:
-                # Check by name
+                # Check by (name, epoch)
                 for ep in self._processes.values():
-                    if ep.name == p.name:
+                    if ep.name == p.name and ep.epoch == p.epoch:
                         existing = ep
                         break
             if existing:
@@ -478,7 +480,6 @@ class LocalRepository(Repository):
                 p.created_at = existing.created_at
             else:
                 p.created_at = now
-                p.epoch = p.epoch or self._reboot_epoch
             p.updated_at = now
             self._processes[p.id] = p
             return p.id
@@ -489,10 +490,14 @@ class LocalRepository(Repository):
 
     def get_process_by_name(self, name: str) -> Process | None:
         self._maybe_reload()
+        # Prefer current epoch, fall back to any epoch
+        best = None
         for process in self._processes.values():
             if process.name == name:
-                return process
-        return None
+                if process.epoch == self._reboot_epoch:
+                    return process
+                best = process
+        return best
 
     def delete_process(self, process_id: UUID) -> bool:
         with self._writing():

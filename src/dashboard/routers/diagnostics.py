@@ -18,10 +18,13 @@ def _read_file(key: str) -> str | None:
     return store.get_content(key)
 
 
+_DIAG_KEY = "mnt/disk/diagnostics/current.json"
+
+
 @router.get("/diagnostics")
 def get_diagnostics(name: str) -> dict:
-    """Return latest diagnostic results from data/diagnostics/current.json."""
-    content = _read_file("data/diagnostics/current.json")
+    """Return latest diagnostic results."""
+    content = _read_file(_DIAG_KEY)
     if content is None:
         return {"status": "no_data", "message": "No diagnostic results available"}
     try:
@@ -34,7 +37,7 @@ def get_diagnostics(name: str) -> dict:
 def get_diagnostics_history(name: str, limit: int = 10) -> dict:
     """Return the last N diagnostic runs from file versions of current.json."""
     store = FileStore(get_repo())
-    versions = store.history("data/diagnostics/current.json")
+    versions = store.history(_DIAG_KEY)
     if not versions:
         return {"runs": []}
     # Sort descending by version number (newest first), take last N
@@ -52,12 +55,12 @@ def get_diagnostics_history(name: str, limit: int = 10) -> dict:
 @router.get("/diagnostics/changelog")
 def get_diagnostics_changelog(name: str) -> dict:
     """Return diagnostic changelog."""
-    content = _read_file("data/diagnostics/changelog.md")
+    content = _read_file("mnt/disk/diagnostics/changelog.md")
     return {"content": content or ""}
 
 
 @router.get("/diagnostics/log")
 def get_diagnostics_log(name: str) -> dict:
     """Return diagnostic run log."""
-    content = _read_file("data/diagnostics/log.md")
+    content = _read_file("mnt/disk/diagnostics/log.md")
     return {"content": content or ""}

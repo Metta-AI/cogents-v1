@@ -175,6 +175,12 @@ for m in manifests:
 
 # ── Spawn cog processes ───────────────────────────────────────
 for m in manifests:
+    config = m["config"]
+    # Skip template cogs (one_shot with no handlers) — they are spawned
+    # dynamically by other processes, not at boot.
+    if config.get("mode", "one_shot") == "one_shot" and not config.get("handlers"):
+        print("Skipping template cog: " + m["name"])
+        continue
     result = _spawn_cog(m)
     if result is not None:
         print("Started cog: " + m["name"])
