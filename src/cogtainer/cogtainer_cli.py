@@ -80,12 +80,22 @@ def create(
     if ctype in ("local", "docker") and not data_dir:
         data_dir = str(Path.home() / ".cogos" / "cogtainers" / name)
 
+    # Auto-assign unique dashboard ports for local/docker (base 8100/5200 + index)
+    be_port = None
+    fe_port = None
+    if ctype in ("local", "docker"):
+        idx = len(cfg.cogtainers)  # 0-based, before adding this one
+        be_port = 8100 + idx
+        fe_port = 5200 + idx
+
     entry = CogtainerEntry(
         type=ctype,
         region=region,
         domain=domain,
         data_dir=data_dir,
         llm=llm,
+        dashboard_be_port=be_port,
+        dashboard_fe_port=fe_port,
     )
     cfg.cogtainers[name] = entry
 

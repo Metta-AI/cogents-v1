@@ -1189,7 +1189,14 @@ _PID_DIR = Path("/tmp/cogent-dashboard")
 
 
 def _read_ports() -> tuple[int, int]:
-    """Resolve BE/FE ports from env, repo .env, or checkout defaults."""
+    """Resolve BE/FE ports from cogtainer config, env, repo .env, or defaults."""
+    ctx = click.get_current_context(silent=True)
+    if ctx and ctx.obj:
+        runtime = ctx.obj.get("runtime")
+        if runtime and hasattr(runtime, "_entry"):
+            entry = runtime._entry
+            if entry.dashboard_be_port and entry.dashboard_fe_port:
+                return entry.dashboard_be_port, entry.dashboard_fe_port
     return resolve_dashboard_ports(repo_root=_REPO_ROOT)
 
 

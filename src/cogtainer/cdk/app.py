@@ -10,7 +10,10 @@ Usage (cogent within cogtainer):
 
 from __future__ import annotations
 
+import os
 import sys
+
+os.environ.setdefault("JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION", "1")
 
 import aws_cdk as cdk
 

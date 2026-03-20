@@ -29,6 +29,8 @@ class CogtainerEntry(BaseModel):
     data_dir: str | None = None
     image: str | None = None
     llm: LLMConfig | None = None
+    dashboard_be_port: int | None = None
+    dashboard_fe_port: int | None = None
 
 
 class DefaultsConfig(BaseModel):
