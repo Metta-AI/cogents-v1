@@ -62,6 +62,27 @@ def _send_sqs(body: dict, *, runtime=None) -> None:
     runtime.send_queue_message(queue_name, json.dumps(body))
 
 
+def _write_replies_channel(repo, cogent_name: str, body: dict) -> None:
+    if not cogent_name or repo is None:
+        return
+    try:
+        from cogos.db.models import Channel as ChannelModel
+        from cogos.db.models import ChannelMessage
+        from cogos.db.models.channel import ChannelType
+
+        channel_name = f"io:discord:{cogent_name}:replies"
+        ch = repo.get_channel_by_name(channel_name)
+        if ch is None:
+            ch = ChannelModel(name=channel_name, channel_type=ChannelType.NAMED)
+            repo.upsert_channel(ch)
+            ch = repo.get_channel_by_name(channel_name)
+            if ch is None:
+                return
+        repo.append_channel_message(ChannelMessage(channel=ch.id, payload=body))
+    except Exception:
+        logger.debug("Failed to write to replies channel", exc_info=True)
+
+
 def _with_reply_meta(body: dict, *, process_id: UUID, run_id: UUID | None, trace_id: UUID | None = None, cogent_name: str = "") -> dict:
     meta = {
         "queued_at_ms": int(time.time() * 1000),
@@ -179,11 +200,16 @@ class DiscordCapability(Capability):
                     file_specs.append(f)
             body["files"] = file_specs
 
+        enriched = _with_reply_meta(
+            body, process_id=self.process_id, run_id=self.run_id,
+            trace_id=self.trace_id, cogent_name=self._cogent_name,
+        )
+        _write_replies_channel(self.repo, self._cogent_name, enriched)
         try:
-            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name), runtime=self._runtime)
-            return SendResult(channel=channel, content_length=len(content))
+            _send_sqs(enriched, runtime=self._runtime)
         except Exception as e:
-            return DiscordError(error=str(e))
+            logger.debug("SQS send failed (channel write still succeeded): %s", e)
+        return SendResult(channel=channel, content_length=len(content))
 
     def react(
         self,
@@ -196,16 +222,20 @@ class DiscordCapability(Capability):
             return DiscordError(error="'channel', 'message_id', and 'emoji' are required")
         self._check("react", channel=channel)
 
+        enriched = _with_reply_meta({
+            "type": "reaction",
+            "channel": channel,
+            "message_id": message_id,
+            "emoji": emoji,
+        }, process_id=self.process_id, run_id=self.run_id,
+            trace_id=self.trace_id, cogent_name=self._cogent_name,
+        )
+        _write_replies_channel(self.repo, self._cogent_name, enriched)
         try:
-            _send_sqs(_with_reply_meta({
-                "type": "reaction",
-                "channel": channel,
-                "message_id": message_id,
-                "emoji": emoji,
-            }, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name), runtime=self._runtime)
-            return SendResult(channel=channel, content_length=0, type="reaction")
+            _send_sqs(enriched, runtime=self._runtime)
         except Exception as e:
-            return DiscordError(error=str(e))
+            logger.debug("SQS send failed (channel write still succeeded): %s", e)
+        return SendResult(channel=channel, content_length=0, type="reaction")
 
     def create_thread(
         self,
@@ -230,11 +260,16 @@ class DiscordCapability(Capability):
         if message_id:
             body["message_id"] = message_id
 
+        enriched = _with_reply_meta(
+            body, process_id=self.process_id, run_id=self.run_id,
+            trace_id=self.trace_id, cogent_name=self._cogent_name,
+        )
+        _write_replies_channel(self.repo, self._cogent_name, enriched)
         try:
-            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name), runtime=self._runtime)
-            return SendResult(channel=channel, content_length=len(content), type="thread_create")
+            _send_sqs(enriched, runtime=self._runtime)
         except Exception as e:
-            return DiscordError(error=str(e))
+            logger.debug("SQS send failed (channel write still succeeded): %s", e)
+        return SendResult(channel=channel, content_length=len(content), type="thread_create")
 
     def dm(self, user_id: str, content: str, *, files: list[str | dict] | None = None, react: str | None = None) -> SendResult | DiscordError:
         """Send a direct message to a user.
@@ -258,11 +293,16 @@ class DiscordCapability(Capability):
                     file_specs.append(f)
             body["files"] = file_specs
 
+        enriched = _with_reply_meta(
+            body, process_id=self.process_id, run_id=self.run_id,
+            trace_id=self.trace_id, cogent_name=self._cogent_name,
+        )
+        _write_replies_channel(self.repo, self._cogent_name, enriched)
         try:
-            _send_sqs(_with_reply_meta(body, process_id=self.process_id, run_id=self.run_id, trace_id=self.trace_id, cogent_name=self._cogent_name), runtime=self._runtime)
-            return SendResult(channel=f"dm:{user_id}", content_length=len(content), type="dm")
+            _send_sqs(enriched, runtime=self._runtime)
         except Exception as e:
-            return DiscordError(error=str(e))
+            logger.debug("SQS send failed (channel write still succeeded): %s", e)
+        return SendResult(channel=f"dm:{user_id}", content_length=len(content), type="dm")
 
     def receive(self, limit: int = 10, message_type: str | None = None) -> list[DiscordMessage]:
         """Read recent Discord messages from channels.

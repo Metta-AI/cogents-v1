@@ -603,6 +603,44 @@ export async function getDiagnosticsHistory(
   return r.runs;
 }
 
+// ── Chat ────────────────────────────────────────────────────────────────────
+
+export interface ChatMessage {
+  id: string;
+  source: "user" | "cogent";
+  content: string;
+  author: string | null;
+  timestamp: number;
+  type: string;
+}
+
+export interface ChatSendResult {
+  ok: boolean;
+  message_id: string;
+}
+
+export async function getChatMessages(
+  name: string,
+  limit: number = 50,
+  after: number = 0,
+): Promise<ChatMessage[]> {
+  const params = new URLSearchParams({ limit: String(limit), after: String(after) });
+  return fetchJSON(`/api/cogents/${name}/chat/messages?${params}`);
+}
+
+export async function sendChatMessage(
+  name: string,
+  content: string,
+): Promise<ChatSendResult> {
+  const resp = await fetch(`/api/cogents/${name}/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers() },
+    body: JSON.stringify({ content }),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
+}
+
 // ── System ──────────────────────────────────────────────────────────────────
 
 export async function reboot(name: string): Promise<{ cleared: number }> {
