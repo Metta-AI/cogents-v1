@@ -31,6 +31,7 @@ def test_provider_factory_openrouter():
 
 
 def test_provider_factory_anthropic():
+    pytest.importorskip("anthropic")
     config = LLMConfig(provider="anthropic", model="claude-sonnet-4-5-20250929", api_key_env="ANTHROPIC_API_KEY")
     with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "sk-ant-test"}):
         provider = create_provider(config, region="us-east-1")

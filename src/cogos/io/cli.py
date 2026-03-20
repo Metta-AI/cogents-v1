@@ -179,10 +179,12 @@ def send(io_name: str, cogent_name: str, message: str):
     click.echo()
     if io_name == "email":
         from cogos.io.email.sender import SesSender
+        from cogtainer.runtime.factory import create_executor_runtime
         domain = os.environ.get("EMAIL_DOMAIN", "softmax-cogents.com")
         region = os.environ.get("AWS_REGION", "us-east-1")
         from_address = f"{cogent_name}@{domain}"
-        sender = SesSender(from_address=from_address, region=region)
+        runtime = create_executor_runtime()
+        sender = SesSender(from_address=from_address, region=region, runtime=runtime)
         try:
             result = sender.send(to=from_address, subject="Test message", body=message)
             click.echo(f"Sent: {result.get('MessageId', 'unknown')}")

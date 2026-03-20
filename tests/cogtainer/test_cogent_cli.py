@@ -16,9 +16,9 @@ def _write_local_config(config_path, data_dir):
                 "type": "local",
                 "data_dir": str(data_dir),
                 "llm": {
-                    "provider": "anthropic",
-                    "model": "claude-sonnet-4-20250514",
-                    "api_key_env": "ANTHROPIC_API_KEY",
+                    "provider": "openrouter",
+                    "model": "anthropic/claude-sonnet-4",
+                    "api_key_env": "OPENROUTER_API_KEY",
                 },
             },
         },

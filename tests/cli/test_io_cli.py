@@ -60,27 +60,27 @@ def test_create_email_provision_failure(mock_provision):
     assert "Email provisioning failed" in result.output
 
 
-@patch("cogos.io.email.sender.boto3")
-def test_send_email_calls_sender(mock_boto3):
-    """io send email my-cogent should call SesSender.send and print message ID."""
-    mock_client = MagicMock()
-    mock_boto3.client.return_value = mock_client
-    mock_client.send_email.return_value = {"MessageId": "msg-abc-123"}
+@patch("cogtainer.runtime.factory.create_executor_runtime")
+def test_send_email_calls_sender(mock_create_runtime):
+    """io send email my-cogent should call runtime.send_email and print message ID."""
+    mock_runtime = MagicMock()
+    mock_runtime.send_email.return_value = "msg-abc-123"
+    mock_create_runtime.return_value = mock_runtime
 
     runner = CliRunner()
     result = runner.invoke(io, ["send", "email", "my-cogent", "-m", "Hello test"])
 
     assert result.exit_code == 0
-    mock_client.send_email.assert_called_once()
+    mock_runtime.send_email.assert_called_once()
     assert "msg-abc-123" in result.output
 
 
-@patch("cogos.io.email.sender.boto3")
-def test_send_email_failure(mock_boto3):
+@patch("cogtainer.runtime.factory.create_executor_runtime")
+def test_send_email_failure(mock_create_runtime):
     """io send email should report failure when send raises."""
-    mock_client = MagicMock()
-    mock_boto3.client.return_value = mock_client
-    mock_client.send_email.side_effect = Exception("SES error")
+    mock_runtime = MagicMock()
+    mock_runtime.send_email.side_effect = Exception("SES error")
+    mock_create_runtime.return_value = mock_runtime
 
     runner = CliRunner()
     result = runner.invoke(io, ["send", "email", "my-cogent"])
