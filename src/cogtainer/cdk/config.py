@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from aws_cdk import Duration
-
 from polis.aws import DEFAULT_REGION as POLIS_REGION
 from polis.aws import POLIS_ACCOUNT_ID as POLIS_ACCOUNT
 from polis.config import deploy_config
@@ -30,4 +28,3 @@ class CogtainerConfig:
     ecs_timeout_s: int = 3600
     ecr_repo_uri: str = ""
     llm_provider: str = "bedrock"
-    session_expiry_days: Duration = Duration.days(30)

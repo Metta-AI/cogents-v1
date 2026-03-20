@@ -17,13 +17,13 @@ from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
 from aws_cdk import aws_iam as iam
+from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
 from cogtainer.cdk.config import CogtainerConfig
 from cogtainer.cdk.constructs.compute import ComputeConstruct
 from cogtainer.cdk.constructs.monitoring import MonitoringConstruct
-from cogtainer.cdk.constructs.storage import StorageConstruct
 from polis import naming
 
 _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent)
@@ -52,8 +52,10 @@ class CogtainerStack(Stack):
         # 1. Shared database (polis-level Aurora cluster)
         db_name = f"cogent_{safe_name.replace('-', '_')}"
 
-        # 2. Storage (S3 bucket for sessions)
-        self.storage = StorageConstruct(self, "Storage", config=config)
+        # 2. Sessions bucket (created by `polis cogents create`)
+        self.sessions_bucket = s3.Bucket.from_bucket_name(
+            self, "SessionsBucket", naming.bucket_name(config.cogent_name),
+        )
 
         # 3. EventBridge bus
         self.event_bus = events.EventBus(
@@ -70,7 +72,7 @@ class CogtainerStack(Stack):
             db_cluster_arn=config.shared_db_cluster_arn,
             db_secret_arn=config.shared_db_secret_arn,
             db_name=db_name,
-            sessions_bucket=self.storage.bucket,
+            sessions_bucket=self.sessions_bucket,
             event_bus_name=self.event_bus.event_bus_name,
         )
 
@@ -125,7 +127,7 @@ class CogtainerStack(Stack):
         # Outputs
         CfnOutput(self, "CogentName", value=config.cogent_name)
         CfnOutput(self, "EventBusName", value=self.event_bus.event_bus_name)
-        CfnOutput(self, "SessionsBucket", value=self.storage.bucket.bucket_name)
+        CfnOutput(self, "SessionsBucket", value=self.sessions_bucket.bucket_name)
         CfnOutput(
             self,
             "StatusManifest",
@@ -224,8 +226,8 @@ class CogtainerStack(Stack):
             "DB_SECRET_ARN": config.shared_db_secret_arn,
             "DB_NAME": db_name,
             "EVENT_BUS_NAME": self.event_bus.event_bus_name,
-            "SESSIONS_BUCKET": self.storage.bucket.bucket_name,
-            "DASHBOARD_ASSETS_S3": f"s3://{self.storage.bucket.bucket_name}/dashboard/frontend.tar.gz",
+            "SESSIONS_BUCKET": self.sessions_bucket.bucket_name,
+            "DASHBOARD_ASSETS_S3": f"s3://{self.sessions_bucket.bucket_name}/dashboard/frontend.tar.gz",
             "DASHBOARD_DOCKER_VERSION": docker_version,
             "EXECUTOR_FUNCTION_NAME": naming.lambda_name(safe_name, "executor"),
         }
@@ -306,7 +308,7 @@ class CogtainerStack(Stack):
                 resources=["*"],
             )
         )
-        self.storage.bucket.grant_read_write(task_def.task_role)
+        self.sessions_bucket.grant_read_write(task_def.task_role)
 
         # IAM: invoke executor Lambda for /api/ proxy
         task_def.task_role.add_to_policy(  # type: ignore[attr-defined]

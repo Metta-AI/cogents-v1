@@ -614,6 +614,7 @@ def cogents_create(ctx: click.Context, name: str):
             "domain": subdomain,
             "dashboard_url": f"https://{subdomain}",
             "certificate_arn": cert_arn,
+            "sessions_bucket": naming.bucket_name(name),
             "cpu_1m": 0,
             "cpu_10m": 0,
             "mem_pct": 0,
@@ -654,7 +655,37 @@ def cogents_create(ctx: click.Context, name: str):
     apply_schema()
     console.print("  [green]Schema applied[/green]")
 
-    # 6. Secrets — create identity secret for the cogent
+    # 6. S3 sessions bucket
+    bucket = naming.bucket_name(name)
+    console.print(f"  Creating sessions bucket: [cyan]{bucket}[/cyan]")
+    s3_client = session.client("s3")
+    try:
+        region = session.region_name or "us-east-1"
+        create_args: dict = {"Bucket": bucket}
+        if region != "us-east-1":
+            create_args["CreateBucketConfiguration"] = {"LocationConstraint": region}
+        s3_client.create_bucket(**create_args)
+        # Lifecycle rule: expire sessions after 30 days
+        s3_client.put_bucket_lifecycle_configuration(
+            Bucket=bucket,
+            LifecycleConfiguration={
+                "Rules": [
+                    {
+                        "ID": "expire-old-sessions",
+                        "Filter": {"Prefix": "sessions/"},
+                        "Status": "Enabled",
+                        "Expiration": {"Days": 30},
+                    },
+                ],
+            },
+        )
+        console.print(f"  [green]Bucket {bucket} created[/green]")
+    except s3_client.exceptions.BucketAlreadyOwnedByYou:
+        console.print(f"  Bucket {bucket} already exists")
+    except s3_client.exceptions.BucketAlreadyExists:
+        console.print(f"  Bucket {bucket} already exists")
+
+    # 7. Secrets — create identity secret for the cogent
     console.print("  Creating identity secret...")
     store = SecretStore(session=session)
     identity_path = f"cogent/{name}/identity"
@@ -680,6 +711,7 @@ def cogents_create(ctx: click.Context, name: str):
     table.add_column("Value")
     table.add_row("Domain", subdomain)
     table.add_row("Certificate", cert_arn)
+    table.add_row("Sessions Bucket", naming.bucket_name(name))
     table.add_row("Identity Secret", identity_path)
     console.print(table)
     console.print(f"\n[green]Cogent {name} registered in polis.[/green]")
@@ -737,6 +769,11 @@ def cogents_destroy(ctx: click.Context, name: str):
     for s in secrets_list:
         store.delete(s)
         console.print(f"  [green]Deleted secret: {s}[/green]")
+
+    # 5. Sessions bucket (retained — must be emptied and deleted manually)
+    bucket = naming.bucket_name(name)
+    console.print(f"  [yellow]Sessions bucket retained: {bucket}[/yellow]")
+    console.print(f"  [yellow]  To delete: aws s3 rb s3://{bucket} --force[/yellow]")
 
     console.print(f"\n[green]Cogent {name} removed from polis.[/green]")
 
