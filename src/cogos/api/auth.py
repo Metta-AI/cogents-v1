@@ -27,7 +27,7 @@ def _get_signing_key() -> str:
     if _cached_signing_key is not None:
         return _cached_signing_key
 
-    from cogos_api.config import settings
+    from cogos.api.config import settings
 
     # Prefer explicit env var
     if settings.jwt_secret:
@@ -59,7 +59,7 @@ def _get_signing_key() -> str:
 
 def _get_executor_key() -> str:
     """Return the pre-shared executor bootstrap key."""
-    from cogos_api.config import settings
+    from cogos.api.config import settings
 
     if settings.executor_key:
         return settings.executor_key
@@ -115,7 +115,7 @@ class TokenClaims:
 
 def create_session_token(process_id: str, cogent: str, *, ttl: int | None = None) -> str:
     """Create a signed JWT for an executor session."""
-    from cogos_api.config import settings
+    from cogos.api.config import settings
 
     now = time.time()
     if ttl is None:

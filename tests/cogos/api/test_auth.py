@@ -1,4 +1,4 @@
-"""Tests for cogos_api.auth — JWT creation, verification, expiry."""
+"""Tests for cogos.api.auth — JWT creation, verification, expiry."""
 
 from __future__ import annotations
 
@@ -8,20 +8,20 @@ from unittest.mock import patch
 import jwt as pyjwt
 import pytest
 
-from cogos_api.auth import TokenClaims, create_session_token, verify_token
+from cogos.api.auth import TokenClaims, create_session_token, verify_token
 
 TEST_SECRET = "test-secret-key-for-unit-tests"
 
 
 @pytest.fixture(autouse=True)
 def _mock_signing_key():
-    with patch("cogos_api.auth._get_signing_key", return_value=TEST_SECRET):
+    with patch("cogos.api.auth._get_signing_key", return_value=TEST_SECRET):
         # Reset cached key
-        import cogos_api.auth
+        import cogos.api.auth
 
-        cogos_api.auth._cached_signing_key = None
+        cogos.api.auth._cached_signing_key = None
         yield
-        cogos_api.auth._cached_signing_key = None
+        cogos.api.auth._cached_signing_key = None
 
 
 class TestCreateSessionToken:
