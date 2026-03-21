@@ -1,5 +1,6 @@
 import json
 import os
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -1128,6 +1129,9 @@ def test_no_tty_does_not_forward_to_global_io(monkeypatch, tmp_path):
 
 def test_python_executor_handles_web_request(monkeypatch, tmp_path):
     """Python executor process can handle web requests via web.respond()."""
+    fake_runtime = MagicMock()
+    fake_runtime.get_secrets_provider.return_value = None
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: fake_runtime)
     repo = _repo(tmp_path)
 
     # Register web capability
@@ -1277,9 +1281,12 @@ def test_context_overflow_creates_critical_alert(monkeypatch, tmp_path):
     run = _make_run(repo, process)
     config = executor_handler.ExecutorConfig()
 
-    # Patch to use our local repo and config
+    # Patch to use our local repo, config, and runtime
     monkeypatch.setattr(executor_handler, "get_config", lambda: config)
     monkeypatch.setattr(executor_handler, "_get_repo", lambda config=None: repo)
+    fake_runtime = MagicMock()
+    fake_runtime.get_secrets_provider.return_value = None
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: fake_runtime)
 
     # Patch LLMClient to raise ValidationException (context too long)
     def _raise_validation(self_or_first=None, **kwargs):

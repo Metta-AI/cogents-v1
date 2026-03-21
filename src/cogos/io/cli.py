@@ -97,7 +97,13 @@ def create(io_name: str | None, cogent_name: str | None):
         domain = os.environ.get("EMAIL_DOMAIN", "softmax-cogents.com")
         region = os.environ.get("AWS_REGION", "us-east-1")
         try:
-            result = provision_email(cogent_name, domain=domain, region=region)
+            from cogtainer.config import load_config
+            from cogtainer.runtime.factory import create_runtime
+            cogtainer_name = os.environ.get("COGTAINER", "")
+            cfg = load_config()
+            entry = cfg.cogtainers[cogtainer_name]
+            runtime = create_runtime(entry, cogtainer_name)
+            result = provision_email(cogent_name, domain=domain, region=region, runtime=runtime)
             click.echo(f"\nEmail provisioned for {cogent_name}:")
             click.echo(f"  Address:      {result['address']}")
             click.echo(f"  Ingest URL:   {result['ingest_url']}")

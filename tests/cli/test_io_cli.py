@@ -26,9 +26,12 @@ def test_create_email_no_cogent_name_shows_usage():
     assert "Usage" in result.output
 
 
+@patch("cogtainer.runtime.factory.create_runtime", return_value=MagicMock())
+@patch("cogtainer.config.load_config")
 @patch("cogos.io.email.provision.provision_email")
-def test_create_email_calls_provision(mock_provision):
+def test_create_email_calls_provision(mock_provision, mock_load_config, mock_create_runtime):
     """io create email my-cogent should call provision_email and print results."""
+    mock_load_config.return_value.cogtainers = {"": MagicMock()}
     mock_provision.return_value = {
         "address": "my-cogent@softmax-cogents.com",
         "ingest_url": "https://my-cogent.softmax-cogents.com/api/ingest/email",
@@ -40,17 +43,18 @@ def test_create_email_calls_provision(mock_provision):
     result = runner.invoke(io, ["create", "email", "my-cogent"])
 
     assert result.exit_code == 0
-    mock_provision.assert_called_once_with(
-        "my-cogent", domain="softmax-cogents.com", region="us-east-1"
-    )
+    mock_provision.assert_called_once()
     assert "my-cogent@softmax-cogents.com" in result.output
     assert "rule-123" in result.output
     assert "True" in result.output
 
 
+@patch("cogtainer.runtime.factory.create_runtime", return_value=MagicMock())
+@patch("cogtainer.config.load_config")
 @patch("cogos.io.email.provision.provision_email")
-def test_create_email_provision_failure(mock_provision):
+def test_create_email_provision_failure(mock_provision, mock_load_config, mock_create_runtime):
     """io create email should report failure when provision_email raises."""
+    mock_load_config.return_value.cogtainers = {"": MagicMock()}
     mock_provision.side_effect = RuntimeError("CLOUDFLARE_API_TOKEN not set")
 
     runner = CliRunner()

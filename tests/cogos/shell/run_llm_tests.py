@@ -12,12 +12,15 @@ apply_local_checkout_env()
 from cogos.shell.commands.llm import _execute_prompt
 from cogos.shell.commands import ShellState
 from cogos.db.factory import create_repository
-
-import boto3
+from cogtainer.config import load_config
+from cogtainer.runtime.factory import create_runtime
 
 repo = create_repository()
-state = ShellState(cogent_name="local", repo=repo, cwd="")
-state.bedrock_client = boto3.client("bedrock-runtime", region_name="us-east-1")
+cogtainer_name = os.environ.get("COGTAINER", "dev")
+cfg = load_config()
+entry = cfg.cogtainers[cogtainer_name]
+runtime = create_runtime(entry, cogtainer_name)
+state = ShellState(cogent_name="local", repo=repo, cwd="", runtime=runtime)
 
 tests = [
     ("print hello world", "simple print"),
