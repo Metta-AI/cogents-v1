@@ -22,6 +22,9 @@ from cogos.db.models import (
     Cron,
     Delivery,
     DeliveryStatus,
+    Executor,
+    ExecutorStatus,
+    ExecutorToken,
     File,
     FileVersion,
     Handler,
@@ -89,6 +92,8 @@ class LocalRepository(Repository):
         self._request_traces: dict[UUID, RequestTrace] = {}
         self._spans: dict[UUID, Span] = {}
         self._span_events: dict[UUID, SpanEvent] = {}
+        self._executors: dict[str, Executor] = {}  # keyed by executor_id (str)
+        self._executor_tokens: dict[UUID, ExecutorToken] = {}
         self._reboot_epoch: int = 0
 
         self._load()
@@ -113,6 +118,8 @@ class LocalRepository(Repository):
         self._discord_channels.clear()
         self._meta.clear()
         self._operations.clear()
+        self._executors.clear()
+        self._executor_tokens.clear()
         self._reboot_epoch = 0
 
     def _read_persisted_data(self) -> dict[str, Any]:
@@ -147,6 +154,8 @@ class LocalRepository(Repository):
             "request_traces": [t.model_dump(mode="json") for t in self._request_traces.values()],
             "spans": [s.model_dump(mode="json") for s in self._spans.values()],
             "span_events": [e.model_dump(mode="json") for e in self._span_events.values()],
+            "executors": [e.model_dump(mode="json") for e in self._executors.values()],
+            "executor_tokens": [t.model_dump(mode="json") for t in self._executor_tokens.values()],
             "reboot_epoch": self._reboot_epoch,
             "meta": self._meta,
         }
@@ -229,6 +238,8 @@ class LocalRepository(Repository):
             "request_traces": (("id",), None),
             "spans": (("id",), None),
             "span_events": (("id",), None),
+            "executors": (("id",), ("executor_id",)),
+            "executor_tokens": (("id",), ("name",)),
         }
 
         merged = {}
@@ -315,6 +326,12 @@ class LocalRepository(Repository):
         for e in data.get("span_events", []):
             event = SpanEvent(**e)
             self._span_events[event.id] = event
+        for ex in data.get("executors", []):
+            executor = Executor(**ex)
+            self._executors[executor.executor_id] = executor
+        for et in data.get("executor_tokens", []):
+            token = ExecutorToken(**et)
+            self._executor_tokens[token.id] = token
 
     def _migrate_legacy_process_prompt(self, raw: dict[str, Any]) -> dict[str, Any]:
         migrated = dict(raw)
@@ -1464,3 +1481,134 @@ class LocalRepository(Repository):
         events = [e for e in self._span_events.values() if e.span_id in span_ids]
         events.sort(key=lambda e: e.timestamp or datetime.min)
         return events
+
+    # ── Executors ─────────────────────────────────────────────
+
+    def register_executor(self, executor: Executor) -> UUID:
+        with self._writing():
+            existing = self._executors.get(executor.executor_id)
+            if existing:
+                executor.id = existing.id
+            executor.status = ExecutorStatus.IDLE
+            executor.current_run_id = None
+            executor.last_heartbeat_at = datetime.now(UTC)
+            executor.registered_at = datetime.now(UTC)
+            self._executors[executor.executor_id] = executor
+            return executor.id
+
+    def get_executor(self, executor_id: str) -> Executor | None:
+        self._maybe_reload()
+        return self._executors.get(executor_id)
+
+    def get_executor_by_id(self, id: UUID) -> Executor | None:
+        self._maybe_reload()
+        for e in self._executors.values():
+            if e.id == id:
+                return e
+        return None
+
+    def list_executors(self, status: ExecutorStatus | None = None) -> list[Executor]:
+        self._maybe_reload()
+        executors = list(self._executors.values())
+        if status:
+            executors = [e for e in executors if e.status == status]
+        executors.sort(key=lambda e: e.registered_at or datetime.min, reverse=True)
+        return executors
+
+    def select_executor(
+        self,
+        required_caps: list[str] | None = None,
+        preferred_caps: list[str] | None = None,
+    ) -> Executor | None:
+        idle = self.list_executors(status=ExecutorStatus.IDLE)
+        if not idle:
+            return None
+
+        candidates = idle
+        if required_caps:
+            req = set(required_caps)
+            candidates = [e for e in candidates if req.issubset(set(e.capabilities))]
+
+        if not candidates:
+            return None
+
+        if preferred_caps:
+            pref = set(preferred_caps)
+            candidates.sort(key=lambda e: len(pref & set(e.capabilities)), reverse=True)
+
+        return candidates[0]
+
+    def heartbeat_executor(
+        self,
+        executor_id: str,
+        status: ExecutorStatus = ExecutorStatus.IDLE,
+        current_run_id: UUID | None = None,
+        resource_usage: dict | None = None,
+    ) -> bool:
+        with self._writing():
+            e = self._executors.get(executor_id)
+            if not e:
+                return False
+            e.last_heartbeat_at = datetime.now(UTC)
+            e.status = status
+            e.current_run_id = current_run_id
+            if resource_usage:
+                e.metadata["resource_usage"] = resource_usage
+            return True
+
+    def update_executor_status(
+        self, executor_id: str, status: ExecutorStatus, current_run_id: UUID | None = None,
+    ) -> None:
+        with self._writing():
+            e = self._executors.get(executor_id)
+            if e:
+                e.status = status
+                e.current_run_id = current_run_id
+
+    def delete_executor(self, executor_id: str) -> None:
+        with self._writing(force=True):
+            self._executors.pop(executor_id, None)
+
+    def reap_stale_executors(self, heartbeat_interval_s: int = 30) -> int:
+        now = datetime.now(UTC)
+        dead_count = 0
+        with self._writing():
+            for e in self._executors.values():
+                if not e.last_heartbeat_at:
+                    continue
+                age_s = (now - e.last_heartbeat_at).total_seconds()
+                if age_s > heartbeat_interval_s * 10 and e.status != ExecutorStatus.DEAD:
+                    e.status = ExecutorStatus.DEAD
+                    dead_count += 1
+                elif age_s > heartbeat_interval_s * 3 and e.status == ExecutorStatus.IDLE:
+                    e.status = ExecutorStatus.STALE
+        return dead_count
+
+    # ── Executor Tokens ───────────────────────────────────────
+
+    def create_executor_token(self, token: ExecutorToken) -> UUID:
+        with self._writing():
+            token.created_at = datetime.now(UTC)
+            self._executor_tokens[token.id] = token
+            return token.id
+
+    def get_executor_token_by_hash(self, token_hash: str) -> ExecutorToken | None:
+        self._maybe_reload()
+        for t in self._executor_tokens.values():
+            if t.token_hash == token_hash and t.revoked_at is None:
+                return t
+        return None
+
+    def list_executor_tokens(self) -> list[ExecutorToken]:
+        self._maybe_reload()
+        tokens = list(self._executor_tokens.values())
+        tokens.sort(key=lambda t: t.created_at or datetime.min, reverse=True)
+        return tokens
+
+    def revoke_executor_token(self, name: str) -> bool:
+        with self._writing():
+            for t in self._executor_tokens.values():
+                if t.name == name and t.revoked_at is None:
+                    t.revoked_at = datetime.now(UTC)
+                    return True
+            return False
