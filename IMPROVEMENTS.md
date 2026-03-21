@@ -216,6 +216,54 @@ _, password = parts
 
 ---
 
+## 13. HIGH: Dashboard API Authentication Gap
+
+**Problem:** The dashboard has 18 routers (alerts, chat, processes, runs, traces, etc.) but authentication is only enforced on a single endpoint (`/admin/reload-frontend`). All other routes are unprotected.
+
+- `src/dashboard/app.py` — Global exception handler exists but no auth middleware
+- `src/dashboard/routers/setup.py` — Accepts user input without auth verification
+- `src/dashboard/routers/chat.py` — Returns bare exceptions without status codes
+- The `_cogent_name()` helper reads from env/URL but doesn't verify caller permissions
+
+**Impact:** Any network-accessible dashboard exposes full read/write access to cogent state.
+
+**Suggestion:** Add FastAPI dependency injection for auth on all routers:
+```python
+async def verify_api_key(x_api_key: str = Header(...)):
+    if not secrets.compare_digest(hash_key(x_api_key), stored_hash):
+        raise HTTPException(status_code=401)
+    return x_api_key
+
+app.include_router(router, dependencies=[Depends(verify_api_key)])
+```
+
+---
+
+## 14. MEDIUM: Tight Coupling Between Dashboard and Executor
+
+**Problem:** `src/dashboard/app.py` contains inline executor integration logic:
+
+- Lines 222-302: Web API proxy directly invokes Lambda functions with hardcoded payload structure
+- Lines 191-219: Blob serving duplicates S3 access logic
+- Lines 161-180: File serving imports cogos file store directly
+- WebSocket handler doesn't gracefully handle disconnections
+
+**Impact:** Dashboard can't be tested without a live executor. Changes to executor payload format require dashboard changes.
+
+**Suggestion:** Extract an `executor_client.py` with methods like `invoke_web_request()`, `get_blob()`. Makes the interface explicit and testable.
+
+---
+
+## 15. MEDIUM: Cogtainer Migrations Not Tracked
+
+**Problem:** `src/cogos/db/migrations/` has 19 managed SQL migrations, but `src/cogtainer/db/` has no migration tracking despite having its own separate schema with 15+ tables.
+
+**Impact:** Schema changes to cogtainer tables require manual DDL — risk of drift between environments.
+
+**Suggestion:** Add a migration system to `cogtainer/db/` matching the pattern already used by `cogos/db/migrations/`.
+
+---
+
 ## Summary — Recommended Priority Order
 
 | # | Improvement | Effort | Impact | Risk Reduction |
@@ -232,7 +280,12 @@ _, password = parts
 | 10 | Standardize config | Medium | Medium | Consistency |
 | 11 | Structured logging | Medium | Low | Observability |
 | 12 | Safe string splitting | Small | Low | Crash prevention |
+| 13 | Dashboard API auth | Medium | High | Security |
+| 14 | Decouple dashboard/executor | Medium | Medium | Testability |
+| 15 | Cogtainer migration tracking | Small | Medium | Consistency |
 
-**Quick wins (small effort, high impact):** Items 3, 4, 6, 7, 12 — could all be done in a single focused session.
+**Quick wins (small effort, high impact):** Items 3, 4, 6, 7, 12, 15 — could all be done in a single focused session.
 
 **Biggest architectural win:** Item 1 (unify repositories) — reduces ~4,200 lines of duplicated patterns and makes every future DB change easier.
+
+**Most urgent security fix:** Item 13 (dashboard auth) — all 18 API routers are currently unprotected.
