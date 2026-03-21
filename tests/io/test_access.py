@@ -42,7 +42,7 @@ class TestGetChannelSecret:
         provider = _mock_provider({
             "identity_service/test-cogent/discord": '{"type": "static", "access_token": "abc"}'
         })
-        with patch.dict(os.environ, {"COGENT_NAME": "test-cogent"}):
+        with patch.dict(os.environ, {"COGENT": "test-cogent"}):
             secret = get_io_secret("discord", secrets_provider=provider)
             assert secret == {"type": "static", "access_token": "abc"}
 

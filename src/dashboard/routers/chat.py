@@ -19,7 +19,7 @@ router = APIRouter(tags=["chat"])
 
 
 def _cogent_name(url_name: str) -> str:
-    return os.environ.get("COGENT_NAME") or os.environ.get("COGENT") or url_name
+    return os.environ.get("COGENT") or url_name
 
 
 def _resolve_channel(repo, scoped: str, unscoped: str) -> Channel | None:

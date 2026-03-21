@@ -85,7 +85,7 @@ class LocalRuntime(CogtainerRuntime):
             **os.environ,
             "COGTAINER": self._entry.type,
             "COGENT": cogent_name,
-            "COGENT_NAME": cogent_name,
+            "COGENT": cogent_name,
             "USE_LOCAL_DB": "1",
             "COGOS_LOCAL_DATA": str(cogent_dir),
             "SECRETS_PROVIDER": "local",

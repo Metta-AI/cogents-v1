@@ -233,8 +233,8 @@ class CogentStack(Stack):
             )
 
         lambda_env = {
-            "COGENT_NAME": cogent_name,
-            "COGTAINER_NAME": cogtainer_name,
+            "COGENT": cogent_name,
+            "COGTAINER": cogtainer_name,
             "DB_RESOURCE_ARN": db_cluster_arn,
             "DB_CLUSTER_ARN": db_cluster_arn,
             "DB_SECRET_ARN": db_secret_arn,
@@ -462,9 +462,9 @@ class CogentStack(Stack):
             # HOSTNAME must be explicit — ECS overrides Dockerfile ENV with task hostname
             "HOSTNAME": "0.0.0.0",
             "PORT": "5174",
-            "COGENT_NAME": cogent_name,
-            "COGTAINER_NAME": cogtainer_name,
-            "DASHBOARD_COGENT_NAME": cogent_name,
+            "COGENT": cogent_name,
+            "COGTAINER": cogtainer_name,
+            "DASHBOARD_COGENT": cogent_name,
             "DB_RESOURCE_ARN": db_cluster_arn,
             "DB_CLUSTER_ARN": db_cluster_arn,
             "DB_SECRET_ARN": db_secret_arn,
@@ -643,8 +643,8 @@ class CogentStack(Stack):
         )
 
         bridge_env = {
-            "COGENT_NAME": cogent_name,
-            "COGTAINER_NAME": cogtainer_name,
+            "COGENT": cogent_name,
+            "COGTAINER": cogtainer_name,
             "DYNAMO_TABLE": f"cogtainer-{cogtainer_name}-status",
             "DB_RESOURCE_ARN": db_cluster_arn,
             "DB_CLUSTER_ARN": db_cluster_arn,

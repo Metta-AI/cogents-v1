@@ -53,19 +53,37 @@ def create_runtime(
 
 
 def create_executor_runtime() -> CogtainerRuntime:
-    """Reconstruct a runtime inside an executor process from env vars."""
+    """Reconstruct a runtime inside an executor process from env vars.
+
+    Resolves the cogtainer type by looking up the COGTAINER name in the config.
+    Falls back to env-var-based construction for Lambda environments where
+    the config file is unavailable.
+    """
     import os
 
-    cogtainer_type = os.environ.get("COGTAINER", "aws")
+    cogtainer_name = os.environ["COGTAINER"]
     region = os.environ.get("AWS_REGION", "us-east-1")
     llm_provider = os.environ.get("LLM_PROVIDER", "bedrock")
-
     default_model = os.environ.get(
         "DEFAULT_MODEL", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     )
 
+    # Try to resolve type from config; fall back to "aws" for Lambda environments
+    # where the config file is unavailable.
+    try:
+        from cogtainer.config import load_config
+        cfg = load_config()
+        entry = cfg.cogtainers[cogtainer_name]
+        cogtainer_type = entry.type
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug(
+            "Could not load cogtainer config for '%s', defaulting to aws",
+            cogtainer_name,
+        )
+        cogtainer_type = "aws"
+
     llm_config = LLMConfig(provider=llm_provider, model=default_model, api_key_env="")
-    # Pass through API key env vars for non-bedrock providers
     if llm_provider == "openrouter":
         llm_config.api_key_env = "OPENROUTER_API_KEY"
     elif llm_provider == "anthropic":
@@ -89,6 +107,10 @@ def create_executor_runtime() -> CogtainerRuntime:
         entry = CogtainerEntry(type="aws", region=region, llm=llm_config)
         llm = create_provider(entry.llm, region=region)
         import boto3 as _boto3
-        return AwsRuntime(entry=entry, llm=llm, session=_boto3.Session(region_name=region))
+        return AwsRuntime(
+            entry=entry, llm=llm,
+            session=_boto3.Session(region_name=region),
+            cogtainer_name=cogtainer_name,
+        )
 
-    raise ValueError(f"Unknown cogtainer type from env: {cogtainer_type}")
+    raise ValueError(f"Unknown cogtainer type: {cogtainer_type}")

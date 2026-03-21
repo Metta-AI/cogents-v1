@@ -1,5 +1,8 @@
 import json
+import os
 from uuid import uuid4
+
+import pytest
 
 from cogos.db.local_repository import LocalRepository
 from cogos.db.models import (
@@ -20,6 +23,11 @@ from cogos.db.models import (
 from cogos.executor import handler as executor_handler
 from cogos.files.store import FileStore
 from cogos.runtime.local import run_and_complete
+
+
+@pytest.fixture(autouse=True)
+def _set_cogent_env(monkeypatch):
+    monkeypatch.setenv("COGENT", "test")
 
 
 def _repo(tmp_path) -> LocalRepository:
@@ -80,7 +88,7 @@ def test_executor_recreates_missing_dispatch_run(monkeypatch, tmp_path):
     )
     repo.upsert_process(process)
 
-    monkeypatch.setattr(executor_handler, "get_repo", lambda config=None: repo)
+    monkeypatch.setattr(executor_handler, "_get_repo", lambda config=None: repo)
     monkeypatch.setattr(executor_handler.time, "sleep", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         executor_handler,
@@ -132,7 +140,7 @@ def test_daemon_returns_to_runnable_when_more_deliveries_wait(monkeypatch, tmp_p
     repo.create_run(run)
     repo.mark_queued(current_delivery_id, run.id)
 
-    monkeypatch.setattr(executor_handler, "get_repo", lambda config=None: repo)
+    monkeypatch.setattr(executor_handler, "_get_repo", lambda config=None: repo)
     monkeypatch.setattr(
         executor_handler,
         "execute_process",
@@ -164,7 +172,7 @@ def test_daemon_failure_returns_to_waiting_without_pending_deliveries(monkeypatc
     )
     repo.upsert_process(process)
 
-    monkeypatch.setattr(executor_handler, "get_repo", lambda config=None: repo)
+    monkeypatch.setattr(executor_handler, "_get_repo", lambda config=None: repo)
 
     def _fail(*args, **kwargs):
         raise RuntimeError("boom")
@@ -216,7 +224,7 @@ def test_daemon_failure_returns_to_runnable_when_more_deliveries_wait(monkeypatc
     repo.create_run(run)
     repo.mark_queued(current_delivery_id, run.id)
 
-    monkeypatch.setattr(executor_handler, "get_repo", lambda config=None: repo)
+    monkeypatch.setattr(executor_handler, "_get_repo", lambda config=None: repo)
 
     def _fail(*args, **kwargs):
         raise RuntimeError("boom")
@@ -250,7 +258,7 @@ def test_daemon_suspended_after_consecutive_failures(monkeypatch, tmp_path):
     )
     repo.upsert_process(process)
 
-    monkeypatch.setattr(executor_handler, "get_repo", lambda config=None: repo)
+    monkeypatch.setattr(executor_handler, "_get_repo", lambda config=None: repo)
 
     def _fail(*args, **kwargs):
         raise RuntimeError("boom")
@@ -287,7 +295,7 @@ def test_daemon_not_suspended_with_fewer_than_threshold_failures(monkeypatch, tm
     )
     repo.upsert_process(process)
 
-    monkeypatch.setattr(executor_handler, "get_repo", lambda config=None: repo)
+    monkeypatch.setattr(executor_handler, "_get_repo", lambda config=None: repo)
 
     def _fail(*args, **kwargs):
         raise RuntimeError("boom")
@@ -317,7 +325,7 @@ def test_daemon_not_suspended_if_success_breaks_streak(monkeypatch, tmp_path):
     )
     repo.upsert_process(process)
 
-    monkeypatch.setattr(executor_handler, "get_repo", lambda config=None: repo)
+    monkeypatch.setattr(executor_handler, "_get_repo", lambda config=None: repo)
 
     fail_count = {"n": 0}
 
@@ -1271,7 +1279,7 @@ def test_context_overflow_creates_critical_alert(monkeypatch, tmp_path):
 
     # Patch to use our local repo and config
     monkeypatch.setattr(executor_handler, "get_config", lambda: config)
-    monkeypatch.setattr(executor_handler, "get_repo", lambda config=None: repo)
+    monkeypatch.setattr(executor_handler, "_get_repo", lambda config=None: repo)
 
     # Patch LLMClient to raise ValidationException (context too long)
     def _raise_validation(self_or_first=None, **kwargs):

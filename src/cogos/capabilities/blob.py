@@ -45,7 +45,7 @@ class BlobCapability(Capability):
 
     def __init__(self, repo, process_id, run_id=None, **kwargs):
         super().__init__(repo, process_id, run_id, **kwargs)
-        self._cogent_name = os.environ.get("COGENT_NAME", os.environ.get("COGENT", ""))
+        self._cogent_name = os.environ.get("COGENT", "")
 
     def _narrow(self, existing: dict, requested: dict) -> dict:
         result: dict = {}

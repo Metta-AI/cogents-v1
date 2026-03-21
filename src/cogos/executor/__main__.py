@@ -27,7 +27,7 @@ def main() -> None:
     from cogtainer.runtime.factory import create_executor_runtime
 
     runtime = create_executor_runtime()
-    cogent_name = os.environ.get("COGENT", os.environ.get("COGENT_NAME", ""))
+    cogent_name = os.environ.get("COGENT", "")
     if cogent_name:
         repo = runtime.get_repository(cogent_name)
     else:

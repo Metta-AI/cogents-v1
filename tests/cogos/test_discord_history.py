@@ -12,7 +12,7 @@ from cogos.io.discord.capability import DiscordCapability, DiscordError
 
 @pytest.fixture(autouse=True)
 def _set_cogent_name(monkeypatch):
-    monkeypatch.setenv("COGENT_NAME", "test")
+    monkeypatch.setenv("COGENT", "test")
 
 
 def _make_capability(scope=None):

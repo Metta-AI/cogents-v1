@@ -28,7 +28,7 @@ def _verify_admin_key(key: str) -> bool:
         if env_key:
             _cached_admin_key = env_key
         else:
-            cogent_name = os.environ.get("COGENT_NAME", "")
+            cogent_name = os.environ.get("COGENT", "")
             if cogent_name:
                 try:
                     import json

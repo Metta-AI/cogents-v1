@@ -76,8 +76,8 @@ def test_download_scope_ops_blocked():
 
 
 def test_cogent_name_from_env(monkeypatch):
-    """When COGENT_NAME is set, use it."""
-    monkeypatch.setenv("COGENT_NAME", "dr.alpha")
+    """When COGENT is set, use it."""
+    monkeypatch.setenv("COGENT", "dr.alpha")
     repo = MagicMock()
     runtime = MagicMock()
     cap = BlobCapability(repo, uuid4(), runtime=runtime)

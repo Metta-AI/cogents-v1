@@ -125,7 +125,7 @@ class DiscordCapability(Capability):
 
     def __init__(self, repo, process_id, **kwargs):
         super().__init__(repo, process_id, **kwargs)
-        self._cogent_name = os.environ.get("COGENT_NAME", "")
+        self._cogent_name = os.environ.get("COGENT", "")
 
     def handle(self) -> str:
         """The cogent's Discord persona name (mentionable as @cogent:{name})."""

@@ -20,7 +20,7 @@ class CogentCapability(Capability):
 
     def __init__(self, repo, process_id, **kwargs):
         super().__init__(repo, process_id)
-        self._name = os.environ.get("COGENT_NAME", "")
+        self._name = os.environ.get("COGENT", "")
 
     @property
     def name(self) -> str:

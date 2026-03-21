@@ -180,7 +180,7 @@ class WebCapability(Capability):
             if backend_port:
                 return f"http://localhost:{backend_port}/web/static"
 
-        cogent_name = (os.environ.get("COGENT_NAME") or "").strip()
+        cogent_name = (os.environ.get("COGENT") or "").strip()
         safe_name = cogent_name.replace(".", "-") if cogent_name else "local"
         domain = (os.environ.get("COGENT_DOMAIN") or "softmax-cogents.com").strip() or "softmax-cogents.com"
         return f"https://{safe_name}.{domain}/web/static"

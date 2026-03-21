@@ -18,6 +18,7 @@ import boto3
 
 from cogtainer.lambdas.shared.config import get_config
 from cogtainer.lambdas.shared.logging import setup_logging
+from cogtainer.runtime.factory import create_executor_runtime
 from cogos.runtime.ingress import dispatch_ready_processes
 from cogos.runtime.schedule import apply_scheduled_messages
 
@@ -39,18 +40,15 @@ def handler(event: dict, context) -> dict:
 
     config = get_config()
 
-    try:
-        from cogos.db.repository import Repository
-        repo = Repository.create()
-    except Exception:
-        logger.debug("CogOS repository not available, skipping scheduler tick")
-        return {"statusCode": 200, "dispatched": 0}
+    cogent_name = os.environ["COGENT"]
+    runtime = create_executor_runtime()
+    repo = runtime.get_repository(cogent_name)
 
     scheduler = SchedulerCapability(repo, UUID("00000000-0000-0000-0000-000000000000"))
     lambda_client = boto3.client("lambda", region_name=config.region)
     executor_fn = os.environ.get("EXECUTOR_FUNCTION_NAME")
     if not executor_fn:
-        safe_name = os.environ.get("COGENT_NAME", "").replace(".", "-")
+        safe_name = os.environ["COGENT"].replace(".", "-")
         executor_fn = f"cogent-{safe_name}-executor"
 
     # Heartbeat — lets the dashboard show time-since-last-tick

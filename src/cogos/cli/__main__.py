@@ -296,7 +296,7 @@ def boot(ctx, name, clean, dry_run, v_executor, v_dashboard, v_dashboard_fronten
     epoch = repo.reboot_epoch
 
     # 4. Write versions manifest
-    cogent_name = os.environ.get("COGENT_NAME", name)
+    cogent_name = os.environ.get("COGENT", name)
     manifest = VersionManifest(epoch=epoch, cogent_name=cogent_name, components=components)
     fs = FileStore(repo)
     write_versions_to_filestore(manifest, fs)
@@ -1489,7 +1489,7 @@ def discord_status(ctx: click.Context):
 def discord_run_local(ctx: click.Context):
     """Run the Discord bridge locally (blocking, for development)."""
     cogent_name = ctx.obj["cogent_name"]
-    os.environ.setdefault("COGENT_NAME", cogent_name)
+    os.environ.setdefault("COGENT", cogent_name)
 
     from cogos.io.discord.bridge import main as bridge_main
     click.echo(f"Starting local Discord bridge for {cogent_name}...")

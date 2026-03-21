@@ -32,7 +32,7 @@ def get_config() -> LambdaConfig:
     global _config
     if _config is None:
         _config = LambdaConfig(
-            cogent_name=os.environ["COGENT_NAME"],
+            cogent_name=os.environ["COGENT"],
             db_cluster_arn=os.environ["DB_CLUSTER_ARN"],
             db_secret_arn=os.environ["DB_SECRET_ARN"],
             db_name=os.environ.get("DB_NAME", "cogent"),

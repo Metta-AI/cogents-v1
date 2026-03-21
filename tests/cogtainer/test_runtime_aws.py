@@ -69,19 +69,10 @@ def test_aws_runtime_list_cogents(aws_runtime: AwsRuntime):
 # ── get_repository ───────────────────────────────────────────
 
 
-def test_aws_runtime_get_repository(aws_runtime: AwsRuntime):
-    table = MagicMock()
-    aws_runtime._session.resource.return_value.Table.return_value = table
-    table.get_item.return_value = {
-        "Item": {
-            "cogent_name": "alpha",
-            "database": {
-                "cluster_arn": "arn:aws:rds:us-east-1:123:cluster:my-cluster",
-                "secret_arn": "arn:aws:secretsmanager:us-east-1:123:secret:my-secret",
-                "db_name": "cogent_alpha",
-            },
-        },
-    }
+def test_aws_runtime_get_repository(aws_runtime: AwsRuntime, monkeypatch):
+    monkeypatch.setenv("DB_CLUSTER_ARN", "arn:aws:rds:us-east-1:123:cluster:my-cluster")
+    monkeypatch.setenv("DB_SECRET_ARN", "arn:aws:secretsmanager:us-east-1:123:secret:my-secret")
+    monkeypatch.setenv("DB_NAME", "cogent_alpha")
 
     repo = aws_runtime.get_repository("alpha")
     # Should have created an rds-data client and a Repository

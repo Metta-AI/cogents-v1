@@ -23,9 +23,9 @@ def get_io_token(channel: str, *, secrets_provider: object) -> str | None:
         logger.info("Using %s from environment", env_key)
         return env_token
 
-    cogent_name = os.environ.get("COGENT_NAME")
+    cogent_name = os.environ.get("COGENT")
     if not cogent_name:
-        logger.error("COGENT_NAME not set in environment")
+        logger.error("COGENT not set in environment")
         return None
 
     try:
@@ -39,9 +39,9 @@ def get_io_token(channel: str, *, secrets_provider: object) -> str | None:
 
 def get_io_secret(channel: str, *, secrets_provider: object) -> dict[str, Any] | None:
     """Get the full secret dict for a channel."""
-    cogent_name = os.environ.get("COGENT_NAME")
+    cogent_name = os.environ.get("COGENT")
     if not cogent_name:
-        logger.error("COGENT_NAME not set in environment")
+        logger.error("COGENT not set in environment")
         return None
 
     try:

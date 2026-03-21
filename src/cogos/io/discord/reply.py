@@ -41,7 +41,7 @@ async def queue_reply(
     region: str | None = None,
     runtime=None,
 ) -> None:
-    name = cogent_name or os.environ["COGENT_NAME"]
+    name = cogent_name or os.environ["COGENT"]
     if runtime is None:
         from cogtainer.runtime.factory import create_executor_runtime
         runtime = create_executor_runtime()
@@ -66,7 +66,7 @@ async def queue_reaction(
     region: str | None = None,
     runtime=None,
 ) -> None:
-    name = cogent_name or os.environ["COGENT_NAME"]
+    name = cogent_name or os.environ["COGENT"]
     if runtime is None:
         from cogtainer.runtime.factory import create_executor_runtime
         runtime = create_executor_runtime()
@@ -86,7 +86,7 @@ async def queue_thread_create(
     region: str | None = None,
     runtime=None,
 ) -> None:
-    name = cogent_name or os.environ["COGENT_NAME"]
+    name = cogent_name or os.environ["COGENT"]
     if runtime is None:
         from cogtainer.runtime.factory import create_executor_runtime
         runtime = create_executor_runtime()
@@ -108,7 +108,7 @@ async def queue_dm(
     region: str | None = None,
     runtime=None,
 ) -> None:
-    name = cogent_name or os.environ["COGENT_NAME"]
+    name = cogent_name or os.environ["COGENT"]
     if runtime is None:
         from cogtainer.runtime.factory import create_executor_runtime
         runtime = create_executor_runtime()

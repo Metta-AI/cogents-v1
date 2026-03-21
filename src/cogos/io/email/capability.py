@@ -39,7 +39,7 @@ class EmailError(BaseModel):
 
 
 def _get_sender(runtime=None) -> SesSender:
-    cogent_name = os.environ.get("COGENT_NAME", "")
+    cogent_name = os.environ.get("COGENT", "")
     domain = os.environ.get("EMAIL_DOMAIN", "softmax-cogents.com")
     region = os.environ.get("AWS_REGION", "us-east-1")
     from_address = f"{cogent_name}@{domain}"
@@ -87,7 +87,7 @@ class EmailCapability(Capability):
 
     def __init__(self, repo, process_id, **kwargs):
         super().__init__(repo, process_id)
-        cogent_name = os.environ.get("COGENT_NAME", "")
+        cogent_name = os.environ.get("COGENT", "")
         domain = os.environ.get("EMAIL_DOMAIN", "softmax-cogents.com")
         self._from_address = f"{cogent_name}@{domain}" if cogent_name else ""
 

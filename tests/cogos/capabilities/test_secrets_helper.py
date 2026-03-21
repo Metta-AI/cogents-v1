@@ -51,7 +51,7 @@ class TestFetchSecretBasic:
 
 
 class TestCogentPlaceholder:
-    @patch.dict("os.environ", {"COGENT_NAME": "dr.alpha"})
+    @patch.dict("os.environ", {"COGENT": "dr.alpha"})
     def test_resolves_cogent_placeholder(self):
         provider = MagicMock()
         provider.get_secret.return_value = "val"
@@ -62,5 +62,5 @@ class TestCogentPlaceholder:
     def test_raises_without_cogent_name(self):
         provider = MagicMock()
         with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(RuntimeError, match="COGENT_NAME env var is not set"):
+            with pytest.raises(RuntimeError, match="COGENT env var is not set"):
                 fetch_secret("cogent/{cogent}/github", secrets_provider=provider)

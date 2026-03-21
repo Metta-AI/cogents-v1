@@ -255,7 +255,7 @@ class TestUrl:
         monkeypatch.delenv("USE_LOCAL_DB", raising=False)
         monkeypatch.delenv("DASHBOARD_FE_PORT", raising=False)
         monkeypatch.delenv("DASHBOARD_BE_PORT", raising=False)
-        monkeypatch.setenv("COGENT_NAME", "dr.gamma")
+        monkeypatch.setenv("COGENT", "dr.gamma")
         monkeypatch.setenv("COGENT_DOMAIN", "softmax-cogents.com")
 
         assert cap.url("least-favorite-fruit") == (

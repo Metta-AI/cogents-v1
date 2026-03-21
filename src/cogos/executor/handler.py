@@ -14,7 +14,6 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from cogos.db.factory import create_repository
 from cogos.db.models import Process, ProcessStatus, Run, RunStatus
 from cogos.db.models.channel_message import ChannelMessage
 from cogos.db.repository import Repository
@@ -83,16 +82,6 @@ def get_config() -> ExecutorConfig:
     )
 
 
-def get_repo(config: ExecutorConfig | None = None) -> Repository:
-    config = config or get_config()
-    return create_repository(
-        resource_arn=config.db_cluster_arn,
-        secret_arn=config.db_secret_arn,
-        database=config.db_name,
-        region=config.region,
-    )
-
-
 _RUNTIME = None
 
 
@@ -106,15 +95,9 @@ def _get_runtime():
 
 
 def _get_repo(config: ExecutorConfig | None = None) -> Repository:
-    """Get repo from runtime (preferred) or config (legacy Lambda)."""
-    config = config or get_config()
-    cogent_name = os.environ.get("COGENT", os.environ.get("COGENT_NAME", ""))
-    if cogent_name:
-        try:
-            return _get_runtime().get_repository(cogent_name)
-        except Exception:
-            pass
-    return get_repo(config)
+    """Get repo from CogtainerRuntime."""
+    cogent_name = os.environ["COGENT"]
+    return _get_runtime().get_repository(cogent_name)
 
 
 # ── Meta-capability definitions ──────────────────────────────
@@ -316,7 +299,7 @@ def handler(event: dict, context: Any = None) -> dict:
         parent_span_id=parent_span_id,
         source=event.get("source", ""),
         source_ref=event.get("source_ref"),
-        cogent_id=os.environ.get("COGENT_NAME", ""),
+        cogent_id=os.environ["COGENT"],
     )
     trace_id = trace_ctx.trace_id
 

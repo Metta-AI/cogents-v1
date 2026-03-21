@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 from cogtainer.config import CogtainerEntry
@@ -69,26 +70,9 @@ class AwsRuntime(CogtainerRuntime):
     def get_repository(self, cogent_name: str) -> Any:
         from cogos.db.repository import Repository
 
-        safe = self._safe(cogent_name)
-        db_name = f"cogent_{safe.replace('-', '_')}"
-
-        # For new cogtainers, get DB ARNs from stack outputs
-        # For legacy cogtainers, get from DynamoDB cogent-status table
-        if self._cogtainer_name:
-            db_info = self._get_db_info()
-            cluster_arn = db_info["cluster_arn"]
-            secret_arn = db_info["secret_arn"]
-        else:
-            ddb = self._session.resource("dynamodb", region_name=self._region)
-            item = (
-                ddb.Table(_LEGACY_STATUS_TABLE)
-                .get_item(Key={"cogent_name": cogent_name})
-                .get("Item", {})
-            )
-            db_sub = item.get("database", {})
-            cluster_arn = db_sub.get("cluster_arn", "")
-            secret_arn = db_sub.get("secret_arn", "")
-            db_name = db_sub.get("db_name", db_name)
+        cluster_arn = os.environ["DB_CLUSTER_ARN"]
+        secret_arn = os.environ["DB_SECRET_ARN"]
+        db_name = os.environ["DB_NAME"]
 
         client = self._session.client("rds-data", region_name=self._region)
 
