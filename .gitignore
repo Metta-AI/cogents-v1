@@ -182,3 +182,4 @@ cdk.out.destroy/
 
 # Git worktrees
 .worktrees/
+.claude/worktrees/
