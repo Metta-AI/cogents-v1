@@ -88,6 +88,7 @@ def create_app() -> FastAPI:
         cogos_status,
         cron,
         diagnostics,
+        executors,
         files,
         handlers,
         operations,
@@ -117,6 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(operations.router, prefix="/api/cogents/{name}")
     app.include_router(setup.router, prefix="/api/cogents/{name}")
     app.include_router(diagnostics.router, prefix="/api/cogents/{name}")
+    app.include_router(executors.router, prefix="/api/cogents/{name}")
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):

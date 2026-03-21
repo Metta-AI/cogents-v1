@@ -27,6 +27,19 @@ def dispatch_ready_processes(
         if proc is None or proc.status != ProcessStatus.RUNNABLE:
             continue
 
+        # Route channel-runner processes to channel dispatch
+        if proc.runner == "channel":
+            result = scheduler.dispatch_channel(process_id=str(process_id))
+            if hasattr(result, "error"):
+                logger.warning("Channel dispatch failed for %s: %s", process_id, result.error)
+            else:
+                logger.info(
+                    "Dispatched %s to channel executor %s (run %s)",
+                    proc.name, result.executor_id, result.run_id,
+                )
+                dispatched += 1
+            continue
+
         dispatch_result = scheduler.dispatch_process(process_id=str(process_id))
         if hasattr(dispatch_result, "error"):
             logger.warning("Dispatch failed for %s: %s", process_id, dispatch_result.error)

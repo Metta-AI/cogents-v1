@@ -21,6 +21,9 @@ from cogos.db.models import (
     Cron,
     Delivery,
     DeliveryStatus,
+    Executor,
+    ExecutorStatus,
+    ExecutorToken,
     File,
     FileVersion,
     Handler,
@@ -2320,3 +2323,251 @@ class Repository:
             "DELETE FROM cogos_discord_channel WHERE channel_id = :channel_id",
             [self._param("channel_id", channel_id)],
         )
+
+    # ═══════════════════════════════════════════════════════════
+    # EXECUTORS
+    # ═══════════════════════════════════════════════════════════
+
+    def _row_to_executor(self, row: dict) -> Executor:
+        caps = row.get("capabilities")
+        if isinstance(caps, str):
+            caps = json.loads(caps)
+        meta = row.get("metadata")
+        if isinstance(meta, str):
+            meta = json.loads(meta)
+        run_id = row.get("current_run_id")
+        return Executor(
+            id=UUID(row["id"]),
+            executor_id=row["executor_id"],
+            channel_type=row.get("channel_type", "claude-code"),
+            capabilities=caps or [],
+            metadata=meta or {},
+            status=ExecutorStatus(row.get("status", "idle")),
+            current_run_id=UUID(run_id) if run_id else None,
+            last_heartbeat_at=self._ts(row, "last_heartbeat_at"),
+            registered_at=self._ts(row, "registered_at"),
+        )
+
+    def register_executor(self, executor: Executor) -> UUID:
+        """Register or re-register an executor (upsert by executor_id)."""
+        existing = self._first_row(self._execute(
+            "SELECT id FROM cogos_executor WHERE executor_id = :executor_id",
+            [self._param("executor_id", executor.executor_id)],
+        ))
+        if existing:
+            executor.id = UUID(existing["id"])
+            self._execute(
+                """UPDATE cogos_executor
+                   SET channel_type = :channel_type,
+                       capabilities = :capabilities::jsonb,
+                       metadata = :metadata::jsonb,
+                       status = 'idle',
+                       current_run_id = NULL,
+                       last_heartbeat_at = now(),
+                       registered_at = now()
+                   WHERE id = :id""",
+                [
+                    self._param("id", executor.id),
+                    self._param("channel_type", executor.channel_type),
+                    self._param("capabilities", executor.capabilities),
+                    self._param("metadata", executor.metadata),
+                ],
+            )
+            return executor.id
+
+        self._execute(
+            """INSERT INTO cogos_executor
+               (id, executor_id, channel_type, capabilities, metadata, status, last_heartbeat_at, registered_at)
+               VALUES (:id, :executor_id, :channel_type, :capabilities::jsonb, :metadata::jsonb, 'idle', now(), now())""",
+            [
+                self._param("id", executor.id),
+                self._param("executor_id", executor.executor_id),
+                self._param("channel_type", executor.channel_type),
+                self._param("capabilities", executor.capabilities),
+                self._param("metadata", executor.metadata),
+            ],
+        )
+        return executor.id
+
+    def get_executor(self, executor_id: str) -> Executor | None:
+        row = self._first_row(self._execute(
+            "SELECT * FROM cogos_executor WHERE executor_id = :executor_id",
+            [self._param("executor_id", executor_id)],
+        ))
+        return self._row_to_executor(row) if row else None
+
+    def get_executor_by_id(self, id: UUID) -> Executor | None:
+        row = self._first_row(self._execute(
+            "SELECT * FROM cogos_executor WHERE id = :id",
+            [self._param("id", id)],
+        ))
+        return self._row_to_executor(row) if row else None
+
+    def list_executors(self, status: ExecutorStatus | None = None) -> list[Executor]:
+        if status:
+            response = self._execute(
+                "SELECT * FROM cogos_executor WHERE status = :status ORDER BY registered_at DESC",
+                [self._param("status", status.value)],
+            )
+        else:
+            response = self._execute(
+                "SELECT * FROM cogos_executor ORDER BY registered_at DESC",
+            )
+        return [self._row_to_executor(r) for r in self._rows_to_dicts(response)]
+
+    def select_executor(
+        self,
+        required_caps: list[str] | None = None,
+        preferred_caps: list[str] | None = None,
+    ) -> Executor | None:
+        """Select an idle executor matching required capabilities.
+
+        Prefers executors with more of the *preferred_caps*.
+        """
+        idle = self.list_executors(status=ExecutorStatus.IDLE)
+        if not idle:
+            return None
+
+        candidates = idle
+        if required_caps:
+            req = set(required_caps)
+            candidates = [e for e in candidates if req.issubset(set(e.capabilities))]
+
+        if not candidates:
+            return None
+
+        if preferred_caps:
+            pref = set(preferred_caps)
+            candidates.sort(key=lambda e: len(pref & set(e.capabilities)), reverse=True)
+
+        return candidates[0]
+
+    def heartbeat_executor(
+        self,
+        executor_id: str,
+        status: ExecutorStatus = ExecutorStatus.IDLE,
+        current_run_id: UUID | None = None,
+        resource_usage: dict | None = None,
+    ) -> bool:
+        """Update heartbeat for an executor. Returns True if executor exists."""
+        meta_update = ""
+        params = [
+            self._param("executor_id", executor_id),
+            self._param("status", status.value),
+            self._param("current_run_id", current_run_id),
+        ]
+        if resource_usage:
+            meta_update = ", metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{resource_usage}', :resource_usage::jsonb)"
+            params.append(self._param("resource_usage", resource_usage))
+
+        response = self._execute(
+            f"""UPDATE cogos_executor
+               SET last_heartbeat_at = now(),
+                   status = :status,
+                   current_run_id = :current_run_id
+                   {meta_update}
+               WHERE executor_id = :executor_id""",
+            params,
+        )
+        return response.get("numberOfRecordsUpdated", 0) > 0
+
+    def update_executor_status(
+        self, executor_id: str, status: ExecutorStatus, current_run_id: UUID | None = None,
+    ) -> None:
+        self._execute(
+            """UPDATE cogos_executor
+               SET status = :status, current_run_id = :current_run_id
+               WHERE executor_id = :executor_id""",
+            [
+                self._param("executor_id", executor_id),
+                self._param("status", status.value),
+                self._param("current_run_id", current_run_id),
+            ],
+        )
+
+    def delete_executor(self, executor_id: str) -> None:
+        self._execute(
+            "DELETE FROM cogos_executor WHERE executor_id = :executor_id",
+            [self._param("executor_id", executor_id)],
+        )
+
+    def reap_stale_executors(self, heartbeat_interval_s: int = 30) -> int:
+        """Mark executors as stale/dead based on missed heartbeats.
+
+        Stale: no heartbeat for 3 * interval. Dead: no heartbeat for 10 * interval.
+        """
+        stale_threshold = heartbeat_interval_s * 3
+        dead_threshold = heartbeat_interval_s * 10
+
+        # Mark stale
+        self._execute(
+            """UPDATE cogos_executor SET status = 'stale'
+               WHERE status = 'idle'
+                 AND last_heartbeat_at < now() - make_interval(secs => :threshold)""",
+            [self._param("threshold", stale_threshold)],
+        )
+
+        # Mark dead
+        response = self._execute(
+            """UPDATE cogos_executor SET status = 'dead'
+               WHERE status IN ('idle', 'busy', 'stale')
+                 AND last_heartbeat_at < now() - make_interval(secs => :threshold)""",
+            [self._param("threshold", dead_threshold)],
+        )
+        return response.get("numberOfRecordsUpdated", 0)
+
+    # ═══════════════════════════════════════════════════════════
+    # EXECUTOR TOKENS
+    # ═══════════════════════════════════════════════════════════
+
+    def create_executor_token(self, token: ExecutorToken) -> UUID:
+        self._execute(
+            """INSERT INTO cogos_executor_token (id, name, token_hash, scope)
+               VALUES (:id, :name, :token_hash, :scope)""",
+            [
+                self._param("id", token.id),
+                self._param("name", token.name),
+                self._param("token_hash", token.token_hash),
+                self._param("scope", token.scope),
+            ],
+        )
+        return token.id
+
+    def get_executor_token_by_hash(self, token_hash: str) -> ExecutorToken | None:
+        row = self._first_row(self._execute(
+            "SELECT * FROM cogos_executor_token WHERE token_hash = :hash AND revoked_at IS NULL",
+            [self._param("hash", token_hash)],
+        ))
+        if not row:
+            return None
+        return ExecutorToken(
+            id=UUID(row["id"]),
+            name=row["name"],
+            token_hash=row["token_hash"],
+            scope=row.get("scope", "executor"),
+            created_at=self._ts(row, "created_at"),
+            revoked_at=self._ts(row, "revoked_at"),
+        )
+
+    def list_executor_tokens(self) -> list[ExecutorToken]:
+        response = self._execute(
+            "SELECT * FROM cogos_executor_token ORDER BY created_at DESC",
+        )
+        return [
+            ExecutorToken(
+                id=UUID(r["id"]),
+                name=r["name"],
+                token_hash=r["token_hash"],
+                scope=r.get("scope", "executor"),
+                created_at=self._ts(r, "created_at"),
+                revoked_at=self._ts(r, "revoked_at"),
+            )
+            for r in self._rows_to_dicts(response)
+        ]
+
+    def revoke_executor_token(self, name: str) -> bool:
+        response = self._execute(
+            "UPDATE cogos_executor_token SET revoked_at = now() WHERE name = :name AND revoked_at IS NULL",
+            [self._param("name", name)],
+        )
+        return response.get("numberOfRecordsUpdated", 0) > 0

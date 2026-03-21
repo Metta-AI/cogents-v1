@@ -8,6 +8,7 @@ from cogos.db.models.capability import Capability
 from cogos.db.models.conversation import Conversation, ConversationStatus
 from cogos.db.models.cron import Cron
 from cogos.db.models.delivery import Delivery, DeliveryStatus
+from cogos.db.models.executor import Executor, ExecutorStatus, ExecutorToken
 from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
 from cogos.db.models.file import File, FileVersion
 from cogos.db.models.handler import Handler
@@ -36,6 +37,9 @@ __all__ = [
     "Cron",
     "Delivery",
     "DeliveryStatus",
+    "Executor",
+    "ExecutorStatus",
+    "ExecutorToken",
     "DiscordChannel",
     "DiscordGuild",
     "File",
