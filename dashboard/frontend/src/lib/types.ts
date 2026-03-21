@@ -410,6 +410,18 @@ export interface ProcessLogsResponse {
 export type TimeRange = "1m" | "10m" | "1h" | "24h" | "1w";
 export type Timezone = "local" | "utc" | "pst";
 
+export interface CogosExecutor {
+  id: string;
+  executor_id: string;
+  channel_type: string;
+  capabilities: string[];
+  metadata: Record<string, unknown>;
+  status: string;
+  current_run_id: string | null;
+  last_heartbeat_at: string | null;
+  registered_at: string | null;
+}
+
 export interface DashboardData {
   status: StatusResponse | null;
   cogosStatus: CogosStatus | null;
@@ -429,6 +441,7 @@ export interface DashboardData {
   handlers: CogosHandler[];
   runs: CogosRun[];
   eventTypes: EventType[];
+  executors: CogosExecutor[];
 }
 
 export type SetupStatus = "ready" | "needs_action" | "manual" | "unknown";

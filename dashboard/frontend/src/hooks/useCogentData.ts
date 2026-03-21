@@ -31,6 +31,7 @@ export function useCogentData(cogentName: string) {
     handlers: [],
     runs: [],
     eventTypes: [],
+    executors: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,9 +55,10 @@ export function useCogentData(cogentName: string) {
       api.getCrons(cogentName),
       api.getResources(cogentName),
       api.getAlerts(cogentName),
+      api.getExecutors(cogentName),
     ]);
-    // Only count core endpoints (exclude optional ones like resources, alerts)
-    const coreResults = results.slice(0, -2);
+    // Only count core endpoints (exclude optional ones like resources, alerts, executors)
+    const coreResults = results.slice(0, -3);
     const failCount = coreResults.filter((r) => r.status === "rejected").length;
     if (failCount === coreResults.length) {
       setError("All API requests failed — is the backend running?");
@@ -78,6 +80,7 @@ export function useCogentData(cogentName: string) {
       eventTypes: [],
       resources: results[8].status === "fulfilled" ? results[8].value : [],
       alerts: results[9].status === "fulfilled" ? results[9].value : [],
+      executors: results[10].status === "fulfilled" ? results[10].value : [],
     }));
     setLoading(false);
   }, [cogentName, timeRange, showHistory]);
