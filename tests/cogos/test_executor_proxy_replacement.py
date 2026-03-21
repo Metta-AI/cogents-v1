@@ -1,5 +1,6 @@
 """Tests that _setup_capability_proxies uses real capability classes, not inline proxies."""
 
+import pytest
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -7,6 +8,7 @@ from cogos.capabilities.files import FilesCapability
 from cogos.capabilities.me import MeCapability
 from cogos.capabilities.procs import ProcsCapability
 from cogos.db.models import Process, ProcessMode, ProcessStatus
+import cogos.executor.handler as executor_handler
 from cogos.executor.handler import _setup_capability_proxies
 from cogos.io.discord.capability import DiscordCapability
 from cogos.sandbox.executor import VariableTable
@@ -67,6 +69,12 @@ class TestNoAmbientCapabilities:
 
 
 class TestBoundCapabilities:
+    @pytest.fixture(autouse=True)
+    def _mock_runtime(self, monkeypatch):
+        fake = MagicMock()
+        fake.get_secrets_provider.return_value = MagicMock()
+        monkeypatch.setattr(executor_handler, "_get_runtime", lambda: fake)
+
     def test_files_from_binding(self):
         cap = _make_cap_model("files", "cogos.capabilities.files.FilesCapability")
         pc = _make_pc(cap)

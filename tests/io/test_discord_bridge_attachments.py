@@ -18,6 +18,7 @@ def _make_bridge_with_s3():
     bridge._repo = None
     bridge._s3_client = MagicMock()
     bridge._blob_bucket = "test-bucket"
+    bridge._blob_prefix = ""
     bridge.client = MagicMock()
     bridge.client.user = MagicMock()
     bridge.client.user.id = 999

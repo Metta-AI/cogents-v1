@@ -39,6 +39,10 @@ def test_repo_files_written_under_mnt_repo(tmp_path):
         ["git", "-C", str(tmp_path), "config", "user.name", "Test"],
         check=True, capture_output=True,
     )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "commit.gpgsign", "false"],
+        check=True, capture_output=True,
+    )
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "main.py").write_text("print('hello')")
     (tmp_path / "README.md").write_text("# Hello")

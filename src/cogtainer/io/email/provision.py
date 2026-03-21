@@ -8,8 +8,12 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import TYPE_CHECKING
 
 import requests
+
+if TYPE_CHECKING:
+    from cogtainer.runtime.base import CogtainerRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +100,8 @@ def verify_ses_email(
     cogent_name: str,
     domain: str = _DEFAULT_DOMAIN,
     region: str = "us-east-1",
-    runtime=None,
+    *,
+    runtime: CogtainerRuntime,
 ) -> dict:
     """Verify a cogent's email identity in SES.
 
@@ -118,7 +123,8 @@ def provision_email(
     cogent_name: str,
     domain: str = _DEFAULT_DOMAIN,
     region: str = "us-east-1",
-    runtime=None,
+    *,
+    runtime: CogtainerRuntime,
 ) -> dict:
     """Full provisioning: CF routing rule + KV entry + SES check."""
     ingest_url = f"https://{cogent_name}.{domain}/api/ingest/email"
