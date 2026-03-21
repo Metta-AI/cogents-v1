@@ -11,7 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from cogos.capabilities.base import Capability
-from cogos.db.models import Delivery, ProcessStatus, Run, RunStatus
+from cogos.db.models import Delivery, ExecutorStatus, ProcessStatus, Run, RunStatus
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,14 @@ class KillResult(BaseModel):
     name: str
     previous_status: str
     new_status: str
+
+
+class ChannelDispatchResult(BaseModel):
+    run_id: str
+    process_id: str
+    process_name: str
+    executor_id: str
+    runner: str = "channel"
 
 
 class SchedulerError(BaseModel):
@@ -266,6 +274,71 @@ class SchedulerCapability(Capability):
             new_status=ProcessStatus.DISABLED.value,
         )
 
+    def dispatch_channel(self, process_id: str) -> ChannelDispatchResult | SchedulerError:
+        """Dispatch a process to a channel executor.
+
+        Finds an idle executor matching the process's runner_config capabilities
+        (if any), marks it busy, and returns the executor assignment.
+        The caller is responsible for actually pushing work to the executor's channel.
+        """
+        if not process_id:
+            return SchedulerError(error="process_id is required")
+
+        target_id = UUID(process_id)
+        proc = self.repo.get_process(target_id)
+        if proc is None:
+            return SchedulerError(error="process not found")
+
+        if proc.runner != "channel":
+            return SchedulerError(error=f"process runner is '{proc.runner}', expected 'channel'")
+
+        if proc.status != ProcessStatus.RUNNABLE:
+            return SchedulerError(error=f"process is {proc.status.value}, expected runnable")
+
+        # Extract executor filter from process metadata
+        runner_config = proc.metadata.get("runner_config", {})
+        executor_filter = runner_config.get("executor_filter", {})
+        required_caps = executor_filter.get("capabilities", [])
+        preferred_caps = executor_filter.get("prefer", [])
+
+        executor = self.repo.select_executor(
+            required_caps=required_caps or None,
+            preferred_caps=preferred_caps or None,
+        )
+        if not executor:
+            self.repo.update_process_status(target_id, ProcessStatus.BLOCKED)
+            return SchedulerError(error="no available executor matching requirements")
+
+        # Standard dispatch: create run, mark process running
+        self.repo.update_process_status(target_id, ProcessStatus.RUNNING)
+
+        deliveries = self.repo.get_pending_deliveries(target_id)
+        message_id = deliveries[0].message if deliveries else None
+        delivery_id = deliveries[0].id if deliveries else None
+        trace_id = deliveries[0].trace_id if deliveries else None
+
+        run = Run(process=target_id, message=message_id, trace_id=trace_id)
+        run_id = self.repo.create_run(run)
+
+        if delivery_id:
+            self.repo.mark_queued(delivery_id, run_id)
+
+        # Mark executor busy with this run
+        self.repo.update_executor_status(
+            executor.executor_id, ExecutorStatus.BUSY, current_run_id=run_id,
+        )
+
+        return ChannelDispatchResult(
+            run_id=str(run_id),
+            process_id=str(target_id),
+            process_name=proc.name,
+            executor_id=executor.executor_id,
+        )
+
+    def reap_stale_executors(self, heartbeat_interval_s: int = 30) -> int:
+        """Mark executors as stale/dead based on missed heartbeats."""
+        return self.repo.reap_stale_executors(heartbeat_interval_s)
+
     def reap_idle_processes(self) -> ReapResult:
         """No-op — idle reaping removed. Daemons stay alive until explicitly killed."""
         return ReapResult(reaped_count=0, reaped=[])
@@ -304,5 +377,5 @@ class SchedulerCapability(Capability):
     def __repr__(self) -> str:
         return (
             "<SchedulerCapability match_messages() select_processes()"
-            " dispatch_process() unblock_processes() kill_process()>"
+            " dispatch_process() dispatch_channel() unblock_processes() kill_process()>"
         )

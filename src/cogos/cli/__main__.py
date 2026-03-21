@@ -420,7 +420,7 @@ def process_get(name: str, use_json: bool):
 @click.argument("name")
 @click.option("--mode", type=click.Choice(["daemon", "one_shot"]), default="one_shot")
 @click.option("--content", default="")
-@click.option("--runner", type=click.Choice(["lambda", "ecs"]), default="lambda")
+@click.option("--runner", type=click.Choice(["lambda", "ecs", "channel"]), default="lambda")
 @click.option("--executor", type=click.Choice(["llm", "python"]), default="llm")
 @click.option("--model", default=None)
 @click.option("--priority", type=float, default=0.0)
@@ -1514,6 +1514,140 @@ def shell_cmd(ctx: click.Context):
         raise click.UsageError("No cogent specified. Set COGENT_ID env var or default_cogent in ~/.cogos/config.yml")
     runtime = ctx.obj.get("runtime")
     CogentShell(cogent_name, runtime=runtime).run()
+
+
+# ═══════════════════════════════════════════════════════════
+# EXECUTOR commands
+# ═══════════════════════════════════════════════════════════
+
+@cogos.group()
+def executor():
+    """Manage channel executors."""
+
+
+@executor.command("list")
+@click.option("--status", default=None, type=click.Choice(["idle", "busy", "stale", "dead"]))
+@click.option("--json", "use_json", is_flag=True)
+def executor_list(status: str | None, use_json: bool):
+    """List registered executors."""
+    from cogos.db.models import ExecutorStatus
+    repo = _repo()
+    filter_status = ExecutorStatus(status) if status else None
+    executors = repo.list_executors(status=filter_status)
+    if not executors:
+        click.echo("(no executors)")
+        return
+    data = [
+        {
+            "executor_id": e.executor_id,
+            "status": e.status.value,
+            "channel_type": e.channel_type,
+            "capabilities": e.capabilities,
+            "current_run": str(e.current_run_id)[:8] if e.current_run_id else "-",
+            "last_heartbeat": str(e.last_heartbeat_at) if e.last_heartbeat_at else "-",
+        }
+        for e in executors
+    ]
+    _output(data, use_json=use_json)
+
+
+@executor.command("status")
+@click.argument("executor_id")
+@click.option("--json", "use_json", is_flag=True)
+def executor_status(executor_id: str, use_json: bool):
+    """Show detailed status for an executor."""
+    repo = _repo()
+    e = repo.get_executor(executor_id)
+    if not e:
+        click.echo(f"Executor not found: {executor_id}")
+        return
+    _output(e.model_dump(mode="json"), use_json=use_json)
+
+
+@executor.command("drain")
+@click.argument("executor_id")
+def executor_drain(executor_id: str):
+    """Stop dispatching to an executor (drain)."""
+    from cogos.db.models import ExecutorStatus
+    repo = _repo()
+    e = repo.get_executor(executor_id)
+    if not e:
+        click.echo(f"Executor not found: {executor_id}")
+        return
+    repo.update_executor_status(executor_id, ExecutorStatus.STALE)
+    click.echo(f"Executor {executor_id} marked as stale (draining)")
+
+
+@executor.command("remove")
+@click.argument("executor_id")
+def executor_remove(executor_id: str):
+    """Remove an executor from the registry."""
+    repo = _repo()
+    e = repo.get_executor(executor_id)
+    if not e:
+        click.echo(f"Executor not found: {executor_id}")
+        return
+    repo.delete_executor(executor_id)
+    click.echo(f"Executor {executor_id} removed")
+
+
+@executor.group("token")
+def executor_token():
+    """Manage executor tokens."""
+
+
+@executor_token.command("create")
+@click.option("--name", required=True, help="Token name")
+@click.option("--scope", default="executor", help="Token scope")
+def executor_token_create(name: str, scope: str):
+    """Create a new executor token."""
+    import hashlib
+    import secrets
+
+    from cogos.db.models import ExecutorToken
+
+    repo = _repo()
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+    token = ExecutorToken(name=name, token_hash=token_hash, scope=scope)
+    repo.create_executor_token(token)
+
+    click.echo(f"Token created: {name}")
+    click.echo(f"Bearer token (save this — shown only once):")
+    click.echo(f"  {raw_token}")
+
+
+@executor_token.command("list")
+@click.option("--json", "use_json", is_flag=True)
+def executor_token_list(use_json: bool):
+    """List executor tokens."""
+    repo = _repo()
+    tokens = repo.list_executor_tokens()
+    if not tokens:
+        click.echo("(no tokens)")
+        return
+    data = [
+        {
+            "name": t.name,
+            "scope": t.scope,
+            "created_at": str(t.created_at),
+            "revoked": "yes" if t.revoked_at else "no",
+        }
+        for t in tokens
+    ]
+    _output(data, use_json=use_json)
+
+
+@executor_token.command("revoke")
+@click.option("--name", required=True, help="Token name to revoke")
+def executor_token_revoke(name: str):
+    """Revoke an executor token."""
+    repo = _repo()
+    if repo.revoke_executor_token(name):
+        click.echo(f"Token revoked: {name}")
+    else:
+        click.echo(f"Token not found or already revoked: {name}")
 
 
 def entry():

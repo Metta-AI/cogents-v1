@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS programs (
     memory_version INT,
     tools         JSONB NOT NULL DEFAULT '[]',
     metadata      JSONB NOT NULL DEFAULT '{}',
-    runner          TEXT CHECK (runner IN ('lambda', 'ecs')) DEFAULT NULL,
+    runner          TEXT CHECK (runner IN ('lambda', 'ecs', 'channel')) DEFAULT NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     status          TEXT NOT NULL DEFAULT 'runnable'
                     CHECK (status IN ('runnable', 'scheduled', 'running', 'completed', 'disabled')),
     priority        DOUBLE PRECISION NOT NULL DEFAULT 0.0,
-    runner          TEXT CHECK (runner IN ('lambda', 'ecs')) DEFAULT NULL,
+    runner          TEXT CHECK (runner IN ('lambda', 'ecs', 'channel')) DEFAULT NULL,
     clear_context   BOOLEAN NOT NULL DEFAULT false,
     recurrent       BOOLEAN NOT NULL DEFAULT false,
     resources       JSONB NOT NULL DEFAULT '[]',
