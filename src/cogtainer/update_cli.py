@@ -517,7 +517,10 @@ def _dashboard_frontend_dir(project_root: str | None = None) -> str:
 
 
 def _sessions_bucket_name(safe_name: str) -> str:
-    """Return the deterministic sessions bucket name for a cogent."""
+    """Return the shared cogtainer sessions bucket name."""
+    cogtainer = CogtainerConfig().name
+    if cogtainer:
+        return f"cogtainer-{cogtainer}-sessions"
     return f"cogent-{safe_name}-cogtainer-sessions"
 
 
@@ -628,12 +631,24 @@ def _wait_for_bucket(
 
 
 def _get_sessions_bucket(session, safe_name: str) -> str:
-    """Look up the sessions S3 bucket for a cogent from its CloudFormation stack."""
+    """Look up the shared sessions bucket from the cogtainer CloudFormation stack."""
     cf = session.client("cloudformation", region_name=DEFAULT_REGION)
+    cogtainer = CogtainerConfig().name
+    if cogtainer:
+        stack_name = f"cogtainer-{cogtainer}"
+        try:
+            resp = cf.describe_stacks(StackName=stack_name)
+            outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
+            bucket = outputs.get("SessionsBucketName")
+            if bucket:
+                return bucket
+        except Exception:
+            pass
+    # Fallback: try per-cogent stack (legacy)
     stack_name = f"cogent-{safe_name}-cogtainer"
     resp = cf.describe_stacks(StackName=stack_name)
     outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
-    bucket = outputs.get("SessionsBucket")
+    bucket = outputs.get("SessionsBucket") or outputs.get("SessionsBucketName")
     if not bucket:
         raise click.ClickException(f"SessionsBucket not found in stack {stack_name} outputs")
     return bucket

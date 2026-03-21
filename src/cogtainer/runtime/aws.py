@@ -114,13 +114,19 @@ class AwsRuntime(CogtainerRuntime):
 
     # ── File storage ─────────────────────────────────────────
 
+    def _prefixed_key(self, cogent_name: str, key: str) -> str:
+        """Prefix a key with the cogent's safe name for the shared bucket."""
+        from cogtainer.naming import safe
+        return f"{safe(cogent_name)}/{key}"
+
     def put_file(self, cogent_name: str, key: str, data: bytes) -> str:
         from cogtainer.naming import bucket_name
 
         s3 = self._session.client("s3", region_name=self._region)
+        prefixed = self._prefixed_key(cogent_name, key)
         s3.put_object(
             Bucket=bucket_name(cogent_name),
-            Key=key,
+            Key=prefixed,
             Body=data,
         )
         return key
@@ -129,9 +135,10 @@ class AwsRuntime(CogtainerRuntime):
         from cogtainer.naming import bucket_name
 
         s3 = self._session.client("s3", region_name=self._region)
+        prefixed = self._prefixed_key(cogent_name, key)
         resp = s3.get_object(
             Bucket=bucket_name(cogent_name),
-            Key=key,
+            Key=prefixed,
         )
         return resp["Body"].read()
 
@@ -221,8 +228,100 @@ class AwsRuntime(CogtainerRuntime):
         )
         logger.info("Schema applied to %s", db_name)
 
-        # 4. Deploy per-cogent CDK stack
+        # 4. Ensure dashboard frontend assets exist in the shared sessions bucket
+        self._ensure_frontend_assets()
+
+        # 5. Deploy per-cogent CDK stack
         self._deploy_cogent_stack(name)
+
+        # 6. Ensure Cloudflare DNS record points to the ALB
+        self._ensure_dns_record(name)
+
+    def _ensure_frontend_assets(self) -> None:
+        """Ensure dashboard/frontend.tar.gz exists in the shared sessions bucket.
+
+        Copies from another cogent's legacy bucket or the CI artifacts bucket
+        if the shared bucket doesn't have it yet.
+        """
+        bucket = f"cogtainer-{self._cogtainer_name}-sessions"
+        s3_key = "dashboard/frontend.tar.gz"
+        s3 = self._session.client("s3", region_name=self._region)
+
+        # Check if already present
+        try:
+            s3.head_object(Bucket=bucket, Key=s3_key)
+            logger.info("Frontend assets already present in %s/%s", bucket, s3_key)
+            return
+        except Exception:
+            pass
+
+        # Try to copy from CI artifacts bucket
+        try:
+            ci_bucket = "cogtainer-ci-artifacts"
+            # Find the latest dashboard artifact
+            resp = s3.list_objects_v2(Bucket=ci_bucket, Prefix="dashboard/", MaxKeys=100)
+            # Look for dashboard/{sha}/frontend.tar.gz — pick the most recent
+            artifacts = [
+                obj for obj in resp.get("Contents", [])
+                if obj["Key"].endswith("/frontend.tar.gz")
+            ]
+            if artifacts:
+                latest = max(artifacts, key=lambda o: o["LastModified"])
+                logger.info("Copying frontend assets from CI: %s", latest["Key"])
+                s3.copy_object(
+                    CopySource={"Bucket": ci_bucket, "Key": latest["Key"]},
+                    Bucket=bucket,
+                    Key=s3_key,
+                )
+                return
+        except Exception:
+            logger.debug("Could not copy from CI artifacts", exc_info=True)
+
+        # Try to copy from any existing cogent's legacy per-cogent bucket
+        try:
+            resp = s3.list_buckets()
+            for b in resp.get("Buckets", []):
+                bn = b["Name"]
+                if bn.startswith("cogtainer-") and bn.endswith("-sessions") and bn != bucket:
+                    try:
+                        s3.head_object(Bucket=bn, Key=s3_key)
+                        logger.info("Copying frontend assets from %s", bn)
+                        s3.copy_object(
+                            CopySource={"Bucket": bn, "Key": s3_key},
+                            Bucket=bucket,
+                            Key=s3_key,
+                        )
+                        return
+                    except Exception:
+                        continue
+        except Exception:
+            logger.debug("Could not copy from existing buckets", exc_info=True)
+
+        logger.warning(
+            "No frontend assets found to seed %s/%s — "
+            "run 'cogtainer update dashboard' after deploy",
+            bucket, s3_key,
+        )
+
+    def _ensure_dns_record(self, cogent_name: str) -> None:
+        """Create a Cloudflare DNS CNAME for the cogent's dashboard subdomain."""
+        try:
+            from cogtainer.cloudflare import ensure_dns_record
+            from cogtainer.secret_store import SecretStore
+
+            store = SecretStore(session=self._session, region=self._region)
+            outputs = self._get_stack_outputs()
+            alb_dns = outputs.get("AlbDns", "")
+            domain = outputs.get("Domain", "")
+            if not alb_dns or not domain:
+                logger.warning("Cannot create DNS: missing AlbDns or Domain in stack outputs")
+                return
+
+            safe = self._safe(cogent_name)
+            ensure_dns_record(store, safe, alb_dns, domain)
+            logger.info("DNS record created: %s.%s -> %s", safe, domain, alb_dns)
+        except Exception:
+            logger.warning("Could not create DNS record for %s (create manually)", cogent_name, exc_info=True)
 
     def get_secrets_provider(self):
         return self._secrets
@@ -276,9 +375,10 @@ class AwsRuntime(CogtainerRuntime):
     def get_file_url(self, cogent_name: str, key: str, expires_in: int = 604800) -> str:
         from cogtainer.naming import bucket_name
         s3 = self._session.client("s3", region_name=self._region)
+        prefixed = self._prefixed_key(cogent_name, key)
         return s3.generate_presigned_url(
             "get_object",
-            Params={"Bucket": bucket_name(cogent_name), "Key": key},
+            Params={"Bucket": bucket_name(cogent_name), "Key": prefixed},
             ExpiresIn=expires_in,
         )
 

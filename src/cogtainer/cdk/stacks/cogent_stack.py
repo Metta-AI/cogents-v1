@@ -53,6 +53,7 @@ class CogentStack(Stack):
         alb_security_group_id: str = "",
         certificate_arn: str = "",
         ecr_repo_uri: str = "",
+        sessions_bucket_name: str = "",
         **kwargs: Any,
     ) -> None:
         super().__init__(scope, id, **kwargs)
@@ -182,17 +183,29 @@ class CogentStack(Stack):
         )
 
         # -----------------------------------------------------------------
-        # 2. S3 Sessions Bucket
+        # 2. Shared Sessions Bucket (cogtainer-level, scoped by prefix)
         # -----------------------------------------------------------------
-        bucket_name = f"cogtainer-{cogtainer_name}-{safe_name}-sessions"
-        self.sessions_bucket = s3.Bucket(
-            self,
-            "SessionsBucket",
-            bucket_name=bucket_name,
-            removal_policy=RemovalPolicy.RETAIN,
-            auto_delete_objects=False,
+        bucket_name = sessions_bucket_name or f"cogtainer-{cogtainer_name}-sessions"
+        self.sessions_bucket = s3.Bucket.from_bucket_name(
+            self, "SessionsBucket", bucket_name,
         )
-        self.sessions_bucket.grant_read_write(self.cogent_role)
+        # Grant access only to this cogent's prefix + shared dashboard/ prefix
+        self.cogent_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                resources=[
+                    f"arn:aws:s3:::{bucket_name}/{safe_name}/*",
+                    f"arn:aws:s3:::{bucket_name}/dashboard/*",
+                ],
+            )
+        )
+        self.cogent_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:ListBucket"],
+                resources=[f"arn:aws:s3:::{bucket_name}"],
+                conditions={"StringLike": {"s3:prefix": [f"{safe_name}/*", "dashboard/*"]}},
+            )
+        )
 
         # -----------------------------------------------------------------
         # 3. SQS FIFO Ingress Queue
@@ -241,6 +254,7 @@ class CogentStack(Stack):
             "DB_NAME": db_name,
             "EVENT_BUS_NAME": event_bus_name,
             "SESSIONS_BUCKET": bucket_name,
+            "SESSIONS_PREFIX": safe_name,
         }
 
         # Create Lambda functions
@@ -471,6 +485,7 @@ class CogentStack(Stack):
             "DB_NAME": db_name,
             "EVENT_BUS_NAME": event_bus_name,
             "SESSIONS_BUCKET": bucket_name,
+            "SESSIONS_PREFIX": safe_name,
             "DASHBOARD_ASSETS_S3": f"s3://{bucket_name}/dashboard/frontend.tar.gz",
             "DASHBOARD_DOCKER_VERSION": docker_version,
             "EXECUTOR_FUNCTION_NAME": _lambda_name(
@@ -547,8 +562,23 @@ class CogentStack(Stack):
             )
         )
 
-        # S3
-        self.sessions_bucket.grant_read_write(task_role)
+        # S3 — scoped to this cogent's prefix + shared dashboard/ prefix
+        task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                resources=[
+                    f"arn:aws:s3:::{bucket_name}/{safe_name}/*",
+                    f"arn:aws:s3:::{bucket_name}/dashboard/*",
+                ],
+            )
+        )
+        task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:ListBucket"],
+                resources=[f"arn:aws:s3:::{bucket_name}"],
+                conditions={"StringLike": {"s3:prefix": [f"{safe_name}/*", "dashboard/*"]}},
+            )
+        )
 
         # Security group — allow traffic from ALB (app + health check ports)
         sg = ec2.SecurityGroup(self, "DashSg", vpc=vpc)
@@ -652,6 +682,7 @@ class CogentStack(Stack):
             "DB_NAME": db_name,
             "EVENT_BUS_NAME": event_bus_name,
             "SESSIONS_BUCKET": bucket_name,
+            "SESSIONS_PREFIX": safe_name,
             "EXECUTOR_FUNCTION_NAME": _lambda_name(cogtainer_name, safe_name, "executor"),
             "DISCORD_REPLY_QUEUE_URL": replies_queue.queue_url,
         }
@@ -725,11 +756,21 @@ class CogentStack(Stack):
         replies_queue.grant_consume_messages(bridge_role)
         replies_queue.grant_send_messages(self.cogent_role)
 
-        # S3
+        # S3 — scoped to this cogent's prefix + shared dashboard/ prefix
         bridge_role.add_to_policy(
             iam.PolicyStatement(
-                actions=["s3:GetObject", "s3:PutObject"],
-                resources=[f"arn:aws:s3:::{bucket_name}/*"],
+                actions=["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+                resources=[
+                    f"arn:aws:s3:::{bucket_name}/{safe_name}/*",
+                    f"arn:aws:s3:::{bucket_name}/dashboard/*",
+                ],
+            )
+        )
+        bridge_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["s3:ListBucket"],
+                resources=[f"arn:aws:s3:::{bucket_name}"],
+                conditions={"StringLike": {"s3:prefix": [f"{safe_name}/*", "dashboard/*"]}},
             )
         )
 

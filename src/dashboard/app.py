@@ -194,12 +194,16 @@ def create_app() -> FastAPI:
         import boto3
 
         repo = __import__("dashboard.db", fromlist=["get_repo"]).get_repo()
-        from cogos import get_sessions_bucket
+        from cogos import get_sessions_bucket, get_sessions_prefix
         bucket = get_sessions_bucket()
         if not bucket:
             return JSONResponse(status_code=503, content={"detail": "blob storage not configured"})
         # path may already start with "blobs/" (from ref.key) or be bare
         key = path if path.startswith("blobs/") else f"blobs/{path}"
+        # Prefix with cogent name for shared bucket isolation
+        pfx = get_sessions_prefix()
+        if pfx:
+            key = f"{pfx}/{key}"
         try:
             s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "us-east-1"))
             obj = s3.get_object(Bucket=bucket, Key=key)

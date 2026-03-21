@@ -30,6 +30,15 @@ def lambda_name(safe_name: str, fn_type: str) -> str:
 
 
 def bucket_name(cogent_name: str) -> str:
+    """Return the shared cogtainer sessions bucket name.
+
+    Uses COGTAINER_NAME env var if available, otherwise falls back to legacy
+    per-cogent naming for backward compatibility.
+    """
+    import os
+    cogtainer = os.environ.get("COGTAINER_NAME", "")
+    if cogtainer:
+        return f"cogtainer-{cogtainer}-sessions"
     return f"{RESOURCE_PREFIX}-{safe(cogent_name)}-cogtainer-sessions"
 
 

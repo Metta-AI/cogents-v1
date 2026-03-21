@@ -32,18 +32,26 @@ def _load_cf_config(store: SecretStore) -> dict:
     return store.get(SECRET_PATH)
 
 
-def _headers(api_token: str) -> dict[str, str]:
+def _headers(cf: dict) -> dict[str, str]:
+    """Build Cloudflare API headers, supporting both api_token and api_key/email."""
+    if "api_token" in cf:
+        return {
+            "Authorization": f"Bearer {cf['api_token']}",
+            "Content-Type": "application/json",
+        }
+    # Legacy: Global API Key + email
     return {
-        "Authorization": f"Bearer {api_token}",
+        "X-Auth-Email": cf["email"],
+        "X-Auth-Key": cf["api_key"],
         "Content-Type": "application/json",
     }
 
 
-def _find_access_app(account_id: str, api_token: str) -> dict | None:
+def _find_access_app(account_id: str, cf: dict) -> dict | None:
     """Find existing Access Application by name."""
     resp = requests.get(
         f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps",
-        headers=_headers(api_token),
+        headers=_headers(cf),
     )
     resp.raise_for_status()
     for app in resp.json().get("result", []):
@@ -52,11 +60,11 @@ def _find_access_app(account_id: str, api_token: str) -> dict | None:
     return None
 
 
-def _list_access_policies(account_id: str, app_id: str, api_token: str) -> list[dict]:
+def _list_access_policies(account_id: str, app_id: str, cf: dict) -> list[dict]:
     """List policies for an Access Application."""
     resp = requests.get(
         f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app_id}/policies",
-        headers=_headers(api_token),
+        headers=_headers(cf),
     )
     resp.raise_for_status()
     return resp.json().get("result", [])
@@ -66,9 +74,9 @@ def ensure_access(store: SecretStore, domain: str) -> dict:
     """Create or update the Cloudflare Access Application for cogent dashboards."""
     cf = _load_cf_config(store)
     account_id = cf["account_id"]
-    api_token = cf["api_token"]
 
-    app = _find_access_app(account_id, api_token)
+
+    app = _find_access_app(account_id, cf)
 
     app_body = {
         "name": ACCESS_APP_NAME,
@@ -81,7 +89,7 @@ def ensure_access(store: SecretStore, domain: str) -> dict:
     if app:
         resp = requests.put(
             f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app['id']}",
-            headers=_headers(api_token),
+            headers=_headers(cf),
             json=app_body,
         )
         resp.raise_for_status()
@@ -90,26 +98,26 @@ def ensure_access(store: SecretStore, domain: str) -> dict:
     else:
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps",
-            headers=_headers(api_token),
+            headers=_headers(cf),
             json=app_body,
         )
         resp.raise_for_status()
         app = resp.json()["result"]
         logger.info("Created Access Application: %s", app["id"])
 
-    _ensure_policies(account_id, app["id"], api_token)
+    _ensure_policies(account_id, app["id"], cf)
     return app
 
 
-def _ensure_policies(account_id: str, app_id: str, api_token: str) -> None:
+def _ensure_policies(account_id: str, app_id: str, cf: dict) -> None:
     """Ensure the three required policies exist on the Access Application."""
-    existing = _list_access_policies(account_id, app_id, api_token)
+    existing = _list_access_policies(account_id, app_id, cf)
     existing_names = {p["name"] for p in existing}
 
     if _EMAIL_POLICY_NAME not in existing_names:
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app_id}/policies",
-            headers=_headers(api_token),
+            headers=_headers(cf),
             json={
                 "name": _EMAIL_POLICY_NAME,
                 "decision": "allow",
@@ -123,7 +131,7 @@ def _ensure_policies(account_id: str, app_id: str, api_token: str) -> None:
     if "allow-service-tokens" not in existing_names:
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app_id}/policies",
-            headers=_headers(api_token),
+            headers=_headers(cf),
             json={
                 "name": "allow-service-tokens",
                 "decision": "non_identity",
@@ -137,7 +145,7 @@ def _ensure_policies(account_id: str, app_id: str, api_token: str) -> None:
     if "bypass-all" not in existing_names:
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app_id}/policies",
-            headers=_headers(api_token),
+            headers=_headers(cf),
             json={
                 "name": "bypass-all",
                 "decision": "bypass",
@@ -158,12 +166,12 @@ def ensure_dns_record(
     """Create or update a proxied CNAME record for a cogent subdomain."""
     cf = _load_cf_config(store)
     zone_id = cf["zone_id"]
-    api_token = cf["api_token"]
+
     fqdn = f"{subdomain}.{domain}"
 
     resp = requests.get(
         f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
-        headers=_headers(api_token),
+        headers=_headers(cf),
         params={"name": fqdn, "type": "CNAME"},
     )
     resp.raise_for_status()
@@ -180,7 +188,7 @@ def ensure_dns_record(
         record_id = existing[0]["id"]
         resp = requests.put(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records/{record_id}",
-            headers=_headers(api_token),
+            headers=_headers(cf),
             json=body,
         )
         resp.raise_for_status()
@@ -188,7 +196,7 @@ def ensure_dns_record(
     else:
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
-            headers=_headers(api_token),
+            headers=_headers(cf),
             json=body,
         )
         resp.raise_for_status()
@@ -205,12 +213,12 @@ def delete_dns_record(
     """Delete a Cloudflare DNS record for a cogent subdomain."""
     cf = _load_cf_config(store)
     zone_id = cf["zone_id"]
-    api_token = cf["api_token"]
+
     fqdn = f"{subdomain}.{domain}"
 
     resp = requests.get(
         f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
-        headers=_headers(api_token),
+        headers=_headers(cf),
         params={"name": fqdn},
     )
     resp.raise_for_status()
@@ -222,7 +230,7 @@ def delete_dns_record(
     for record in records:
         requests.delete(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records/{record['id']}",
-            headers=_headers(api_token),
+            headers=_headers(cf),
         ).raise_for_status()
         logger.info("Deleted DNS record: %s (%s)", fqdn, record["type"])
 
@@ -239,12 +247,12 @@ def ensure_dns_record_unproxied(
     """Create or update an unproxied DNS record (e.g. for ACM validation)."""
     cf = _load_cf_config(store)
     zone_id = cf["zone_id"]
-    api_token = cf["api_token"]
+
     fqdn = f"{name}.{domain}" if not name.endswith(domain) else name
 
     resp = requests.get(
         f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
-        headers=_headers(api_token),
+        headers=_headers(cf),
         params={"name": fqdn, "type": record_type},
     )
     resp.raise_for_status()
@@ -261,7 +269,7 @@ def ensure_dns_record_unproxied(
         record_id = existing[0]["id"]
         resp = requests.put(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records/{record_id}",
-            headers=_headers(api_token),
+            headers=_headers(cf),
             json=body,
         )
         resp.raise_for_status()
@@ -269,7 +277,7 @@ def ensure_dns_record_unproxied(
     else:
         resp = requests.post(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
-            headers=_headers(api_token),
+            headers=_headers(cf),
             json=body,
         )
         resp.raise_for_status()
@@ -282,14 +290,14 @@ def list_dns_records(store: SecretStore) -> list[dict]:
     """List all DNS records in the Cloudflare zone."""
     cf = _load_cf_config(store)
     zone_id = cf["zone_id"]
-    api_token = cf["api_token"]
+
 
     records: list[dict] = []
     page = 1
     while True:
         resp = requests.get(
             f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
-            headers=_headers(api_token),
+            headers=_headers(cf),
             params={"page": page, "per_page": 100},
         )
         resp.raise_for_status()
@@ -306,11 +314,11 @@ def purge_cache(store: SecretStore) -> None:
     """Purge entire Cloudflare cache for the zone."""
     cf = _load_cf_config(store)
     zone_id = cf["zone_id"]
-    api_token = cf["api_token"]
+
 
     resp = requests.post(
         f"https://api.cloudflare.com/client/v4/zones/{zone_id}/purge_cache",
-        headers=_headers(api_token),
+        headers=_headers(cf),
         json={"purge_everything": True},
     )
     resp.raise_for_status()
@@ -321,16 +329,16 @@ def delete_access(store: SecretStore) -> bool:
     """Delete the Cloudflare Access Application (and its policies)."""
     cf = _load_cf_config(store)
     account_id = cf["account_id"]
-    api_token = cf["api_token"]
 
-    app = _find_access_app(account_id, api_token)
+
+    app = _find_access_app(account_id, cf)
     if not app:
         logger.info("No Access Application found to delete")
         return False
 
     resp = requests.delete(
         f"https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps/{app['id']}",
-        headers=_headers(api_token),
+        headers=_headers(cf),
     )
     resp.raise_for_status()
     logger.info("Deleted Access Application: %s", app["id"])

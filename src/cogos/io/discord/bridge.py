@@ -155,8 +155,9 @@ class DiscordBridge:
         self.region = os.environ.get("AWS_REGION", "us-east-1")
 
         self._sqs_client = self._runtime.get_sqs_client(self.region)
-        from cogos import get_sessions_bucket
+        from cogos import get_sessions_bucket, get_sessions_prefix
         self._blob_bucket = get_sessions_bucket()
+        self._blob_prefix = get_sessions_prefix()
         self._s3_client = self._runtime.get_s3_client(self.region) if self._blob_bucket else None
 
         # Per-cogent state
@@ -748,16 +749,17 @@ class DiscordBridge:
 
         from uuid import uuid4
         s3_key = f"blobs/{uuid4()}/{attachment.filename}"
+        full_key = f"{self._blob_prefix}/{s3_key}" if self._blob_prefix else s3_key
 
         try:
-            put_kwargs: dict = {"Bucket": self._blob_bucket, "Key": s3_key, "Body": data}
+            put_kwargs: dict = {"Bucket": self._blob_bucket, "Key": full_key, "Body": data}
             if attachment.content_type:
                 put_kwargs["ContentType"] = attachment.content_type
             self._s3_client.put_object(**put_kwargs)
 
             s3_url = self._s3_client.generate_presigned_url(
                 "get_object",
-                Params={"Bucket": self._blob_bucket, "Key": s3_key},
+                Params={"Bucket": self._blob_bucket, "Key": full_key},
                 ExpiresIn=7 * 24 * 3600,
             )
             return {"s3_key": s3_key, "s3_url": s3_url}

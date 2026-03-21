@@ -86,6 +86,7 @@ def build_app() -> cdk.App:
         alb_security_group_id = _ctx(app, "alb_security_group_id")
         certificate_arn = _ctx(app, "certificate_arn")
         ecr_repo_uri = _ctx(app, "ecr_repo_uri")
+        sessions_bucket_name = _ctx(app, "sessions_bucket_name")
 
         if not db_cluster_arn or not db_secret_arn:
             import boto3
@@ -111,6 +112,7 @@ def build_app() -> cdk.App:
                 alb_listener_arn = alb_listener_arn or outputs.get("HttpsListenerArn", "")
                 alb_security_group_id = alb_security_group_id or outputs.get("AlbSecurityGroupId", "")
                 certificate_arn = certificate_arn or outputs.get("WildcardCertArn", "")
+                sessions_bucket_name = sessions_bucket_name or outputs.get("SessionsBucketName", "")
             except Exception as e:
                 print(f"WARNING: Could not resolve cogtainer stack outputs: {e}", file=sys.stderr)
 
@@ -129,6 +131,7 @@ def build_app() -> cdk.App:
             alb_security_group_id=alb_security_group_id,
             certificate_arn=certificate_arn,
             ecr_repo_uri=ecr_repo_uri,
+            sessions_bucket_name=sessions_bucket_name,
             env=env,
         )
     else:

@@ -23,13 +23,19 @@ WORKSPACE_DIR = "/tmp/workspace"
 SYNC_INTERVAL_S = 30
 
 
+def _sessions_prefix() -> str:
+    """Return the cogent-scoped S3 key prefix (e.g. 'alpha')."""
+    return os.environ.get("SESSIONS_PREFIX", "")
+
+
 def s3_sync_down(bucket: str, session_id: str) -> None:
     """Download a Claude Code session from S3."""
-    prefix = f"s3://{bucket}/sessions/{session_id}/.claude/"
-    logger.info(f"Restoring session {session_id} from {prefix}")
+    pfx = _sessions_prefix()
+    s3_path = f"s3://{bucket}/{pfx}/sessions/{session_id}/.claude/" if pfx else f"s3://{bucket}/sessions/{session_id}/.claude/"
+    logger.info(f"Restoring session {session_id} from {s3_path}")
     os.makedirs(CLAUDE_DIR, exist_ok=True)
     subprocess.run(
-        ["aws", "s3", "sync", prefix, CLAUDE_DIR + "/", "--size-only"],
+        ["aws", "s3", "sync", s3_path, CLAUDE_DIR + "/", "--size-only"],
         capture_output=True,
         timeout=120,
     )
@@ -39,9 +45,10 @@ def s3_sync_up(bucket: str, session_id: str) -> None:
     """Upload the Claude Code session to S3."""
     if not os.path.isdir(CLAUDE_DIR):
         return
-    prefix = f"s3://{bucket}/sessions/{session_id}/.claude/"
+    pfx = _sessions_prefix()
+    s3_path = f"s3://{bucket}/{pfx}/sessions/{session_id}/.claude/" if pfx else f"s3://{bucket}/sessions/{session_id}/.claude/"
     subprocess.run(
-        ["aws", "s3", "sync", CLAUDE_DIR + "/", prefix, "--size-only"],
+        ["aws", "s3", "sync", CLAUDE_DIR + "/", s3_path, "--size-only"],
         capture_output=True,
         timeout=120,
     )
@@ -49,9 +56,11 @@ def s3_sync_up(bucket: str, session_id: str) -> None:
 
 def start_periodic_sync(bucket: str, session_id: str) -> subprocess.Popen | None:
     """Start a background process that syncs to S3 every SYNC_INTERVAL_S seconds."""
+    pfx = _sessions_prefix()
+    s3_path = f"s3://{bucket}/{pfx}/sessions/{session_id}/.claude/" if pfx else f"s3://{bucket}/sessions/{session_id}/.claude/"
     script = (
         f"while true; do sleep {SYNC_INTERVAL_S}; "
-        f"aws s3 sync {CLAUDE_DIR}/ s3://{bucket}/sessions/{session_id}/.claude/ --size-only "
+        f"aws s3 sync {CLAUDE_DIR}/ {s3_path} --size-only "
         f"2>/dev/null || true; done"
     )
     return subprocess.Popen(["bash", "-c", script])

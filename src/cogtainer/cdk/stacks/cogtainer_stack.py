@@ -228,7 +228,18 @@ class CogtainerStack(cdk.Stack):
             )
         )
 
+        # --- Shared Sessions Bucket ---
+        self.sessions_bucket = s3.Bucket(
+            self,
+            "SessionsBucket",
+            bucket_name=f"cogtainer-{cogtainer_name}-sessions",
+            removal_policy=RemovalPolicy.RETAIN,
+            auto_delete_objects=False,
+        )
+        self.sessions_bucket.grant_read_write(self.ci_role)
+
         # --- Outputs ---
+        CfnOutput(self, "SessionsBucketName", value=self.sessions_bucket.bucket_name)
         CfnOutput(self, "CogtainerName", value=cogtainer_name)
         CfnOutput(self, "CIRoleArn", value=self.ci_role.role_arn)
         CfnOutput(self, "DbClusterArn", value=self.db_cluster.cluster_arn)

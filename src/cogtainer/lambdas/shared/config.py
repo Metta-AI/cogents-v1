@@ -13,6 +13,7 @@ class LambdaConfig:
     db_secret_arn: str
     db_name: str
     sessions_bucket: str
+    sessions_prefix: str
     event_bus_name: str
     region: str
     executor_function_name: str = ""
@@ -37,6 +38,7 @@ def get_config() -> LambdaConfig:
             db_secret_arn=os.environ["DB_SECRET_ARN"],
             db_name=os.environ.get("DB_NAME", "cogent"),
             sessions_bucket=os.environ.get("SESSIONS_BUCKET", ""),
+            sessions_prefix=os.environ.get("SESSIONS_PREFIX", ""),
             event_bus_name=os.environ.get("EVENT_BUS_NAME", "default"),
             region=os.environ.get("AWS_REGION", "us-east-1"),
             executor_function_name=os.environ.get("EXECUTOR_FUNCTION_NAME", ""),
