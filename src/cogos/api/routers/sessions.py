@@ -8,8 +8,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from cogos_api.auth import TokenClaims, create_session_token, get_claims, verify_executor_key
-from cogos_api.db import get_repo
+from cogos.api.auth import TokenClaims, create_session_token, get_claims, verify_executor_key
+from cogos.api.db import get_repo
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def create_session(body: CreateSessionRequest, request: Request) -> CreateSessio
     token = create_session_token(str(pid), cogent)
 
     # Decode to get expiry
-    from cogos_api.auth import verify_token
+    from cogos.api.auth import verify_token
 
     claims = verify_token(token)
 

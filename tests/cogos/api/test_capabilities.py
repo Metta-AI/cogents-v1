@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from cogos.capabilities.base import Capability
-from cogos_api.app import create_app
-from cogos_api.auth import TokenClaims
+from cogos.api.app import create_app
+from cogos.api.auth import TokenClaims
 
 TEST_SECRET = "test-secret-key-for-unit-tests"
 
@@ -61,16 +61,16 @@ def _mock_deps():
     cap = DummyDataCapability(mock_repo, uuid4())
 
     with (
-        patch("cogos_api.auth._get_signing_key", return_value=TEST_SECRET),
-        patch("cogos_api.auth._cached_signing_key", TEST_SECRET),
-        patch("cogos_api.routers.capabilities.get_claims", return_value=CLAIMS),
-        patch("cogos_api.routers.capabilities._get_proxies", return_value={"data": cap}),
+        patch("cogos.api.auth._get_signing_key", return_value=TEST_SECRET),
+        patch("cogos.api.auth._cached_signing_key", TEST_SECRET),
+        patch("cogos.api.routers.capabilities.get_claims", return_value=CLAIMS),
+        patch("cogos.api.routers.capabilities._get_proxies", return_value={"data": cap}),
     ):
         yield
 
 
 def _auth_headers():
-    from cogos_api.auth import create_session_token
+    from cogos.api.auth import create_session_token
 
     token = create_session_token(PROCESS_ID, "test")
     return {"Authorization": f"Bearer {token}"}
@@ -97,7 +97,7 @@ class TestGetCapability:
         assert resp.json()["name"] == "data"
 
     def test_not_found(self, client):
-        with patch("cogos_api.routers.capabilities._get_proxies", return_value={}):
+        with patch("cogos.api.routers.capabilities._get_proxies", return_value={}):
             resp = client.get("/api/v1/capabilities/missing", headers=_auth_headers())
             assert resp.status_code == 404
 

@@ -8,8 +8,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from cogos_api.app import create_app
-from cogos_api.auth import TokenClaims
+from cogos.api.app import create_app
+from cogos.api.auth import TokenClaims
 
 TEST_SECRET = "test-secret-key-for-unit-tests"
 TEST_EXECUTOR_KEY = "test-executor-key-12345"
@@ -27,16 +27,16 @@ def client(app):
 
 @pytest.fixture(autouse=True)
 def _mock_deps():
-    import cogos_api.auth
+    import cogos.api.auth
 
-    cogos_api.auth._cached_signing_key = None
+    cogos.api.auth._cached_signing_key = None
     with (
-        patch("cogos_api.auth._get_signing_key", return_value=TEST_SECRET),
-        patch("cogos_api.auth._get_executor_key", return_value=TEST_EXECUTOR_KEY),
+        patch("cogos.api.auth._get_signing_key", return_value=TEST_SECRET),
+        patch("cogos.api.auth._get_executor_key", return_value=TEST_EXECUTOR_KEY),
     ):
-        cogos_api.auth._cached_signing_key = TEST_SECRET
+        cogos.api.auth._cached_signing_key = TEST_SECRET
         yield
-        cogos_api.auth._cached_signing_key = None
+        cogos.api.auth._cached_signing_key = None
 
 
 class TestCreateSession:
@@ -47,7 +47,7 @@ class TestCreateSession:
         mock_process.name = "test-process"
         mock_repo.get_process.return_value = mock_process
 
-        with patch("cogos_api.routers.sessions.get_repo", return_value=mock_repo):
+        with patch("cogos.api.routers.sessions.get_repo", return_value=mock_repo):
             resp = client.post(
                 "/api/v1/sessions",
                 json={"process_id": str(pid), "cogent": "alpha"},
@@ -87,7 +87,7 @@ class TestCreateSession:
         mock_repo = MagicMock()
         mock_repo.get_process.return_value = None
 
-        with patch("cogos_api.routers.sessions.get_repo", return_value=mock_repo):
+        with patch("cogos.api.routers.sessions.get_repo", return_value=mock_repo):
             resp = client.post(
                 "/api/v1/sessions",
                 json={"process_id": str(uuid4()), "cogent": "alpha"},
@@ -98,7 +98,7 @@ class TestCreateSession:
 
 class TestGetSessionInfo:
     def test_valid_session(self, client):
-        from cogos_api.auth import create_session_token
+        from cogos.api.auth import create_session_token
 
         pid = uuid4()
         token = create_session_token(str(pid), "alpha")
@@ -109,7 +109,7 @@ class TestGetSessionInfo:
         mock_repo.get_process.return_value = mock_process
         mock_repo.list_process_capabilities.return_value = []
 
-        with patch("cogos_api.routers.sessions.get_repo", return_value=mock_repo):
+        with patch("cogos.api.routers.sessions.get_repo", return_value=mock_repo):
             resp = client.get(
                 "/api/v1/sessions/me",
                 headers={"Authorization": f"Bearer {token}"},

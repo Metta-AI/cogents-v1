@@ -12,8 +12,8 @@ from pydantic import BaseModel
 
 from cogos.capabilities.base import Capability
 from cogos.capabilities.loader import build_capability_proxies
-from cogos_api.auth import TokenClaims, get_claims
-from cogos_api.db import get_repo
+from cogos.api.auth import TokenClaims, get_claims
+from cogos.api.db import get_repo
 
 logger = logging.getLogger(__name__)
 

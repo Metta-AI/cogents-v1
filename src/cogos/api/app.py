@@ -5,7 +5,7 @@ via JWT tokens and use to invoke capabilities over HTTP.
 
 Usage::
 
-    uvicorn cogos_api.app:app --host 0.0.0.0 --port 8200
+    uvicorn cogos.api.app:app --host 0.0.0.0 --port 8200
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from cogos_api.config import settings
+from cogos.api.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     try:
         from cogos.db.migrations import apply_cogos_sql_migrations
 
-        from cogos_api.db import get_repo
+        from cogos.api.db import get_repo
 
         repo = get_repo()
         statements = apply_cogos_sql_migrations(
@@ -59,7 +59,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    from cogos_api.routers import capabilities, sessions
+    from cogos.api.routers import capabilities, sessions
 
     app.include_router(sessions.router, prefix="/api/v1")
     app.include_router(capabilities.router, prefix="/api/v1")
