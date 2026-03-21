@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import logging
 import time
-from typing import Any, Callable
+from typing import Callable
 from uuid import UUID
 
 from cogos.capabilities.scheduler import SchedulerCapability, SchedulerError
@@ -49,7 +49,6 @@ def run_and_complete(
     repo,
     *,
     execute_fn: Callable | None = None,
-    bedrock_client: Any | None = None,
 ) -> Run:
     """Execute a process run and handle completion / failure lifecycle.
 
@@ -71,7 +70,7 @@ def run_and_complete(
 
     start = time.time()
     try:
-        run = execute_fn(process, event_data, run, config, repo, bedrock_client=bedrock_client)
+        run = execute_fn(process, event_data, run, config, repo)
         duration_ms = int((time.time() - start) * 1000)
 
         repo.complete_run(
@@ -176,7 +175,6 @@ def run_local_tick(
     config,
     *,
     execute_fn: Callable | None = None,
-    bedrock_client: Any | None = None,
     now: datetime | None = None,
 ) -> int:
     """Run one tick of the local executor loop.
@@ -217,7 +215,6 @@ def run_local_tick(
             config,
             repo,
             execute_fn=execute_fn,
-            bedrock_client=bedrock_client,
         )
         executed += 1
 
@@ -230,14 +227,13 @@ def run_local_loop(
     *,
     poll_interval: float = 2.0,
     once: bool = False,
-    bedrock_client: Any | None = None,
 ) -> None:
     """Simple daemon wrapper that repeatedly calls run_local_tick."""
     logger.info("run_local_loop starting (poll_interval=%.1fs, once=%s)", poll_interval, once)
 
     while True:
         try:
-            executed = run_local_tick(repo, config, bedrock_client=bedrock_client)
+            executed = run_local_tick(repo, config)
             if executed > 0:
                 logger.info("run_local_tick executed %d process(es)", executed)
         except Exception:

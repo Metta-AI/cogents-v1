@@ -1,4 +1,4 @@
-"""Tests for LLMClient — Bedrock primary, Anthropic API fallback."""
+"""Tests for LLMClient — runtime primary, Anthropic API fallback."""
 
 from dataclasses import dataclass
 from unittest.mock import MagicMock
@@ -14,6 +14,22 @@ from cogos.executor.llm_client import (
     _bedrock_tools_to_anthropic,
     _resolve_anthropic_api_key,
 )
+
+
+def _fake_runtime(fake_bedrock):
+    """Wrap a fake bedrock mock as a fake runtime with converse()."""
+    class _FakeRuntime:
+        def converse(self, *, messages, system, tool_config, model=None):
+            kwargs = {"modelId": model, "messages": messages, "system": system}
+            if tool_config:
+                kwargs["toolConfig"] = tool_config
+            return fake_bedrock.converse(**kwargs)
+
+        def get_secrets_provider(self):
+            return None
+
+    return _FakeRuntime()
+
 
 # ── Model ID conversion ──────────────────────────────────────
 
@@ -161,10 +177,10 @@ def _throttling_error() -> ClientError:
     )
 
 
-def test_llm_client_uses_bedrock_when_not_throttled():
+def test_llm_client_uses_runtime_when_not_throttled():
     fake_bedrock = MagicMock()
     fake_bedrock.converse.return_value = {"output": {"message": {"role": "assistant", "content": [{"text": "ok"}]}}}
-    client = LLMClient(bedrock_client=fake_bedrock)
+    client = LLMClient(runtime=_fake_runtime(fake_bedrock))
     result = client.converse(modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0", messages=[], system=[])
     assert result["output"]["message"]["content"][0]["text"] == "ok"
     fake_bedrock.converse.assert_called_once()
@@ -178,7 +194,7 @@ def test_llm_client_raises_throttling_without_anthropic_fallback(monkeypatch):
     )
     fake_bedrock = MagicMock()
     fake_bedrock.converse.side_effect = _throttling_error()
-    client = LLMClient(bedrock_client=fake_bedrock)
+    client = LLMClient(runtime=_fake_runtime(fake_bedrock))
     # No anthropic key → should re-raise
     with pytest.raises(ClientError):
         client.converse(modelId="test", messages=[], system=[])
@@ -191,7 +207,7 @@ def test_llm_client_falls_back_to_anthropic_on_throttle():
     fake_anthropic_client = MagicMock()
     fake_anthropic_client.messages.create.return_value = _FakeResponse()
 
-    client = LLMClient(bedrock_client=fake_bedrock)
+    client = LLMClient(runtime=_fake_runtime(fake_bedrock))
     client._anthropic = fake_anthropic_client
 
     result = client.converse(
@@ -236,7 +252,7 @@ def test_llm_client_non_fallback_error_propagates():
         {"Error": {"Code": "AccessDeniedException", "Message": "forbidden"}},
         "Converse",
     )
-    client = LLMClient(bedrock_client=fake_bedrock)
+    client = LLMClient(runtime=_fake_runtime(fake_bedrock))
     client._anthropic = MagicMock()  # Even with fallback available
     with pytest.raises(ClientError):
         client.converse(modelId="test", messages=[], system=[])
@@ -253,7 +269,7 @@ def test_llm_client_falls_back_on_validation_exception():
     fake_anthropic_client = MagicMock()
     fake_anthropic_client.messages.create.return_value = _FakeResponse()
 
-    client = LLMClient(bedrock_client=fake_bedrock)
+    client = LLMClient(runtime=_fake_runtime(fake_bedrock))
     client._anthropic = fake_anthropic_client
 
     result = client.converse(
@@ -277,7 +293,7 @@ def test_llm_client_falls_back_on_service_unavailable():
     fake_anthropic_client = MagicMock()
     fake_anthropic_client.messages.create.return_value = _FakeResponse()
 
-    client = LLMClient(bedrock_client=fake_bedrock)
+    client = LLMClient(runtime=_fake_runtime(fake_bedrock))
     client._anthropic = fake_anthropic_client
 
     result = client.converse(
@@ -295,7 +311,7 @@ def test_llm_client_falls_back_on_service_unavailable():
 
 def _make_anthropic_primary_client(fake_bedrock, fake_anthropic_client):
     """Create an LLMClient in anthropic-primary mode without requiring the anthropic package."""
-    client = LLMClient(bedrock_client=fake_bedrock)
+    client = LLMClient(runtime=_fake_runtime(fake_bedrock))
     client._provider = "anthropic"
     client._anthropic = fake_anthropic_client
     return client
@@ -319,7 +335,7 @@ def test_anthropic_primary_uses_anthropic_first():
     fake_bedrock.converse.assert_not_called()
 
 
-def test_anthropic_primary_falls_back_to_bedrock_on_error():
+def test_anthropic_primary_falls_back_to_runtime_on_error():
     fake_bedrock = MagicMock()
     fake_bedrock.converse.return_value = {"output": {"message": {"role": "assistant", "content": [{"text": "ok"}]}}}
 
@@ -344,4 +360,4 @@ def test_anthropic_primary_requires_api_key(monkeypatch):
         lambda explicit_key=None, secrets_provider=None: None,
     )
     with pytest.raises(RuntimeError, match="LLM_PROVIDER=anthropic"):
-        LLMClient(bedrock_client=MagicMock(), provider="anthropic")
+        LLMClient(runtime=_fake_runtime(MagicMock()), provider="anthropic")

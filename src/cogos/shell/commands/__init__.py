@@ -12,7 +12,7 @@ class ShellState:
     cogent_name: str
     repo: Any
     cwd: str  # current prefix, e.g. "prompts/" or "" for root
-    bedrock_client: Any = None
+    runtime: Any = None
     raw_line: str = ""  # raw input line for commands that need unparsed text
     stdin_channel: Any = None    # Channel object for io:stdin
     stdout_channel: Any = None   # Channel object for io:stdout

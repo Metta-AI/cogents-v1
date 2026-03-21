@@ -239,7 +239,7 @@ def _reply_trace_link(repo, process: Process, event_data: dict, trace_id: UUID) 
 def handler(event: dict, context: Any = None) -> dict:
     """Lambda entry point — parse payload and execute process."""
     config = get_config()
-    repo = get_repo(config)
+    repo = _get_repo(config)
 
     process_id = event.get("process_id")
     message_id = event.get("message_id")
@@ -626,18 +626,15 @@ def execute_process(
     config: ExecutorConfig,
     repo: Repository,
     *,
-    bedrock_client: Any | None = None,
     trace_id: UUID | None = None,
 ) -> Run:
-    """Execute a process run — via Bedrock converse loop (LLM) or direct Python sandbox."""
+    """Execute a process run — via runtime converse loop (LLM) or direct Python sandbox."""
     if process.executor == "python":
         return _execute_python_process(process, event_data, run, config, repo, trace_id=trace_id)
 
     from cogos.executor.llm_client import LLMClient
-    if bedrock_client is None and config.llm_provider not in ("anthropic", "openrouter"):
-        runtime = _get_runtime()
-        bedrock_client = runtime.get_bedrock_client()
-    llm = LLMClient(bedrock_client=bedrock_client, region=config.region, provider=config.llm_provider, secrets_provider=_get_runtime().get_secrets_provider())
+    runtime = _get_runtime()
+    llm = LLMClient(runtime=runtime, region=config.region, provider=config.llm_provider, secrets_provider=runtime.get_secrets_provider())
 
     # Build system prompt using the shared ContextEngine
     from cogos.files.context_engine import ContextEngine

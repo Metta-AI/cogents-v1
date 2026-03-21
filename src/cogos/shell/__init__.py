@@ -26,19 +26,22 @@ def _ensure_io_channels(repo) -> tuple[Channel, Channel, Channel]:
 class CogentShell:
     """Main shell class — instantiated by the CLI entry point."""
 
-    def __init__(self, cogent_name: str, *, bedrock_client=None) -> None:
+    def __init__(self, cogent_name: str, *, runtime=None) -> None:
         self.cogent_name = cogent_name
-        self._bedrock_client = bedrock_client
+        self._runtime = runtime
 
     def run(self) -> None:
         """Start the interactive shell loop."""
-        from cogos.db.factory import create_repository
         from cogos.shell.commands import ShellState, build_registry
         from cogos.shell.completer import ShellCompleter
         from prompt_toolkit import PromptSession
         from prompt_toolkit.formatted_text import HTML
 
-        repo = create_repository()
+        if self._runtime:
+            repo = self._runtime.get_repository(self.cogent_name)
+        else:
+            from cogos.db.factory import create_repository
+            repo = create_repository()
         state = ShellState(cogent_name=self.cogent_name, repo=repo, cwd="")
 
         # Set up stdin/stdout/stderr channels
@@ -52,7 +55,7 @@ class CogentShell:
         stderr_msgs = repo.list_channel_messages(stderr_ch.id, limit=1)
         state.stderr_cursor = stderr_msgs[-1].created_at if stderr_msgs else None
 
-        state.bedrock_client = self._bedrock_client
+        state.runtime = self._runtime
 
         registry = build_registry()
         completer = ShellCompleter(state, registry)

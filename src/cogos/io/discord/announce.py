@@ -31,8 +31,8 @@ DISCORD_API = "https://discord.com/api/v10"
 def _get_bot_token(secrets_provider=None) -> str:
     """Get the Discord bot token from agora/discord via secrets provider."""
     if secrets_provider is None:
-        from cogtainer.secrets import AwsSecretsProvider
-        secrets_provider = AwsSecretsProvider()
+        from cogtainer.runtime.factory import create_executor_runtime
+        secrets_provider = create_executor_runtime().get_secrets_provider()
 
     try:
         token = secrets_provider.get_secret("agora/discord", field="bot_token")

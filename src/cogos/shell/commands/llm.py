@@ -143,9 +143,9 @@ def _execute_prompt(state: ShellState, content: str, *, verbose: bool = False) -
         from cogos.executor.session_store import SessionStore
         from cogos.files.context_engine import ContextEngine
 
-        bedrock = kwargs.get("bedrock_client") or state.bedrock_client
-        if bedrock is None:
-            raise RuntimeError("No bedrock client available — cannot execute LLM prompt")
+        runtime = state.runtime
+        if runtime is None:
+            raise RuntimeError("No runtime available — cannot execute LLM prompt")
 
         file_store = FileStore(repo)
         ctx = ContextEngine(file_store)
@@ -179,11 +179,11 @@ def _execute_prompt(state: ShellState, content: str, *, verbose: bool = False) -
 
         for _turn in range(config.max_turns):
             turn_start = time.monotonic()
-            response = bedrock.converse(
-                modelId=model_id,
+            response = runtime.converse(
                 messages=messages,
                 system=system,
-                toolConfig=TOOL_CONFIG,
+                tool_config=TOOL_CONFIG,
+                model=model_id,
             )
             bedrock_ms = int((time.monotonic() - turn_start) * 1000)
             turns += 1
@@ -264,7 +264,6 @@ def _execute_prompt(state: ShellState, content: str, *, verbose: bool = False) -
     run_obj = run_and_complete(
         process, {}, run_obj, config, state.repo,
         execute_fn=_verbose_executor,
-        bedrock_client=state.bedrock_client,
     )
 
     state.repo.update_process_status(process.id, ProcessStatus.COMPLETED)
@@ -474,7 +473,6 @@ def register(reg: CommandRegistry) -> None:
         config = get_config()
         run_obj = run_and_complete(
             proc, {}, run_obj, config, state.repo,
-            bedrock_client=state.bedrock_client,
         )
 
         state.repo.update_process_status(proc.id, ProcessStatus.COMPLETED)

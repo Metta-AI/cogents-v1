@@ -154,11 +154,10 @@ def _resolve_anthropic_api_key(
 
 
 class LLMClient:
-    """Wraps Bedrock converse with Anthropic API support.
+    """LLM client that delegates to CogtainerRuntime.converse().
 
-    When provider='anthropic', uses Anthropic API as primary with Bedrock fallback.
-    When provider='bedrock' (default), uses Bedrock as primary with Anthropic
-    fallback on throttling.
+    Supports Anthropic API as a fallback when the primary provider
+    (bedrock) is throttled.
 
     Key resolution order: explicit arg > ANTHROPIC_API_KEY env var >
     secrets manager (ANTHROPIC_SECRET_PATH).
@@ -167,29 +166,26 @@ class LLMClient:
     def __init__(
         self,
         *,
-        bedrock_client: Any | None = None,
+        runtime: Any = None,
         region: str = "us-east-1",
         anthropic_api_key: str | None = None,
         provider: str = "bedrock",
         secrets_provider: Any = None,
     ) -> None:
         self._provider = provider
+        self._runtime = runtime
         self._openrouter = None
 
         if provider == "openrouter":
-            # OpenRouter provider — no Bedrock client needed
             from cogtainer.llm.openrouter import OpenRouterProvider
             api_key = os.environ.get("OPENROUTER_API_KEY", "")
             default_model = os.environ.get("DEFAULT_MODEL", "")
             self._openrouter = OpenRouterProvider(api_key=api_key, default_model=default_model)
-            self._bedrock = bedrock_client  # may be None, that's fine
-        else:
-            if bedrock_client is None and provider == "bedrock":
-                raise ValueError(
-                    "bedrock_client is required when provider='bedrock'. "
-                    "The caller must create and pass a bedrock-runtime client."
-                )
-            self._bedrock = bedrock_client
+        elif provider == "bedrock" and runtime is None:
+            raise ValueError(
+                "runtime is required when provider='bedrock'. "
+                "The caller must pass a CogtainerRuntime instance."
+            )
 
         api_key = _resolve_anthropic_api_key(anthropic_api_key, secrets_provider=secrets_provider)
         self._anthropic = None
@@ -223,16 +219,25 @@ class LLMClient:
     # Bedrock error codes that should trigger Anthropic fallback.
     _FALLBACK_ERROR_CODES = {"ThrottlingException", "ValidationException", "ServiceUnavailableException", "ResourceNotFoundException", "InternalFailure"}
 
+    def _runtime_converse(self, **kwargs: Any) -> dict:
+        """Call the runtime's converse method, translating Bedrock-format kwargs."""
+        return self._runtime.converse(
+            messages=kwargs["messages"],
+            system=kwargs.get("system", []),
+            tool_config=kwargs.get("toolConfig", {}),
+            model=kwargs.get("modelId"),
+        )
+
     def _converse_bedrock_primary(self, **kwargs: Any) -> dict:
-        """Bedrock primary, Anthropic fallback on throttling or validation errors."""
+        """Runtime primary, Anthropic fallback on throttling or validation errors."""
         try:
-            return self._bedrock.converse(**kwargs)
+            return self._runtime_converse(**kwargs)
         except Exception as exc:
             error_code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
             if error_code not in self._FALLBACK_ERROR_CODES or self._anthropic is None:
                 raise
             logger.warning(
-                "Bedrock %s (model=%s), falling back to Anthropic API",
+                "Runtime converse %s (model=%s), falling back to Anthropic API",
                 error_code,
                 kwargs.get("modelId"),
             )
@@ -243,16 +248,16 @@ class LLMClient:
                 raise exc from fallback_exc
 
     def _converse_anthropic_primary(self, **kwargs: Any) -> dict:
-        """Anthropic primary, Bedrock fallback on error."""
+        """Anthropic primary, runtime fallback on error."""
         try:
             return self._call_anthropic(**kwargs)
         except Exception as exc:
             logger.warning(
-                "Anthropic API failed (model=%s, error=%s), falling back to Bedrock",
+                "Anthropic API failed (model=%s, error=%s), falling back to runtime",
                 kwargs.get("modelId"),
                 exc,
             )
-            return self._bedrock.converse(**kwargs)
+            return self._runtime_converse(**kwargs)
 
     def _call_anthropic(self, **kwargs: Any) -> dict:
         """Translate Bedrock converse kwargs → Anthropic Messages API call."""

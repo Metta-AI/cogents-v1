@@ -48,6 +48,20 @@ class _FakeBedrock:
         return self.responses.pop(0)
 
 
+class _FakeRuntime:
+    def __init__(self, fake_bedrock):
+        self._bedrock = fake_bedrock
+
+    def converse(self, *, messages, system, tool_config, model=None):
+        kwargs = {"modelId": model, "messages": messages, "system": system}
+        if tool_config:
+            kwargs["toolConfig"] = tool_config
+        return self._bedrock.converse(**kwargs)
+
+    def get_secrets_provider(self):
+        return None
+
+
 def _text_response(text: str, *, input_tokens: int = 3, output_tokens: int = 2) -> dict:
     return {
         "output": {"message": {"role": "assistant", "content": [{"text": text}]}},
@@ -380,6 +394,18 @@ def test_execute_process_rewrites_invalid_tool_names(monkeypatch, tmp_path):
 
     fake_bedrock = FakeBedrock()
 
+    class FakeRuntime:
+        def converse(self, *, messages, system, tool_config, model=None):
+            kwargs = {"modelId": model, "messages": messages, "system": system}
+            if tool_config:
+                kwargs["toolConfig"] = tool_config
+            return fake_bedrock.converse(**kwargs)
+
+        def get_secrets_provider(self):
+            return None
+
+    fake_runtime = FakeRuntime()
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: fake_runtime)
     monkeypatch.setattr("cogos.files.context_engine.ContextEngine.generate_full_prompt", lambda self, process: "")
 
     result = executor_handler.execute_process(
@@ -388,7 +414,6 @@ def test_execute_process_rewrites_invalid_tool_names(monkeypatch, tmp_path):
         run,
         config,
         repo,
-        bedrock_client=fake_bedrock,
     )
 
     assert result.tokens_in == 24
@@ -440,6 +465,7 @@ def test_execute_process_expands_prompt_refs_into_system_prompt(monkeypatch, tmp
             }
 
     fake_bedrock = FakeBedrock()
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(fake_bedrock))
 
     executor_handler.execute_process(
         process,
@@ -447,7 +473,6 @@ def test_execute_process_expands_prompt_refs_into_system_prompt(monkeypatch, tmp
         run,
         config,
         repo,
-        bedrock_client=fake_bedrock,
     )
 
     first_call = fake_bedrock.calls[0]
@@ -471,6 +496,7 @@ def test_stateless_process_writes_session_artifacts_and_snapshot(monkeypatch, tm
     fake_bedrock = _FakeBedrock([_text_response("done")])
 
     monkeypatch.setattr("cogos.files.context_engine.ContextEngine.generate_full_prompt", lambda self, process: "")
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(fake_bedrock))
 
     run_and_complete(
         process,
@@ -478,7 +504,6 @@ def test_stateless_process_writes_session_artifacts_and_snapshot(monkeypatch, tm
         run,
         executor_handler.ExecutorConfig(max_turns=1),
         repo,
-        bedrock_client=fake_bedrock,
     )
 
     stored_run = repo.get_run(run.id)
@@ -519,24 +544,25 @@ def test_process_session_loads_previous_checkpoint(monkeypatch, tmp_path):
     monkeypatch.setattr("cogos.files.context_engine.ContextEngine.generate_full_prompt", lambda self, process: "")
 
     first_run = _make_run(repo, process)
+    first_fake_bedrock = _FakeBedrock([_text_response("first-response")])
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(first_fake_bedrock))
     run_and_complete(
         process,
         {"payload": {"content": "hello-1"}},
         first_run,
         executor_handler.ExecutorConfig(max_turns=1),
         repo,
-        bedrock_client=_FakeBedrock([_text_response("first-response")]),
     )
 
     second_run = _make_run(repo, process)
     fake_bedrock = _FakeBedrock([_text_response("second-response")])
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(fake_bedrock))
     run_and_complete(
         process,
         {"payload": {"content": "hello-2"}},
         second_run,
         executor_handler.ExecutorConfig(max_turns=1),
         repo,
-        bedrock_client=fake_bedrock,
     )
 
     second_call_messages = fake_bedrock.calls[0]["messages"]
@@ -571,24 +597,25 @@ def test_legacy_session_mode_process_still_resumes(monkeypatch, tmp_path):
     monkeypatch.setattr("cogos.files.context_engine.ContextEngine.generate_full_prompt", lambda self, process: "")
 
     first_run = _make_run(repo, process)
+    first_fake_bedrock = _FakeBedrock([_text_response("first-response")])
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(first_fake_bedrock))
     run_and_complete(
         process,
         {"payload": {"content": "hello-1"}},
         first_run,
         executor_handler.ExecutorConfig(max_turns=1),
         repo,
-        bedrock_client=_FakeBedrock([_text_response("first-response")]),
     )
 
     second_run = _make_run(repo, process)
     second_bedrock = _FakeBedrock([_text_response("second-response")])
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(second_bedrock))
     run_and_complete(
         process,
         {"payload": {"content": "hello-2"}},
         second_run,
         executor_handler.ExecutorConfig(max_turns=1),
         repo,
-        bedrock_client=second_bedrock,
     )
 
     second_call_messages = second_bedrock.calls[0]["messages"]
@@ -645,13 +672,13 @@ def test_checkpoint_survives_failure_after_assistant_step(monkeypatch, tmp_path)
         ]
     )
 
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(first_bedrock))
     run_and_complete(
         process,
         {"payload": {"content": "first"}},
         first_run,
         executor_handler.ExecutorConfig(max_turns=2),
         repo,
-        bedrock_client=first_bedrock,
     )
 
     failed_run = repo.get_run(first_run.id)
@@ -666,13 +693,13 @@ def test_checkpoint_survives_failure_after_assistant_step(monkeypatch, tmp_path)
 
     second_run = _make_run(repo, process)
     second_bedrock = _FakeBedrock([_text_response("done")])
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(second_bedrock))
     run_and_complete(
         process,
         {"payload": {"content": "second"}},
         second_run,
         executor_handler.ExecutorConfig(max_turns=1),
         repo,
-        bedrock_client=second_bedrock,
     )
 
     resumed_messages = second_bedrock.calls[0]["messages"]
@@ -700,13 +727,14 @@ def test_prompt_change_skips_resume(monkeypatch, tmp_path):
     repo.upsert_process(process)
 
     first_run = _make_run(repo, process)
+    first_fake_bedrock = _FakeBedrock([_text_response("done")])
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(first_fake_bedrock))
     run_and_complete(
         process,
         {"payload": {"content": "first"}},
         first_run,
         executor_handler.ExecutorConfig(max_turns=1),
         repo,
-        bedrock_client=_FakeBedrock([_text_response("done")]),
     )
 
     process.content = "Changed instructions."
@@ -714,13 +742,13 @@ def test_prompt_change_skips_resume(monkeypatch, tmp_path):
 
     second_run = _make_run(repo, process)
     second_bedrock = _FakeBedrock([_text_response("done-again")])
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(second_bedrock))
     run_and_complete(
         process,
         {"payload": {"content": "second"}},
         second_run,
         executor_handler.ExecutorConfig(max_turns=1),
         repo,
-        bedrock_client=second_bedrock,
     )
 
     second_call_messages = second_bedrock.calls[0]["messages"]
@@ -888,8 +916,9 @@ def test_per_process_io_channels_created_on_execute(monkeypatch, tmp_path):
     fake_bedrock = _FakeBedrock([_text_response("all done")])
 
     monkeypatch.setattr("cogos.files.context_engine.ContextEngine.generate_full_prompt", lambda self, process: "")
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(fake_bedrock))
 
-    executor_handler.execute_process(process, {}, run, config, repo, bedrock_client=fake_bedrock)
+    executor_handler.execute_process(process, {}, run, config, repo)
 
     for suffix in ("stdout", "stderr", "stdin"):
         ch = repo.get_channel_by_name(f"process:io-worker:{suffix}")
@@ -918,8 +947,9 @@ def test_run_code_output_published_to_process_stdout(monkeypatch, tmp_path):
 
     monkeypatch.setattr("cogos.files.context_engine.ContextEngine.generate_full_prompt", lambda self, process: "")
     monkeypatch.setattr(executor_handler.SandboxExecutor, "execute", lambda self, code: "hello world")
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(fake_bedrock))
 
-    executor_handler.execute_process(process, {}, run, config, repo, bedrock_client=fake_bedrock)
+    executor_handler.execute_process(process, {}, run, config, repo)
 
     ch = repo.get_channel_by_name("process:code-runner:stdout")
     assert ch is not None
@@ -945,8 +975,9 @@ def test_final_assistant_text_published_to_process_stderr(monkeypatch, tmp_path)
     fake_bedrock = _FakeBedrock([_text_response("final words")])
 
     monkeypatch.setattr("cogos.files.context_engine.ContextEngine.generate_full_prompt", lambda self, process: "")
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(fake_bedrock))
 
-    executor_handler.execute_process(process, {}, run, config, repo, bedrock_client=fake_bedrock)
+    executor_handler.execute_process(process, {}, run, config, repo)
 
     ch = repo.get_channel_by_name("process:chat-worker:stderr")
     assert ch is not None
@@ -978,8 +1009,9 @@ def test_intermediate_assistant_text_published_to_stdout(monkeypatch, tmp_path):
 
     monkeypatch.setattr("cogos.files.context_engine.ContextEngine.generate_full_prompt", lambda self, process: "")
     monkeypatch.setattr(executor_handler.SandboxExecutor, "execute", lambda self, code: "2")
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(fake_bedrock))
 
-    executor_handler.execute_process(process, {}, run, config, repo, bedrock_client=fake_bedrock)
+    executor_handler.execute_process(process, {}, run, config, repo)
 
     ch = repo.get_channel_by_name("process:think-worker:stdout")
     assert ch is not None
@@ -1017,8 +1049,9 @@ def test_tty_forwards_to_global_io_channels(monkeypatch, tmp_path):
 
     monkeypatch.setattr("cogos.files.context_engine.ContextEngine.generate_full_prompt", lambda self, process: "")
     monkeypatch.setattr(executor_handler.SandboxExecutor, "execute", lambda self, code: "tty output")
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(fake_bedrock))
 
-    executor_handler.execute_process(process, {}, run, config, repo, bedrock_client=fake_bedrock)
+    executor_handler.execute_process(process, {}, run, config, repo)
 
     # Check global io:stdout got the run_code output
     io_stdout = repo.get_channel_by_name("io:stdout")
@@ -1065,8 +1098,9 @@ def test_no_tty_does_not_forward_to_global_io(monkeypatch, tmp_path):
 
     monkeypatch.setattr("cogos.files.context_engine.ContextEngine.generate_full_prompt", lambda self, process: "")
     monkeypatch.setattr(executor_handler.SandboxExecutor, "execute", lambda self, code: "quiet")
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(fake_bedrock))
 
-    executor_handler.execute_process(process, {}, run, config, repo, bedrock_client=fake_bedrock)
+    executor_handler.execute_process(process, {}, run, config, repo)
 
     # Per-process channels should have messages
     ch = repo.get_channel_by_name("process:no-tty-worker:stdout")
@@ -1200,13 +1234,13 @@ def test_large_tool_output_spilled_to_file_store(monkeypatch, tmp_path):
     monkeypatch.setattr("cogos.sandbox.executor.SandboxExecutor.execute", lambda self, code: large_output)
 
     fake = _FakeBedrock(responses)
+    monkeypatch.setattr(executor_handler, "_get_runtime", lambda: _FakeRuntime(fake))
     result_run = executor_handler.execute_process(
         process,
         {"process_id": str(process.id)},
         run,
         config,
         repo,
-        bedrock_client=fake,
     )
 
     # The second call's messages should contain a short preview, not the full output

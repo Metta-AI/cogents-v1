@@ -33,30 +33,34 @@ def _resolve_image_dir(name: str) -> Path | None:
 
 from cli.local_dev import apply_local_checkout_env, repo_root, resolve_dashboard_ports
 
-def _ensure_db_env(cogent_name: str) -> None:
-    """Set DB env vars from the shared Aurora cluster (legacy path)."""
+def _ensure_db_env(cogent_name: str, runtime=None) -> None:
+    """Set DB env vars by looking up the cogent-status DynamoDB table.
+
+    When a runtime is provided, DB access goes through
+    ``runtime.get_repository()`` and this function is a no-op.
+    Otherwise, creates a temporary runtime to query DynamoDB for
+    the cogent's DB connection info and sets env vars accordingly.
+    """
     if os.environ.get("USE_LOCAL_DB") == "1":
         return
 
+    if runtime is not None:
+        # Runtime handles DB access — no env vars needed
+        return
+
     try:
-        from cogtainer.aws import get_aws_session, set_org_profile
-    except ImportError:
-        # cogtainer.aws not available — skip legacy DB env setup
+        from cogtainer.runtime.factory import create_executor_runtime
+        rt = create_executor_runtime()
+        ddb = rt.get_dynamodb_resource()
+    except Exception:
         return
 
     safe_name = cogent_name.replace(".", "-")
     db_name = f"cogent_{safe_name.replace('-', '_')}"
 
     try:
-        set_org_profile()
-        session, _ = get_aws_session()
-    except Exception:
-        return
-
-    # Look up DB connection info from DynamoDB cogent-status table
-    ddb = session.resource("dynamodb", region_name="us-east-1")
-    try:
-        item = ddb.Table("cogent-status").get_item(Key={"cogent_name": cogent_name}).get("Item", {})
+        table = ddb.Table("cogent-status")
+        item = table.get_item(Key={"cogent_name": cogent_name}).get("Item", {})
         db_info = item.get("database", {})
     except Exception:
         db_info = {}
@@ -67,12 +71,6 @@ def _ensure_db_env(cogent_name: str) -> None:
     if db_info.get("secret_arn"):
         os.environ.setdefault("DB_SECRET_ARN", db_info["secret_arn"])
     os.environ.setdefault("DB_NAME", db_info.get("db_name", db_name))
-
-    creds = session.get_credentials().get_frozen_credentials()
-    os.environ["AWS_ACCESS_KEY_ID"] = creds.access_key
-    os.environ["AWS_SECRET_ACCESS_KEY"] = creds.secret_key
-    if creds.token:
-        os.environ["AWS_SESSION_TOKEN"] = creds.token
     os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
 
@@ -81,18 +79,7 @@ def _repo():
     runtime = ctx.obj.get("runtime")
     if runtime:
         return runtime.get_repository(ctx.obj["cogent_name"])
-    from cogos.db.factory import create_repository
-
-    return create_repository()
-
-
-def _bedrock_client():
-    """Get a Bedrock client from the runtime."""
-    ctx = click.get_current_context()
-    runtime = ctx.obj.get("runtime")
-    if runtime:
-        return runtime.get_bedrock_client()
-    return None
+    raise click.UsageError("No runtime available. Configure a cogtainer in cogtainers.yml.")
 
 
 def _output(data, *, use_json: bool = False) -> None:
@@ -156,7 +143,7 @@ def cogos(ctx: click.Context):
                 os.environ["USE_LOCAL_DB"] = "1"
             else:
                 if ctx.obj.get("cogent_name"):
-                    _ensure_db_env(ctx.obj["cogent_name"])
+                    _ensure_db_env(ctx.obj["cogent_name"], runtime=runtime)
             return
     except ValueError:
         # resolve functions raise ValueError when they can't determine a name;
@@ -506,10 +493,9 @@ def process_run(name: str, executor_override: str | None, event: str | None):
         repo.create_run(run)
         click.echo(f"Starting local run {run.id} for {name}...")
 
-        bedrock = _bedrock_client() if config.llm_provider == "bedrock" else None
         event_data = json.loads(event) if event else {}
         try:
-            run = run_and_complete(p, event_data, run, config, repo, bedrock_client=bedrock)
+            run = run_and_complete(p, event_data, run, config, repo)
         except Exception as exc:
             import traceback
             click.echo(f"Exception during execution:\n{traceback.format_exc()}")
@@ -1525,8 +1511,8 @@ def shell_cmd(ctx: click.Context):
     cogent_name = ctx.obj.get("cogent_name")
     if not cogent_name:
         raise click.UsageError("No cogent specified. Set COGENT_ID env var or default_cogent in ~/.cogos/config.yml")
-    bedrock = _bedrock_client()
-    CogentShell(cogent_name, bedrock_client=bedrock).run()
+    runtime = ctx.obj.get("runtime")
+    CogentShell(cogent_name, runtime=runtime).run()
 
 
 def entry():

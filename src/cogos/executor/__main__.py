@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from uuid import UUID
 
@@ -23,14 +24,20 @@ def main() -> None:
     process_id = UUID(sys.argv[1])
     config = get_config()
 
-    from cogos.db.factory import create_repository
+    from cogtainer.runtime.factory import create_executor_runtime
 
-    repo = create_repository(
-        resource_arn=config.db_cluster_arn,
-        secret_arn=config.db_secret_arn,
-        database=config.db_name,
-        region=config.region,
-    )
+    runtime = create_executor_runtime()
+    cogent_name = os.environ.get("COGENT", os.environ.get("COGENT_NAME", ""))
+    if cogent_name:
+        repo = runtime.get_repository(cogent_name)
+    else:
+        from cogos.db.factory import create_repository
+        repo = create_repository(
+            resource_arn=config.db_cluster_arn,
+            secret_arn=config.db_secret_arn,
+            database=config.db_name,
+            region=config.region,
+        )
 
     process = repo.get_process(process_id)
     if not process:
@@ -56,13 +63,8 @@ def main() -> None:
         )
         event_data = build_dispatch_event(repo, dispatch)
 
-    from cogtainer.runtime.factory import create_executor_runtime
-
-    runtime = create_executor_runtime()
-    bedrock = runtime.get_bedrock_client()
-
     try:
-        run_and_complete(process, event_data, run, config, repo, bedrock_client=bedrock)
+        run_and_complete(process, event_data, run, config, repo)
     except Exception:
         logger.exception("Executor failed for process %s", process.name)
         sys.exit(1)
