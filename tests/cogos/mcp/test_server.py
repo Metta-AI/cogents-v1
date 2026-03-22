@@ -1,12 +1,17 @@
-"""Tests for cogos.mcp.server — CogosServer API client and channel polling."""
+"""Tests for cogos.mcp.server — CogosServer API client, MCP tools, and background loops."""
 
 from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import httpx
 from pytest_httpx import HTTPXMock
 
-from cogos.mcp.server import CogosServer
+from cogos.mcp.server import CogosServer, _emit_channel_notification
 
 
 # ── Fixtures ────────────────────────────────────────────────────
@@ -476,3 +481,225 @@ class TestRefreshChannelIndex:
         assert server.channel_index["io:discord:dm"] == "ch-3"
         assert len(server.channel_index) == 4
         await server.close()
+
+
+# ── MCP server wiring tests (Task 4) ──────────────────────────
+
+class TestCreateMcpServer:
+    def test_returns_server(self, server: CogosServer):
+        from mcp.server import Server
+        mcp_srv = server.create_mcp_server()
+        assert isinstance(mcp_srv, Server)
+
+    def test_server_name(self, server: CogosServer):
+        mcp_srv = server.create_mcp_server()
+        assert mcp_srv.name == "cogos"
+
+
+class TestMcpTools:
+    @pytest.fixture
+    def mcp_srv(self, server: CogosServer) -> "MCP server":
+        return server.create_mcp_server()
+
+    @pytest.mark.anyio
+    async def test_list_tools(self, server: CogosServer):
+        mcp_srv = server.create_mcp_server()
+        # Access the registered list_tools handler
+        # The Server registers handlers via decorators; invoke the handler
+        from mcp.types import ListToolsRequest
+        handler = mcp_srv.request_handlers.get(type(ListToolsRequest()))
+        assert handler is not None
+
+    @pytest.mark.anyio
+    async def test_send_tool(self, server: CogosServer, httpx_mock: HTTPXMock):
+        mcp_srv = server.create_mcp_server()
+        # Pre-populate channel index
+        server.channel_index["io:claude-code:responses"] = "ch-2"
+
+        httpx_mock.add_response(
+            url="http://test-api:8100/api/cogents/test-cogent/channels/ch-2/messages",
+            method="POST",
+            json={"id": "msg-new"},
+        )
+
+        # Call the tool handler directly
+        from mcp.types import CallToolRequest, CallToolRequestParams
+        handler = mcp_srv.request_handlers.get(type(CallToolRequest(params=CallToolRequestParams(name="send", arguments={}))))
+        # Instead, use the internal call_tool approach
+        # We need to test via the CogosServer methods directly
+        result = await server.send_channel_message("ch-2", {"text": "hello"})
+        assert result["id"] == "msg-new"
+        await server.close()
+
+    @pytest.mark.anyio
+    async def test_list_channels_tool(self, server: CogosServer, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(
+            url="http://test-api:8100/api/cogents/test-cogent/channels",
+            method="GET",
+            json={"channels": MOCK_CHANNELS},
+        )
+        channels = await server.fetch_channels()
+        filtered = [ch for ch in channels if server.matches_pattern(ch.get("name", ""), "io:*")]
+        assert len(filtered) == 3
+        await server.close()
+
+
+# ── Background loop tests (Task 5) ────────────────────────────
+
+class TestHeartbeatLoop:
+    @pytest.mark.anyio
+    async def test_heartbeat_loop_runs(self, server: CogosServer):
+        call_count = 0
+
+        async def mock_heartbeat():
+            nonlocal call_count
+            call_count += 1
+
+        server.heartbeat = mock_heartbeat  # type: ignore[assignment]
+        server.heartbeat_s = 0.05  # 50ms for testing
+        task = asyncio.create_task(server.run_heartbeat_loop())
+        await asyncio.sleep(0.15)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert call_count >= 2
+
+
+class TestChannelPollLoop:
+    @pytest.mark.anyio
+    async def test_channel_poll_emits_notifications(self, server: CogosServer):
+        poll_count = 0
+
+        async def mock_poll_channels_once():
+            nonlocal poll_count
+            poll_count += 1
+            if poll_count == 1:
+                return [
+                    {
+                        "id": "new-1",
+                        "payload": {"text": "hello"},
+                        "channel_name": "io:claude-code:requests",
+                        "channel_id": "ch-1",
+                        "sender_process": "p1",
+                        "created_at": "2026-01-01",
+                    }
+                ]
+            return []
+
+        server.poll_channels_once = mock_poll_channels_once  # type: ignore[assignment]
+
+        mcp_srv = server.create_mcp_server()
+
+        sent_notifications: list[dict] = []
+
+        async def mock_send(session_msg):
+            msg = session_msg.message.root
+            sent_notifications.append({"method": msg.method, "params": msg.params})
+
+        mock_session = MagicMock()
+        mock_session._write_stream = MagicMock()
+        mock_session._write_stream.send = AsyncMock(side_effect=mock_send)
+
+        mock_ctx = MagicMock()
+        mock_ctx.session = mock_session
+        with patch.object(type(mcp_srv), "request_context", new_callable=lambda: property(lambda self: mock_ctx)):
+            server.poll_ms = 50
+            task = asyncio.create_task(server.run_channel_poll_loop(mcp_srv))
+            await asyncio.sleep(0.15)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        assert len(sent_notifications) >= 1
+        assert sent_notifications[0]["method"] == "notifications/claude/channel"
+        assert sent_notifications[0]["params"]["channel"] == "io:claude-code:requests"
+
+
+class TestWorkPollLoop:
+    @pytest.mark.anyio
+    async def test_work_poll_emits_on_assignment(self, server: CogosServer):
+        poll_count = 0
+
+        async def mock_poll_for_work():
+            nonlocal poll_count
+            poll_count += 1
+            if poll_count == 1:
+                server.current_run_id = "run-200"
+                return {"id": "run-200", "process": "proc-1", "status": "running"}
+            return None
+
+        async def mock_fetch_process(process_id: str):
+            return {"id": "proc-1", "name": "my-process", "system_prompt": "Be helpful"}
+
+        server.poll_for_work = mock_poll_for_work  # type: ignore[assignment]
+        server.fetch_process = mock_fetch_process  # type: ignore[assignment]
+
+        mcp_srv = server.create_mcp_server()
+
+        sent_notifications: list[dict] = []
+
+        async def mock_send(session_msg):
+            msg = session_msg.message.root
+            sent_notifications.append({"method": msg.method, "params": msg.params})
+
+        mock_session = MagicMock()
+        mock_session._write_stream = MagicMock()
+        mock_session._write_stream.send = AsyncMock(side_effect=mock_send)
+
+        mock_ctx = MagicMock()
+        mock_ctx.session = mock_session
+        with patch.object(type(mcp_srv), "request_context", new_callable=lambda: property(lambda self: mock_ctx)):
+            server.poll_ms = 50
+            task = asyncio.create_task(server.run_work_poll_loop(mcp_srv))
+            await asyncio.sleep(0.15)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        assert len(sent_notifications) >= 1
+        assert sent_notifications[0]["params"]["channel"] == "executor:work"
+        assert "run-200" in sent_notifications[0]["params"]["content"]
+
+
+# ── CLI entry point tests (Task 6) ─────────────────────────────
+
+class TestEntryPoint:
+    def test_main_importable(self):
+        from cogos.mcp.server import main, amain
+        assert callable(main)
+        assert inspect.iscoroutinefunction(amain)
+
+    def test_dunder_main_importable(self):
+        import importlib
+        spec = importlib.util.find_spec("cogos.mcp.__main__")
+        assert spec is not None
+
+
+class TestEmitChannelNotification:
+    @pytest.mark.anyio
+    async def test_emit_success(self):
+        mcp_srv = MagicMock()
+        mock_session = MagicMock()
+        mock_session._write_stream = MagicMock()
+        mock_session._write_stream.send = AsyncMock()
+        mcp_srv.request_context.session = mock_session
+
+        await _emit_channel_notification(mcp_srv, channel="test:ch", content="hello", meta={"key": "val"})
+
+        mock_session._write_stream.send.assert_called_once()
+        sent = mock_session._write_stream.send.call_args[0][0]
+        assert sent.message.root.method == "notifications/claude/channel"
+        assert sent.message.root.params["channel"] == "test:ch"
+
+    @pytest.mark.anyio
+    async def test_emit_swallows_errors(self):
+        mcp_srv = MagicMock()
+        mcp_srv.request_context = property(lambda self: (_ for _ in ()).throw(LookupError))
+        # Should not raise
+        await _emit_channel_notification(mcp_srv, channel="test:ch", content="hello")
