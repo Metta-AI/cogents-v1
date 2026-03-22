@@ -5,25 +5,19 @@ import { Sidebar, type TabId, VALID_TABS } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 import { useCogentData } from "@/hooks/useCogentData";
 import { OverviewPanel } from "@/components/overview/OverviewPanel";
-import { ProcessesPanel } from "@/components/processes/ProcessesPanel";
+import { ProcessesView } from "@/components/processes/ProcessesView";
 import { FilesPanel } from "@/components/files/FilesPanel";
 import { ConfigurePanel } from "@/components/configure/ConfigurePanel";
-import { HandlersPanel } from "@/components/handlers/HandlersPanel";
-import { RunsPanel } from "@/components/runs/RunsPanel";
-import { TracePanel } from "@/components/traces/TracePanel";
-import { ResourcesPanel } from "@/components/resources/ResourcesPanel";
-import { AlertsPanel } from "@/components/alerts/AlertsPanel";
-import { CronPanel } from "@/components/cron/CronPanel";
+import { EventsPanel } from "@/components/events/EventsPanel";
 import { DiagnosticsPanel } from "@/components/diagnostics/DiagnosticsPanel";
-import { TraceViewerPanel } from "@/components/trace-viewer/TraceViewerPanel";
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { ExecutorsPanel } from "@/components/executors/ExecutorsPanel";
 
 function getTabFromHash(): TabId {
   if (typeof window === "undefined") return "overview";
   const hash = window.location.hash.replace("#", "");
-  if (hash === "events") return "trace";
-  if (hash.startsWith("trace-viewer:") || hash === "trace-viewer") return "trace-viewer" as TabId;
+  if (hash === "handlers" || hash === "cron") return "events" as TabId;
+  if (hash === "runs" || hash === "executors" || hash === "resources") return "processes" as TabId;
+  if (hash === "trace" || hash === "trace-viewer" || hash.startsWith("trace-viewer:")) return "events" as TabId;
   if (hash === "setup" || hash === "integrations" || hash === "capabilities") return "configure" as TabId;
   return VALID_TABS.has(hash as TabId) ? (hash as TabId) : "overview";
 }
@@ -106,7 +100,6 @@ function Dashboard({ cogentName, activeTab, onTabChange, initialTraceId }: { cog
       <Sidebar
         activeTab={activeTab}
         onTabChange={onTabChange}
-        alertCount={data.status?.unresolved_alerts}
         stuckProcessCount={stuckProcessCount}
       />
       <Header
@@ -122,6 +115,8 @@ function Dashboard({ cogentName, activeTab, onTabChange, initialTraceId }: { cog
         ages={cs?.ages ?? null}
         showHistory={showHistory}
         onShowHistoryChange={setShowHistory}
+        alerts={data.alerts}
+        alertCount={data.status?.unresolved_alerts ?? data.alerts.length}
       />
       <main
         className="fixed overflow-y-auto p-5 pb-16"
@@ -135,7 +130,7 @@ function Dashboard({ cogentName, activeTab, onTabChange, initialTraceId }: { cog
         {activeTab === "overview" && <OverviewPanel data={data} />}
         {activeTab === "chat" && <ChatPanel cogentName={cogentName} />}
         {activeTab === "processes" && (
-          <ProcessesPanel
+          <ProcessesView
             processes={data.processes}
             cogentName={cogentName}
             onRefresh={refresh}
@@ -145,40 +140,20 @@ function Dashboard({ cogentName, activeTab, onTabChange, initialTraceId }: { cog
             capabilities={data.capabilities}
             eventTypes={data.eventTypes}
             currentEpoch={currentEpoch}
+            executors={data.executors}
           />
         )}
         {activeTab === "files" && (
           <FilesPanel files={data.files} cogentName={cogentName} onRefresh={refresh} />
         )}
-        {activeTab === "handlers" && (
-          <HandlersPanel handlers={data.handlers} />
-        )}
-        {activeTab === "runs" && (
-          <RunsPanel runs={data.runs} cogentName={cogentName} currentEpoch={currentEpoch} />
-        )}
-        {activeTab === "trace" && (
-          <TracePanel traces={data.traces} cogentName={cogentName} timeRange={timeRange} onRefresh={refresh} />
-        )}
-        {activeTab === "trace-viewer" && (
-          <TraceViewerPanel cogentName={cogentName} initialTraceId={initialTraceId} />
-        )}
-        {activeTab === "cron" && (
-          <CronPanel crons={data.crons} cogentName={cogentName} onRefresh={refresh} />
-        )}
-        {activeTab === "executors" && (
-          <ExecutorsPanel executors={data.executors} runs={data.runs} cogentName={cogentName} />
-        )}
-        {activeTab === "resources" && (
-          <ResourcesPanel resources={data.resources} />
-        )}
-        {activeTab === "alerts" && (
-          <AlertsPanel alerts={data.alerts} cogentName={cogentName} onRefresh={refresh} />
+        {activeTab === "events" && (
+          <EventsPanel handlers={data.handlers} crons={data.crons} traces={data.traces} cogentName={cogentName} timeRange={timeRange} onRefresh={refresh} initialTraceId={initialTraceId} />
         )}
         {activeTab === "diagnostics" && (
           <DiagnosticsPanel cogentName={cogentName} />
         )}
         {activeTab === "configure" && (
-          <ConfigurePanel cogentName={cogentName} capabilities={data.capabilities} onRefresh={refresh} />
+          <ConfigurePanel cogentName={cogentName} />
         )}
       </main>
     </div>

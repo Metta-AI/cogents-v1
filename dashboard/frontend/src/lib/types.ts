@@ -101,12 +101,10 @@ export interface CogosHandler {
   id: string;
   process: string;
   process_name?: string;
-  event_pattern: string;
+  channel_id?: string;
+  channel_name?: string;
   enabled: boolean;
-  fired_1m: number;
-  fired_5m: number;
-  fired_1h: number;
-  fired_24h: number;
+  created_at?: string;
 }
 
 export interface CogosRun {
@@ -365,7 +363,7 @@ export interface Alert {
 export interface CronItem {
   id: string;
   cron_expression: string;
-  event_pattern: string;
+  channel_name: string;
   enabled: boolean;
   metadata: Record<string, unknown>;
   created_at: string | null;

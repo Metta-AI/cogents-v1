@@ -4,24 +4,22 @@ import { useState, useCallback } from "react";
 import type { CronItem } from "@/lib/types";
 import { createCron, updateCron, deleteCron, toggleCrons } from "@/lib/api";
 
-interface CronPanelProps {
+interface CronTabProps {
   crons: CronItem[];
   cogentName: string;
   onRefresh: () => void;
 }
 
-export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
+export function CronTab({ crons, cogentName, onRefresh }: CronTabProps) {
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [toggling, setToggling] = useState<Set<string>>(new Set());
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  // Create form state
   const [newExpr, setNewExpr] = useState("*/5 * * * *");
   const [newPattern, setNewPattern] = useState("");
   const [newEnabled, setNewEnabled] = useState(true);
 
-  // Edit form state
   const [editExpr, setEditExpr] = useState("");
   const [editPattern, setEditPattern] = useState("");
 
@@ -29,7 +27,7 @@ export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
     if (!newExpr.trim() || !newPattern.trim()) return;
     await createCron(cogentName, {
       cron_expression: newExpr.trim(),
-      event_pattern: newPattern.trim(),
+      channel_name: newPattern.trim(),
       enabled: newEnabled,
     });
     setCreating(false);
@@ -68,14 +66,14 @@ export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
   const startEdit = useCallback((cron: CronItem) => {
     setEditingId(cron.id);
     setEditExpr(cron.cron_expression);
-    setEditPattern(cron.event_pattern);
+    setEditPattern(cron.channel_name);
   }, []);
 
   const handleUpdate = useCallback(async () => {
     if (!editingId || !editExpr.trim() || !editPattern.trim()) return;
     await updateCron(cogentName, editingId, {
       cron_expression: editExpr.trim(),
-      event_pattern: editPattern.trim(),
+      channel_name: editPattern.trim(),
     });
     setEditingId(null);
     onRefresh();
@@ -83,7 +81,6 @@ export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
 
   return (
     <div className="space-y-3">
-      {/* Header with create button */}
       <div className="flex items-center justify-between mb-2">
         <div className="text-[11px] text-[var(--text-muted)]">
           {crons.length} cron schedule{crons.length !== 1 ? "s" : ""}
@@ -103,7 +100,6 @@ export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
         )}
       </div>
 
-      {/* Create form */}
       {creating && (
         <div
           className="p-4 rounded-md border space-y-3"
@@ -137,7 +133,7 @@ export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
             </div>
             <div>
               <label className="block text-[10px] text-[var(--text-muted)] uppercase tracking-wide mb-1">
-                Event Pattern
+                Channel
               </label>
               <input
                 value={newPattern}
@@ -151,7 +147,7 @@ export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
                 }}
               />
               <div className="text-[9px] text-[var(--text-muted)] mt-1">
-                Event type emitted on each tick
+                Channel emitted on each tick
               </div>
             </div>
           </div>
@@ -190,10 +186,7 @@ export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
         </div>
       )}
 
-      {/* Cron table */}
-      <div
-        className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md overflow-hidden"
-      >
+      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md overflow-hidden">
         <table className="w-full text-left text-[12px]">
           <thead>
             <tr className="border-b border-[var(--border)]">
@@ -201,7 +194,7 @@ export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
                 Expression
               </th>
               <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">
-                Event Pattern
+                Channel
               </th>
               <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium text-center">
                 Enabled
@@ -295,7 +288,7 @@ export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
                       {c.cron_expression}
                     </td>
                     <td className="px-3 py-2 font-mono text-[var(--text-muted)]">
-                      {c.event_pattern}
+                      {c.channel_name}
                     </td>
                     <td className="px-3 py-2 text-center">
                       <ToggleSwitch
@@ -361,8 +354,6 @@ export function CronPanel({ crons, cogentName, onRefresh }: CronPanelProps) {
     </div>
   );
 }
-
-/* ---------- Toggle switch ---------- */
 
 function ToggleSwitch({
   checked,

@@ -45,90 +45,12 @@ const TABS = [
     ),
   },
   {
-    id: "handlers",
-    label: "Handlers",
+    id: "events",
+    label: "Events",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
         <path d="M13.73 21a2 2 0 01-3.46 0" />
-      </svg>
-    ),
-  },
-  {
-    id: "runs",
-    label: "Runs",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-      </svg>
-    ),
-  },
-  {
-    id: "trace",
-    label: "Trace",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="2 12 5 12 7 4 10 20 13 12 15 16 17 8 19 12 22 12" />
-      </svg>
-    ),
-  },
-  {
-    id: "trace-viewer",
-    label: "Trace Viewer",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10" />
-        <polyline points="12 6 12 12 16 14" />
-      </svg>
-    ),
-  },
-  {
-    id: "cron",
-    label: "Cron",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10" />
-        <polyline points="12 6 12 12 16 14" />
-      </svg>
-    ),
-  },
-  {
-    id: "executors",
-    label: "Executors",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="4" y="4" width="16" height="16" rx="2" />
-        <rect x="9" y="9" width="6" height="6" />
-        <line x1="9" y1="1" x2="9" y2="4" />
-        <line x1="15" y1="1" x2="15" y2="4" />
-        <line x1="9" y1="20" x2="9" y2="23" />
-        <line x1="15" y1="20" x2="15" y2="23" />
-        <line x1="20" y1="9" x2="23" y2="9" />
-        <line x1="20" y1="14" x2="23" y2="14" />
-        <line x1="1" y1="9" x2="4" y2="9" />
-        <line x1="1" y1="14" x2="4" y2="14" />
-      </svg>
-    ),
-  },
-  {
-    id: "resources",
-    label: "Resources",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="12" width="4" height="9" rx="0.5" />
-        <rect x="10" y="7" width="4" height="14" rx="0.5" />
-        <rect x="17" y="3" width="4" height="18" rx="0.5" />
-      </svg>
-    ),
-  },
-  {
-    id: "alerts",
-    label: "Alerts",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-        <line x1="12" y1="9" x2="12" y2="13" />
-        <line x1="12" y1="17" x2="12.01" y2="17" />
       </svg>
     ),
   },
@@ -159,11 +81,10 @@ export const VALID_TABS = new Set<string>(TABS.map((t) => t.id));
 interface SidebarProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
-  alertCount?: number;
   stuckProcessCount?: number;
 }
 
-export function Sidebar({ activeTab, onTabChange, alertCount, stuckProcessCount }: SidebarProps) {
+export function Sidebar({ activeTab, onTabChange, stuckProcessCount }: SidebarProps) {
   return (
     <nav
       className="fixed top-0 left-0 bottom-0 flex flex-col items-center py-2 z-50"
@@ -176,7 +97,6 @@ export function Sidebar({ activeTab, onTabChange, alertCount, stuckProcessCount 
       {TABS.map((tab) => {
         const isActive = activeTab === tab.id;
         const badgeCount =
-          tab.id === "alerts" ? alertCount :
           tab.id === "processes" ? stuckProcessCount :
           undefined;
 
@@ -231,7 +151,7 @@ export function Sidebar({ activeTab, onTabChange, alertCount, stuckProcessCount 
                   height: "14px",
                   fontSize: "8px",
                   padding: "0 3px",
-                  background: tab.id === "alerts" ? "var(--error)" : tab.id === "processes" ? "var(--warning)" : "var(--warning)",
+                  background: "var(--warning)",
                 }}
               >
                 {badgeCount > 99 ? "99+" : badgeCount}

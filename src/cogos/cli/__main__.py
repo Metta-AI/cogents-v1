@@ -1097,7 +1097,7 @@ def reboot_cmd(ctx: click.Context, yes: bool):
 @cogos.command("start")
 @click.argument("image_name", default="cogos")
 @click.option("--clean", is_flag=True, help="Wipe all tables before loading image")
-@click.option("--daemon", is_flag=True, help="Run dispatcher in background")
+@click.option("--foreground", is_flag=True, help="Run dispatcher in foreground instead of as a background daemon")
 @click.option("--skip-boot", is_flag=True, help="Skip image boot, just start the dispatcher")
 @click.option("--executor", "v_executor", default=None, help="Override executor version SHA")
 @click.option("--dashboard", "v_dashboard", default=None, help="Override dashboard version SHA")
@@ -1106,22 +1106,22 @@ def reboot_cmd(ctx: click.Context, yes: bool):
 @click.option("--lambda", "v_lambda", default=None, help="Override lambda version SHA")
 @click.option("--cogos-version", "v_cogos", default=None, help="Override cogos version SHA")
 @click.pass_context
-def start_cmd(ctx, image_name, clean, daemon, skip_boot,
+def start_cmd(ctx, image_name, clean, foreground, skip_boot,
               v_executor, v_dashboard, v_dashboard_frontend,
               v_discord_bridge, v_lambda, v_cogos):
-    """Boot CogOS image and start the dispatcher.
+    """Boot CogOS image and start the dispatcher as a background daemon.
 
     \b
     Boots the image (migrations + version resolution + image spec), then
-    starts the local dispatcher loop. Use --skip-boot to restart the
-    dispatcher without re-applying the image.
+    starts the local dispatcher as a background daemon. Use --foreground
+    to run in the current terminal instead.
 
     \b
     Examples:
-      cogos start                      # boot default image + run dispatcher
+      cogos start                      # boot default image + run daemon
       cogos start cogos --clean        # clean boot
       cogos start --skip-boot          # just start dispatcher
-      cogos start --daemon             # boot + run dispatcher in background
+      cogos start --foreground         # run dispatcher in foreground
     """
     runtime = ctx.obj.get("runtime")
     if runtime is None:
@@ -1138,15 +1138,29 @@ def start_cmd(ctx, image_name, clean, daemon, skip_boot,
 
     from cogtainer.local_dispatcher import run_loop
     repo = runtime.get_repository(cogent_name)
-    if daemon:
-        import subprocess
-        subprocess.Popen([sys.executable, "-m", "cogtainer.local_dispatcher",
-                         ctx.obj["cogtainer_name"], cogent_name])
-        click.echo("Dispatcher started in background")
-    else:
+    if foreground:
         entry = ctx.obj.get("cogtainer_entry")
         tick_interval = entry.tick_interval if entry else 60
         run_loop(repo, runtime, cogent_name, tick_interval=tick_interval)
+    else:
+        import subprocess
+        env = os.environ.copy()
+        env["COGTAINER"] = ctx.obj["cogtainer_name"]
+        env["COGENT"] = cogent_name
+        log_file = os.path.join(
+            os.environ.get("COGOS_LOCAL_DATA", os.path.expanduser("~/.cogos")),
+            "dispatcher.log",
+        )
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
+        log_fh = open(log_file, "a")
+        subprocess.Popen(
+            [sys.executable, "-m", "cogos.cli", "start", "--skip-boot", "--foreground"],
+            env=env,
+            stdout=log_fh,
+            stderr=log_fh,
+            start_new_session=True,
+        )
+        click.echo(f"Dispatcher started in background (log: {log_file})")
 
 
 @cogos.command("stop")
@@ -1154,22 +1168,30 @@ def start_cmd(ctx, image_name, clean, daemon, skip_boot,
 def stop_cmd(ctx):
     """Stop the local dispatcher."""
     cogent_name = ctx.obj.get("cogent_name", "")
-    safe_name = cogent_name.replace(".", "-")
 
     import subprocess
-    try:
-        out = subprocess.check_output(
-            ["pgrep", "-f", f"cogtainer.local_dispatcher.*{cogent_name}"],
-            text=True,
-        ).strip()
-    except subprocess.CalledProcessError:
-        out = ""
+    pids: list[str] = []
+    for pattern in [
+        f"cogtainer.local_dispatcher.*{cogent_name}",
+        "cogos.cli.*start.*--foreground",
+    ]:
+        try:
+            out = subprocess.check_output(
+                ["pgrep", "-f", pattern], text=True,
+            ).strip()
+            pids.extend(out.splitlines())
+        except subprocess.CalledProcessError:
+            pass
 
-    if not out:
+    # Deduplicate and exclude our own pid
+    my_pid = str(os.getpid())
+    pids = list(dict.fromkeys(p for p in pids if p != my_pid))
+
+    if not pids:
         click.echo(f"No running dispatcher found for {cogent_name}")
         return
 
-    for pid_str in out.splitlines():
+    for pid_str in pids:
         pid = int(pid_str)
         try:
             os.kill(pid, signal.SIGTERM)
@@ -1181,17 +1203,17 @@ def stop_cmd(ctx):
 @cogos.command("restart")
 @click.argument("image_name", default="cogos")
 @click.option("--clean", is_flag=True, help="Wipe all tables before loading image")
-@click.option("--daemon", is_flag=True, help="Run dispatcher in background")
+@click.option("--foreground", is_flag=True, help="Run dispatcher in foreground instead of as a background daemon")
 @click.option("--skip-boot", is_flag=True, help="Skip image boot, just restart the dispatcher")
 @click.pass_context
-def restart_cmd(ctx, image_name, clean, daemon, skip_boot):
+def restart_cmd(ctx, image_name, clean, foreground, skip_boot):
     """Stop, re-boot image, and start the dispatcher.
 
     \b
     Equivalent to: cogos stop && cogos start [options]
     """
     ctx.invoke(stop_cmd)
-    ctx.invoke(start_cmd, image_name=image_name, clean=clean, daemon=daemon,
+    ctx.invoke(start_cmd, image_name=image_name, clean=clean, foreground=foreground,
                skip_boot=skip_boot)
 
 

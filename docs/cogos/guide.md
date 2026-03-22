@@ -492,7 +492,7 @@ cogos cron delete <id>
 ### Start / Stop / Restart
 
 ```bash
-cogos start [<image>] [--clean] [--skip-boot] [--daemon]
+cogos start [<image>] [--clean] [--skip-boot] [--foreground]
 cogos stop
 cogos restart [<image>] [--clean]
 cogos snapshot <name>

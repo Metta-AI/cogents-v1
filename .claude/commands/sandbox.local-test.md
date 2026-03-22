@@ -27,7 +27,7 @@ uv run cogent create alpha
 ### 3. Boot the image and run init
 
 ```bash
-COGTAINER=dev COGENT=alpha uv run cogos start cogos --daemon
+COGTAINER=dev COGENT=alpha uv run cogos start cogos
 COGTAINER=dev COGENT=alpha uv run cogos process run init --executor local
 ```
 

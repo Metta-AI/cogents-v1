@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
-import type { TimeRange, AgeInfo } from "@/lib/types";
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import type { TimeRange, AgeInfo, Alert } from "@/lib/types";
 import * as api from "@/lib/api";
+import { fmtTimestamp } from "@/lib/format";
 
 const TIME_RANGES: { value: TimeRange; label: string }[] = [
   { value: "1m", label: "1m" },
@@ -25,6 +26,8 @@ interface HeaderProps {
   ages: AgeInfo | null;
   showHistory: boolean;
   onShowHistoryChange: (show: boolean) => void;
+  alerts: Alert[];
+  alertCount: number;
 }
 
 function useTickAgo(schedulerLastTick: string | null): { text: string; ms: number } | null {
@@ -114,6 +117,163 @@ function RebootButton({ cogentName, onRefresh }: { cogentName: string; onRefresh
   );
 }
 
+function AlertsBadge({ alerts, alertCount, cogentName, onRefresh }: {
+  alerts: Alert[];
+  alertCount: number;
+  cogentName: string;
+  onRefresh: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [resolving, setResolving] = useState<Set<string>>(new Set());
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const handleResolve = useCallback(async (alertId: string) => {
+    setResolving((s) => new Set(s).add(alertId));
+    try {
+      await api.resolveAlert(cogentName, alertId);
+      onRefresh();
+    } finally {
+      setResolving((s) => { const n = new Set(s); n.delete(alertId); return n; });
+    }
+  }, [cogentName, onRefresh]);
+
+  const handleResolveAll = useCallback(async () => {
+    await api.resolveAllAlerts(cogentName);
+    onRefresh();
+  }, [cogentName, onRefresh]);
+
+  const hasAlerts = alertCount > 0;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="relative flex items-center justify-center border-0 rounded-md cursor-pointer transition-colors duration-150"
+        style={{
+          width: "32px",
+          height: "32px",
+          background: open ? "var(--bg-hover)" : "var(--bg-surface)",
+          border: "1px solid var(--border)",
+          color: hasAlerts ? "var(--error)" : "var(--text-muted)",
+        }}
+        title={hasAlerts ? `${alertCount} unresolved alert${alertCount !== 1 ? "s" : ""}` : "No alerts"}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+        {hasAlerts && (
+          <span
+            className="absolute flex items-center justify-center rounded-full text-white font-bold"
+            style={{
+              top: "-4px",
+              right: "-4px",
+              minWidth: "16px",
+              height: "16px",
+              fontSize: "9px",
+              padding: "0 4px",
+              background: "var(--error)",
+            }}
+          >
+            {alertCount > 99 ? "99+" : alertCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          className="absolute right-0 top-full mt-1 z-50"
+          style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "8px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            width: "380px",
+            maxHeight: "400px",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: "1px solid var(--border)" }}>
+            <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>
+              Alerts ({alertCount})
+            </span>
+            {hasAlerts && (
+              <button
+                onClick={handleResolveAll}
+                className="text-[10px] px-2 py-0.5 rounded border-0 cursor-pointer"
+                style={{ background: "var(--accent)", color: "white" }}
+              >
+                Resolve All
+              </button>
+            )}
+          </div>
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {alerts.length === 0 ? (
+              <div className="text-center py-6" style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                No unresolved alerts
+              </div>
+            ) : (
+              alerts.map((a) => {
+                const sevColor = a.severity === "critical" || a.severity === "emergency"
+                  ? "var(--error)" : a.severity === "warning" ? "var(--warning)" : "var(--text-muted)";
+                return (
+                  <div
+                    key={a.id}
+                    className="flex items-start gap-2 px-3 py-2 hover:bg-[var(--bg-hover)] transition-colors"
+                    style={{ borderBottom: "1px solid var(--border)" }}
+                  >
+                    <span style={{
+                      fontSize: "9px",
+                      fontFamily: "var(--font-mono)",
+                      fontWeight: 600,
+                      color: sevColor,
+                      textTransform: "uppercase",
+                      minWidth: "48px",
+                      paddingTop: "2px",
+                    }}>
+                      {a.severity ?? "info"}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div style={{ fontSize: "11px", color: "var(--text-primary)", lineHeight: 1.4 }}>
+                        {(a.message ?? "--").length > 80
+                          ? (a.message ?? "--").slice(0, 80) + "..."
+                          : (a.message ?? "--")}
+                      </div>
+                      <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "2px" }}>
+                        {a.source ? `${a.source} · ` : ""}{fmtTimestamp(a.created_at)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleResolve(a.id)}
+                      disabled={resolving.has(a.id)}
+                      className="text-[9px] px-1.5 py-0.5 rounded border-0 cursor-pointer shrink-0 disabled:opacity-40"
+                      style={{ background: "var(--accent)", color: "white" }}
+                    >
+                      {resolving.has(a.id) ? "..." : "Resolve"}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Header({
   cogentName,
   statusText,
@@ -127,6 +287,8 @@ export function Header({
   ages,
   showHistory,
   onShowHistoryChange,
+  alerts,
+  alertCount,
 }: HeaderProps) {
   // Show spin for at least 400ms so the user sees feedback
   const [spinning, setSpinning] = useState(false);
@@ -282,6 +444,9 @@ export function Header({
       <div className="flex items-center gap-3">
         {/* Reboot button */}
         <RebootButton cogentName={cogentName} onRefresh={onRefresh} />
+
+        {/* Alerts badge */}
+        <AlertsBadge alerts={alerts} alertCount={alertCount} cogentName={cogentName} onRefresh={onRefresh} />
 
         {/* Refresh button with ages hover panel */}
         <div className="relative group/refresh">

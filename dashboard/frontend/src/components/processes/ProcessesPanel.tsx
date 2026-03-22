@@ -1999,7 +1999,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
   const [expandedPromptFiles, setExpandedPromptFiles] = useState<Set<string>>(new Set());
   const [detailCapGrants, setDetailCapGrants] = useState<Array<{ id: string; grant_name: string; capability_name: string; config: Record<string, unknown> | null }>>([]);
   const [detailIncludes, setDetailIncludes] = useState<Array<{ key: string; content: string }>>([]);
-  const [detailHandlers, setDetailHandlers] = useState<Array<{ id: string; channel?: string; event_pattern?: string; enabled: boolean }>>([]);
+  const [detailHandlers, setDetailHandlers] = useState<Array<{ id: string; channel_name?: string; channel?: string; enabled: boolean }>>([]);
   const [editingFileKey, setEditingFileKey] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
@@ -2078,7 +2078,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
 
   const handleEdit = useCallback((p: CogosProcess) => {
     setEditingId(p.id);
-    const handlerPatterns = detailHandlers.map((h) => h.channel || h.event_pattern || "");
+    const handlerPatterns = detailHandlers.map((h) => h.channel_name || h.channel || "");
     const grants: CapGrant[] = detailCapGrants.map((g) => ({
       grant_name: g.grant_name,
       capability_name: g.capability_name,
@@ -2635,7 +2635,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                               opacity: h.enabled ? 1 : 0.6,
                             }}
                           >
-                            →{h.channel || h.event_pattern}{!h.enabled && " (off)"}
+                            →{h.channel_name || h.channel}{!h.enabled && " (off)"}
                           </span>
                         ))}
                         {(proc.output_events || []).map((e) => (

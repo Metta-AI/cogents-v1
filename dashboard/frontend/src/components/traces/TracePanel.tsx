@@ -326,6 +326,8 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
   const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [hiddenCategories, setHiddenCategories] = useState<Set<MessageCategory>>(new Set());
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [hideTick, setHideTick] = useState(true);
   const [filteredTraceResults, setFilteredTraceResults] = useState<MessageTrace[] | null>(null);
   const [filterLoading, setFilterLoading] = useState(false);
   const [filterError, setFilterError] = useState<string | null>(null);
@@ -460,10 +462,16 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
     }
   }, [payloadDraft]);
   const visibleTraces = useMemo(() => {
+    let result = traceSource;
+    if (hideTick) {
+      result = result.filter((trace) => !trace.message.channel_name.startsWith("system:tick:"));
+    }
     const normalizedQuery = searchQuery.trim().toLowerCase();
-    if (!normalizedQuery) return traceSource;
-    return traceSource.filter((trace) => traceSearchBlob(trace).includes(normalizedQuery));
-  }, [searchQuery, traceSource]);
+    if (normalizedQuery) {
+      result = result.filter((trace) => traceSearchBlob(trace).includes(normalizedQuery));
+    }
+    return result;
+  }, [searchQuery, traceSource, hideTick]);
 
   useEffect(() => {
     setSelectedChannelId((prev) => {
@@ -492,6 +500,18 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
     setExpandedMessageIds((prev) => new Set(Array.from(prev).filter((id) => visibleIds.has(id))));
   }, [visibleTraces]);
 
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { system: 0, io: 0, other: 0, tick: 0 };
+    for (const trace of traceSource) {
+      const ch = trace.message.channel_name;
+      if (ch.startsWith("system:tick:")) counts.tick++;
+      if (ch.startsWith("system:")) counts.system++;
+      else if (ch.startsWith("io:")) counts.io++;
+      else counts.other++;
+    }
+    return counts;
+  }, [traceSource]);
+
   const summary = useMemo(() => {
     return visibleTraces.reduce(
       (acc, trace) => {
@@ -519,6 +539,7 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
   const clearFilters = () => {
     setSearchQuery("");
     setHiddenCategories(new Set());
+    setHideTick(false);
   };
 
   const toggleCategory = (category: MessageCategory) => {
@@ -582,7 +603,7 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
     }
   };
 
-  const hasClientFilters = searchQuery.trim().length > 0;
+  const hasClientFilters = searchQuery.trim().length > 0 || hideTick;
   const hasAnyFilters = hasServerFilters || hasClientFilters;
   const emptyMessage = hasAnyFilters
     ? "No channel message traces matched the current filters."
@@ -604,102 +625,102 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
         </div>
       </div>
 
-      <div className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">Compose Message</h3>
-            <div className="text-[11px] text-[var(--text-muted)]">
-              Send test traffic to named channels and replay payloads from traces.
+      {!composerOpen ? (
+        <button
+          type="button"
+          onClick={() => setComposerOpen(true)}
+          className="rounded-md border px-3 py-1.5 text-[11px] font-medium transition-colors"
+          style={{ background: "transparent", borderColor: "var(--border)", color: "var(--accent)" }}
+        >
+          + Send
+        </button>
+      ) : (
+        <div className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">Compose Message</h3>
+              <div className="text-[11px] text-[var(--text-muted)]">
+                Send test traffic to named channels and replay payloads from traces.
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setComposerOpen(false)}
+              className="text-[var(--text-muted)] hover:text-[var(--text-primary)] border-0 bg-transparent cursor-pointer text-[14px]"
+            >
+              &times;
+            </button>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            <Badge variant="neutral">named channels only</Badge>
-            {selectedChannel && <Badge variant="info">{selectedChannel.subscriber_count} subscribers</Badge>}
-          </div>
-        </div>
 
-        <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
-          <div className="space-y-3">
-            <div className="space-y-1">
+          <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="block text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                  Channel
+                </label>
+                <select
+                  value={selectedChannelId}
+                  onChange={(event) => setSelectedChannelId(event.target.value)}
+                  disabled={channelsLoading || sendableChannels.length === 0}
+                  className="w-full rounded-md border px-3 py-2 text-[12px] font-mono disabled:opacity-60"
+                  style={{
+                    background: "var(--bg-base)",
+                    borderColor: "var(--border)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  {sendableChannels.length === 0 && (
+                    <option value="">
+                      {channelsLoading ? "loading channels..." : "no named channels"}
+                    </option>
+                  )}
+                  {sendableChannels.map((channel) => (
+                    <option key={channel.id} value={channel.id}>
+                      {channel.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="rounded-md border border-[var(--border)] bg-[var(--bg-deep)] px-3 py-3 text-[11px] text-[var(--text-muted)] space-y-1">
+                {selectedChannel ? (
+                  <>
+                    <div>{selectedChannel.message_count} messages so far</div>
+                    <div>
+                      {selectedChannel.schema_definition
+                        ? `Schema: ${selectedChannel.schema_name ?? "inline"}`
+                        : "Schema: none, any JSON object is allowed"}
+                    </div>
+                  </>
+                ) : (
+                  <div>Select a named channel to send a message.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
               <label className="block text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
-                Channel
+                Payload JSON
               </label>
-              <select
-                value={selectedChannelId}
-                onChange={(event) => setSelectedChannelId(event.target.value)}
-                disabled={channelsLoading || sendableChannels.length === 0}
-                className="w-full rounded-md border px-3 py-2 text-[12px] font-mono disabled:opacity-60"
+              <textarea
+                value={payloadDraft}
+                onChange={(event) => setPayloadDraft(event.target.value)}
+                spellCheck={false}
+                rows={8}
+                placeholder='{"message_type":"example:request"}'
+                className="w-full rounded-md border px-3 py-2 text-[12px] font-mono"
                 style={{
                   background: "var(--bg-base)",
                   borderColor: "var(--border)",
                   color: "var(--text-primary)",
                 }}
-              >
-                {sendableChannels.length === 0 && (
-                  <option value="">
-                    {channelsLoading ? "loading channels..." : "no named channels"}
-                  </option>
-                )}
-                {sendableChannels.map((channel) => (
-                  <option key={channel.id} value={channel.id}>
-                    {channel.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="rounded-md border border-[var(--border)] bg-[var(--bg-deep)] px-3 py-3 text-[11px] text-[var(--text-muted)] space-y-1">
-              {selectedChannel ? (
-                <>
-                  <div>{selectedChannel.message_count} messages so far</div>
-                  <div>
-                    {selectedChannel.schema_definition
-                      ? `Schema: ${selectedChannel.schema_name ?? "inline"}`
-                      : "Schema: none, any JSON object is allowed"}
-                  </div>
-                  <div>
-                    {selectedChannel.schema_definition
-                      ? "Payload will be checked against the schema when you click Send."
-                      : "No channel schema is attached, so only JSON-object shape is checked locally."}
-                  </div>
-                </>
-              ) : (
-                <div>Select a named channel to send a message.</div>
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
-              Payload JSON
-            </label>
-            <textarea
-              value={payloadDraft}
-              onChange={(event) => setPayloadDraft(event.target.value)}
-              spellCheck={false}
-              rows={10}
-              placeholder='{"message_type":"example:request"}'
-              className="w-full rounded-md border px-3 py-2 text-[12px] font-mono"
-              style={{
-                background: "var(--bg-base)",
-                borderColor: "var(--border)",
-                color: "var(--text-primary)",
-              }}
-            />
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-[11px] text-[var(--text-muted)]">
-                Prefill from any expanded trace message or emitted message below.
-              </div>
-              <div className="flex flex-wrap gap-2">
+              />
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={clearComposer}
-                  className="rounded-md border px-3 py-2 text-[11px] font-medium uppercase tracking-wide transition-colors"
-                  style={{
-                    background: "transparent",
-                    borderColor: "var(--border)",
-                    color: "var(--text-muted)",
-                  }}
+                  className="rounded-md border px-3 py-1.5 text-[11px] font-medium transition-colors"
+                  style={{ background: "transparent", borderColor: "var(--border)", color: "var(--text-muted)" }}
                 >
                   Clear
                 </button>
@@ -707,28 +728,23 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
                   type="button"
                   onClick={() => void sendMessage()}
                   disabled={!canSend}
-                  className="rounded-md border px-3 py-2 text-[11px] font-medium uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{
-                    background: "var(--accent)",
-                    borderColor: "var(--accent)",
-                    color: "var(--bg-base)",
-                  }}
+                  className="rounded-md border px-3 py-1.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ background: "var(--accent)", borderColor: "var(--accent)", color: "var(--bg-base)" }}
                 >
                   {sending ? "Sending..." : "Send"}
                 </button>
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
-          {channelsLoading && <span>Loading named channels...</span>}
-          {channelsError && <span className="text-red-400">{channelsError}</span>}
-          {payloadValidation.error && <span className="text-red-400">{payloadValidation.error}</span>}
-          {composerError && <span className="text-red-400">{composerError}</span>}
-          {composerSuccess && <span className="text-emerald-300">{composerSuccess}</span>}
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+            {channelsError && <span className="text-red-400">{channelsError}</span>}
+            {payloadValidation.error && <span className="text-red-400">{payloadValidation.error}</span>}
+            {composerError && <span className="text-red-400">{composerError}</span>}
+            {composerSuccess && <span className="text-emerald-300">{composerSuccess}</span>}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="rounded-md border border-[var(--border)] bg-[var(--bg-surface)] p-4 space-y-3">
         <div className="flex flex-wrap items-center gap-3">
@@ -749,6 +765,7 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
           <div className="flex items-center gap-1.5">
             {MESSAGE_CATEGORIES.map((cat) => {
               const hidden = hiddenCategories.has(cat);
+              const count = categoryCounts[cat] ?? 0;
               return (
                 <button
                   key={cat}
@@ -763,10 +780,24 @@ export function TracePanel({ traces, cogentName, timeRange, onRefresh }: TracePa
                     textDecoration: hidden ? "line-through" : "none",
                   }}
                 >
-                  {cat}
+                  {cat} ({count})
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={() => setHideTick((v) => !v)}
+              className="rounded-full border px-3 py-1.5 text-[11px] font-medium font-mono transition-colors"
+              style={{
+                background: hideTick ? "transparent" : "var(--bg-deep)",
+                borderColor: "var(--border)",
+                color: hideTick ? "var(--text-muted)" : "var(--text-primary)",
+                opacity: hideTick ? 0.4 : 1,
+                textDecoration: hideTick ? "line-through" : "none",
+              }}
+            >
+              tick ({categoryCounts.tick})
+            </button>
           </div>
 
           <button
