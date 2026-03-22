@@ -8,7 +8,7 @@
  *
  * Environment variables:
  *   COGOS_API_URL      – Dashboard API base URL (e.g. http://localhost:8100)
- *   COGOS_COGENT_NAME  – Cogent name for API path prefix
+ *   COGENT             – Cogent name for API path prefix
  *   COGOS_API_KEY      – Optional API key for authenticated access
  *   COGOS_CHANNELS     – Comma-separated channel name patterns to subscribe to
  *                        (default: "io:claude-code:*")
@@ -27,7 +27,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const API_URL = process.env.COGOS_API_URL || "http://localhost:8100";
-const COGENT_NAME = process.env.COGOS_COGENT_NAME || "";
+const COGENT_NAME = process.env.COGENT || "";
 const API_KEY = process.env.COGOS_API_KEY || "";
 const CHANNEL_PATTERNS = (
   process.env.COGOS_CHANNELS || "io:claude-code:*"
