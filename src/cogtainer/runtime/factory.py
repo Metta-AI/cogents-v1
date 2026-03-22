@@ -30,9 +30,7 @@ def _get_cogtainer_session(entry: CogtainerEntry) -> boto3.Session:
     )
 
 
-def create_runtime(
-    entry: CogtainerEntry, cogtainer_name: str = ""
-) -> CogtainerRuntime:
+def create_runtime(entry: CogtainerEntry, cogtainer_name: str = "") -> CogtainerRuntime:
     """Instantiate the appropriate runtime for the given cogtainer config."""
     llm = create_provider(entry.llm, region=entry.region or "us-east-1")
 
@@ -45,9 +43,7 @@ def create_runtime(
         from cogtainer.runtime.aws import AwsRuntime
 
         session = _get_cogtainer_session(entry)
-        return AwsRuntime(
-            entry=entry, llm=llm, session=session, cogtainer_name=cogtainer_name
-        )
+        return AwsRuntime(entry=entry, llm=llm, session=session, cogtainer_name=cogtainer_name)
 
     raise ValueError(f"Unknown cogtainer type: {entry.type}")
 
@@ -64,24 +60,26 @@ def create_executor_runtime() -> CogtainerRuntime:
     cogtainer_name = os.environ["COGTAINER"]
     region = os.environ.get("AWS_REGION", "us-east-1")
     llm_provider = os.environ.get("LLM_PROVIDER", "bedrock")
-    default_model = os.environ.get(
-        "DEFAULT_MODEL", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    )
+    default_model = os.environ.get("DEFAULT_MODEL", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
 
-    # Try to resolve type from config; fall back to "aws" for Lambda environments
-    # where the config file is unavailable.
+    # Try to resolve type from config; fall back to env-based detection for
+    # executor subprocesses and Lambda environments where the config file
+    # is unavailable or the COGTAINER value is a type rather than a name.
+    cogtainer_type = None
     try:
         from cogtainer.config import load_config
+
         cfg = load_config()
         entry = cfg.cogtainers[cogtainer_name]
         cogtainer_type = entry.type
     except Exception:
-        import logging
-        logging.getLogger(__name__).debug(
-            "Could not load cogtainer config for '%s', defaulting to aws",
-            cogtainer_name,
-        )
-        cogtainer_type = "aws"
+        pass
+
+    if cogtainer_type is None:
+        if cogtainer_name in ("local", "docker"):
+            cogtainer_type = cogtainer_name
+        else:
+            cogtainer_type = "aws"
 
     llm_config = LLMConfig(provider=llm_provider, model=default_model, api_key_env="")
     if llm_provider == "openrouter":
@@ -92,12 +90,8 @@ def create_executor_runtime() -> CogtainerRuntime:
     if cogtainer_type in ("local", "docker"):
         from cogtainer.runtime.local import LocalRuntime
 
-        data_dir = os.environ.get(
-            "SECRETS_DATA_DIR", os.environ.get("COGOS_LOCAL_DATA", "")
-        )
-        entry = CogtainerEntry(
-            type=cogtainer_type, data_dir=data_dir, region=region, llm=llm_config
-        )
+        data_dir = os.environ.get("SECRETS_DATA_DIR", os.environ.get("COGOS_LOCAL_DATA", ""))
+        entry = CogtainerEntry(type=cogtainer_type, data_dir=data_dir, region=region, llm=llm_config)
         llm = create_provider(entry.llm, region=region)
         return LocalRuntime(entry=entry, llm=llm)
 
@@ -107,8 +101,10 @@ def create_executor_runtime() -> CogtainerRuntime:
         entry = CogtainerEntry(type="aws", region=region, llm=llm_config)
         llm = create_provider(entry.llm, region=region)
         import boto3 as _boto3
+
         return AwsRuntime(
-            entry=entry, llm=llm,
+            entry=entry,
+            llm=llm,
             session=_boto3.Session(region_name=region),
             cogtainer_name=cogtainer_name,
         )
