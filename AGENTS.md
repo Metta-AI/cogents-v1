@@ -482,6 +482,17 @@ uv run pytest                 # Run tests
 uv run cogtainer status       # Check infrastructure
 ```
 
+### Verification After Code Changes
+
+After making code changes, always run pyright and tests before considering the task complete:
+
+```bash
+uv run pyright                # Type-check — must pass with zero errors
+uv run pytest tests/ -q       # Unit tests — must pass
+```
+
+Do NOT push, commit, or claim work is done until both pass cleanly. If either fails, fix the issues first.
+
 ## Git Workflow
 
 - Do not push directly to `main` unless the user explicitly asks for that push in the current conversation.
