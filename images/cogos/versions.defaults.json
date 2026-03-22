@@ -1,7 +1,7 @@
 {
   "executor": "82a31b5",
   "dashboard": "7f86141",
-  "dashboard_frontend": "82a31b55a11e0e9946261ef8d908ff52b1ab672f",
+  "dashboard_frontend": "7f8614190e3a5c89ef40563d75de5c80c674021f",
   "discord_bridge": "local",
   "lambda": "82a31b55a11e0e9946261ef8d908ff52b1ab672f",
   "cogos": "82a31b55a11e0e9946261ef8d908ff52b1ab672f"
