@@ -127,9 +127,10 @@ def _spawn_cog(manifest):
     return r
 
 # ── Channels (created at boot so handlers can subscribe) ──────
-for ch_name in [
-    "io:discord:dm", "io:discord:mention", "io:discord:message",
-    "io:discord:api:request", "io:discord:api:response",
+_discord_cap = _cap_objects.get("discord")
+_cogent_handle = _discord_cap.handle() if _discord_cap is not None and hasattr(_discord_cap, "handle") else ""
+
+_boot_channels = [
     "discord-cog:review",
     "system:tick:minute", "system:tick:hour",
     "supervisor:help",
@@ -139,7 +140,21 @@ for ch_name in [
     "system:alerts",
     "supervisor:alerts",
     "triage:proposals",
-]:
+]
+if _cogent_handle:
+    _boot_channels += [
+        "io:discord:" + _cogent_handle + ":dm",
+        "io:discord:" + _cogent_handle + ":mention",
+        "io:discord:" + _cogent_handle + ":message",
+        "io:discord:" + _cogent_handle + ":api:request",
+        "io:discord:" + _cogent_handle + ":api:response",
+    ]
+else:
+    _boot_channels += [
+        "io:discord:dm", "io:discord:mention", "io:discord:message",
+        "io:discord:api:request", "io:discord:api:response",
+    ]
+for ch_name in _boot_channels:
     channels.create(ch_name)
 
 # ── Write cogent profile from capabilities ────────────────────

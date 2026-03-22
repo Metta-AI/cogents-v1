@@ -35,7 +35,9 @@ if not has_handler:
     )
     h2 = cog.make_coglet("handler")  # returns coglet handle
     result = coglet_runtime.run(h2, procs, subscribe=[
-        "io:discord:dm", "io:discord:mention", "io:discord:message",
+        "io:discord:" + discord.handle() + ":dm",
+        "io:discord:" + discord.handle() + ":mention",
+        "io:discord:" + discord.handle() + ":message",
     ])
     if hasattr(result, 'error'):
         print(f"ERROR spawning handler: {result.error}")

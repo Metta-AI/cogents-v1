@@ -22,7 +22,11 @@ r = procs.spawn("discord/handler",
         "image": None, "blob": None, "secrets": None, "web": None,
         "disk": disk,
     },
-    subscribe=["io:discord:dm", "io:discord:mention", "io:discord:message"],
+    subscribe=[
+        "io:discord:" + discord.handle() + ":dm",
+        "io:discord:" + discord.handle() + ":mention",
+        "io:discord:" + discord.handle() + ":message",
+    ],
 )
 if hasattr(r, 'error'):
     print("WARN: handler spawn failed: " + str(r.error))

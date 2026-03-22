@@ -128,6 +128,16 @@ class CogentStack(Stack):
                 resources=["*"],
             )
         )
+        # Marketplace (required for Bedrock model subscriptions)
+        self.cogent_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "aws-marketplace:ViewSubscriptions",
+                    "aws-marketplace:Subscribe",
+                ],
+                resources=["*"],
+            )
+        )
 
         # SES (if domain configured)
         if domain:

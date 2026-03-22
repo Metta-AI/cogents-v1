@@ -34,9 +34,10 @@ def _ensure_dm_channel(repo, cogent_name: str) -> Channel | None:
         ch = repo.get_channel_by_name(name)
         if ch is not None:
             return ch
-    ch = Channel(name="io:discord:dm", channel_type=ChannelType.NAMED)
+    scoped_name = f"io:discord:{cogent_name}:dm" if cogent_name else "io:discord:dm"
+    ch = Channel(name=scoped_name, channel_type=ChannelType.NAMED)
     repo.upsert_channel(ch)
-    return repo.get_channel_by_name("io:discord:dm")
+    return repo.get_channel_by_name(scoped_name)
 
 
 class ChatMessageIn(BaseModel):

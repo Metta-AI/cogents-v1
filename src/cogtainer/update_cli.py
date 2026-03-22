@@ -154,6 +154,7 @@ def _package_lambda_code() -> bytes:
         "anthropic",
         "asana",
         "PyGithub",
+        "PyYAML",
     ]
     subprocess.check_call(
         [
