@@ -704,6 +704,17 @@ export async function updateIntegration(
   return resp.json();
 }
 
+export async function revealIntegrationField(
+  name: string,
+  integrationName: string,
+  fieldName: string,
+): Promise<string> {
+  const r = await fetchJSON<{ value: string }>(
+    `/api/cogents/${name}/integrations/${integrationName}/reveal/${fieldName}`,
+  );
+  return r.value;
+}
+
 export async function deleteIntegration(
   name: string,
   integrationName: string,

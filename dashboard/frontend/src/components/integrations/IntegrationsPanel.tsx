@@ -5,6 +5,7 @@ import {
   getIntegrations,
   updateIntegration,
   deleteIntegration,
+  revealIntegrationField,
   type IntegrationInfo,
   type IntegrationField,
 } from "@/lib/api";
@@ -211,17 +212,16 @@ function IntegrationSection({
       {/* Current config display (when not editing) */}
       {!editing && isConfigured && (
         <div style={{ padding: "12px 18px", borderTop: "1px solid var(--border)" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "8px 16px" }}>
-            {integration.fields.map((field) => {
-              const val = integration.config[field.name];
-              if (!val) return null;
-              return (
-                <div key={field.name} style={{ fontSize: "0.8rem" }}>
-                  <span style={{ color: "var(--text-muted)" }}>{field.label}: </span>
-                  <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono, monospace)" }}>{val}</span>
-                </div>
-              );
-            })}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "8px 16px" }}>
+            {integration.fields.map((field) => (
+              <ConfigFieldDisplay
+                key={field.name}
+                field={field}
+                value={integration.config[field.name] ?? ""}
+                cogentName={cogentName}
+                integrationName={integration.name}
+              />
+            ))}
           </div>
         </div>
       )}
@@ -300,6 +300,83 @@ function IntegrationSection({
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Config field display (read-only with reveal for secrets) ─────────────────
+
+function ConfigFieldDisplay({
+  field,
+  value,
+  cogentName,
+  integrationName,
+}: {
+  field: IntegrationField;
+  value: string;
+  cogentName: string;
+  integrationName: string;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const [revealedValue, setRevealedValue] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const isSecret = field.type === "secret";
+  const displayValue = !value
+    ? "Not set"
+    : isSecret && !revealed
+      ? value
+      : isSecret && revealed && revealedValue !== null
+        ? revealedValue
+        : value;
+
+  const handleReveal = async () => {
+    if (revealed) {
+      setRevealed(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const raw = await revealIntegrationField(cogentName, integrationName, field.name);
+      setRevealedValue(raw);
+      setRevealed(true);
+    } catch {
+      // silently fail - value stays masked
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div key={field.name} style={{ fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{ color: "var(--text-muted)" }}>{field.label}: </span>
+      <span
+        style={{
+          color: value ? "var(--text-secondary)" : "var(--text-muted)",
+          fontFamily: "var(--font-mono, monospace)",
+          fontStyle: value ? "normal" : "italic",
+        }}
+      >
+        {displayValue}
+      </span>
+      {isSecret && value && (
+        <button
+          onClick={handleReveal}
+          disabled={loading}
+          style={{
+            padding: "1px 6px",
+            borderRadius: 4,
+            border: "1px solid var(--border)",
+            background: "transparent",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            fontSize: "0.7rem",
+            flexShrink: 0,
+          }}
+        >
+          {loading ? "..." : revealed ? "Hide" : "View"}
+        </button>
       )}
     </div>
   );
