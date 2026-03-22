@@ -76,6 +76,35 @@ class TestDiscordCogImage:
         prompt = Path("images/cogos/apps/discord/handler/main.md").read_text()
         assert "web.url(path)" in prompt
 
+    def test_discord_handler_cog_does_not_include_cogent_capability(self):
+        """The discord handler cog should not request the 'cogent' capability."""
+        import importlib
+        import importlib.util
+
+        cog_path = Path("images/cogos/apps/discord/handler/cog.py")
+        spec = importlib.util.spec_from_file_location("handler_cog", cog_path)
+        assert spec is not None and spec.loader is not None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert "cogent" not in mod.config.capabilities
+
+    def test_discord_handler_cog_capabilities_list(self):
+        """The discord handler should have expected capabilities without 'cogent'."""
+        import importlib
+        import importlib.util
+
+        cog_path = Path("images/cogos/apps/discord/handler/cog.py")
+        spec = importlib.util.spec_from_file_location("handler_cog", cog_path)
+        assert spec is not None and spec.loader is not None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        caps = mod.config.capabilities
+        assert "discord" in caps
+        assert "channels" in caps
+        assert "procs" in caps
+        assert "image" in caps
+        assert "cogent" not in caps
+
     def test_init_process_does_not_request_scheduler_capability(self):
         """The init process should not request the obsolete scheduler capability."""
         spec = load_image(Path("images/cogos"))

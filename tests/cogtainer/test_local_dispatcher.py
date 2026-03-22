@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import signal
+import threading
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from cogtainer.config import CogtainerEntry, LLMConfig
-from cogtainer.local_dispatcher import run_tick
+from cogtainer.local_dispatcher import _DEFAULT_TICK_INTERVAL, run_loop, run_tick
 from cogtainer.runtime.local import LocalRuntime
 
 
@@ -97,3 +99,65 @@ def test_tick_reaps_dead_executors(local_runtime: LocalRuntime):
     db_run = repo.get_run(run.id)
     assert db_run is not None
     assert db_run.status == RunStatus.FAILED
+
+
+# ── run_loop tick_interval ───────────────────────────────────────────
+
+
+def test_default_tick_interval_is_60():
+    """_DEFAULT_TICK_INTERVAL should be 60 seconds."""
+    assert _DEFAULT_TICK_INTERVAL == 60
+
+
+def test_run_loop_uses_custom_tick_interval(local_runtime: LocalRuntime):
+    """run_loop should use the provided tick_interval for sleep."""
+    cogent_name = "test-cogent"
+    local_runtime.create_cogent(cogent_name)
+    repo = local_runtime.get_repository(cogent_name)
+
+    tick_count = 0
+
+    def mock_run_tick(r, rt, cn):
+        nonlocal tick_count
+        tick_count += 1
+        return {"dispatched": 0}
+
+    with patch("cogtainer.local_dispatcher.run_tick", side_effect=mock_run_tick), \
+         patch("cogtainer.local_dispatcher.time.sleep") as mock_sleep:
+        call_count = 0
+
+        def sleep_then_stop(seconds):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise KeyboardInterrupt
+
+        mock_sleep.side_effect = sleep_then_stop
+
+        try:
+            run_loop(repo, local_runtime, cogent_name, tick_interval=5)
+        except KeyboardInterrupt:
+            pass
+
+    assert tick_count >= 1
+    mock_sleep.assert_called_with(1)
+
+
+def test_run_loop_logs_custom_tick_interval(local_runtime: LocalRuntime):
+    """run_loop should log the custom tick interval."""
+    cogent_name = "test-cogent"
+    local_runtime.create_cogent(cogent_name)
+    repo = local_runtime.get_repository(cogent_name)
+
+    with patch("cogtainer.local_dispatcher.run_tick", return_value={"dispatched": 0}), \
+         patch("cogtainer.local_dispatcher.time.sleep") as mock_sleep, \
+         patch("cogtainer.local_dispatcher.logger") as mock_logger:
+        mock_sleep.side_effect = KeyboardInterrupt
+
+        try:
+            run_loop(repo, local_runtime, cogent_name, tick_interval=15)
+        except KeyboardInterrupt:
+            pass
+
+    start_call = mock_logger.info.call_args_list[0]
+    assert 15 in start_call[0]

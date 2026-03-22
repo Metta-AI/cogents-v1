@@ -79,6 +79,53 @@ def test_aws_runtime_get_repository(aws_runtime: AwsRuntime, monkeypatch):
     aws_runtime._session.client.assert_called_with("rds-data", region_name="us-east-1")
 
 
+def test_aws_runtime_get_repository_uses_db_info_fallback(aws_runtime: AwsRuntime, monkeypatch):
+    """get_repository should use _get_db_info() when env vars are not set."""
+    monkeypatch.delenv("DB_CLUSTER_ARN", raising=False)
+    monkeypatch.delenv("DB_SECRET_ARN", raising=False)
+    monkeypatch.delenv("DB_NAME", raising=False)
+
+    # Mock _get_db_info to return stack-derived values
+    aws_runtime._db_info_cache = {
+        "cluster_arn": "arn:rds:from-stack",
+        "secret_arn": "arn:secret:from-stack",
+    }
+
+    repo = aws_runtime.get_repository("my.cogent")
+    # DB name should be derived from cogent name
+    assert repo._database == "cogent_my_cogent"
+    assert repo._resource_arn == "arn:rds:from-stack"
+    assert repo._secret_arn == "arn:secret:from-stack"
+
+
+def test_aws_runtime_get_repository_env_overrides_db_info(aws_runtime: AwsRuntime, monkeypatch):
+    """Env vars should take precedence when _get_db_info returns empty strings."""
+    monkeypatch.setenv("DB_CLUSTER_ARN", "arn:rds:from-env")
+    monkeypatch.setenv("DB_SECRET_ARN", "arn:secret:from-env")
+    monkeypatch.setenv("DB_NAME", "custom_db")
+
+    # _get_db_info returns empty (no stack outputs)
+    aws_runtime._db_info_cache = {"cluster_arn": "", "secret_arn": ""}
+
+    repo = aws_runtime.get_repository("alpha")
+    assert repo._resource_arn == "arn:rds:from-env"
+    assert repo._secret_arn == "arn:secret:from-env"
+    assert repo._database == "custom_db"
+
+
+def test_aws_runtime_get_repository_db_name_derived_from_cogent(aws_runtime: AwsRuntime, monkeypatch):
+    """Without DB_NAME env var, db name should be cogent_{safe_name}."""
+    monkeypatch.delenv("DB_NAME", raising=False)
+    aws_runtime._db_info_cache = {
+        "cluster_arn": "arn:rds:cluster",
+        "secret_arn": "arn:secret:secret",
+    }
+
+    repo = aws_runtime.get_repository("dr.alpha")
+    # _safe replaces . with -, then replace - with _ for db name
+    assert repo._database == "cogent_dr_alpha"
+
+
 # ── put_file / get_file ─────────────────────────────────────
 
 

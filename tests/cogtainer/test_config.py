@@ -136,3 +136,33 @@ def test_resolve_cogent_name_auto_selects_single() -> None:
 def test_resolve_cogent_name_errors_on_ambiguous() -> None:
     with pytest.raises(ValueError, match="[Aa]mbiguous|[Cc]annot determine"):
         resolve_cogent_name(["a", "b"], env_var="_COGENT_TEST_UNUSED")
+
+
+# ── tick_interval ────────────────────────────────────────────────────
+
+def test_tick_interval_defaults_to_60() -> None:
+    from cogtainer.config import CogtainerEntry, LLMConfig
+
+    entry = CogtainerEntry(
+        type="local",
+        data_dir="/tmp/x",
+        llm=LLMConfig(provider="anthropic", model="test", api_key_env=""),
+    )
+    assert entry.tick_interval == 60
+
+
+def test_tick_interval_custom_value(tmp_path: Path) -> None:
+    p = tmp_path / "cogtainers.yml"
+    p.write_text(textwrap.dedent("""\
+        cogtainers:
+          fast:
+            type: local
+            data_dir: /tmp/x
+            tick_interval: 10
+            llm:
+              provider: anthropic
+              model: test
+              api_key_env: KEY
+    """))
+    cfg = load_config(p)
+    assert cfg.cogtainers["fast"].tick_interval == 10
