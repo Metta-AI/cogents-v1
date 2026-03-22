@@ -91,7 +91,8 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 timeout = 60
 pythonpath = ["src"]
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m 'not e2e'"
+markers = ["e2e: end-to-end tests requiring external services"]
 
 [dependency-groups]
 dev = [
