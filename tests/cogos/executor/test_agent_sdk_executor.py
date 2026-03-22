@@ -6,11 +6,11 @@ import pytest
 
 
 class TestModelMapping:
-    def test_bedrock_to_sdk_model(self):
+    def test_bedrock_model_passthrough(self):
         from cogos.executor.agent_sdk import to_sdk_model
 
-        assert to_sdk_model("us.anthropic.claude-sonnet-4-5-20250929-v1:0") == "claude-sonnet-4-5-20250929"
-        assert to_sdk_model("us.anthropic.claude-haiku-4-5-20251001-v1:0") == "claude-haiku-4-5-20251001"
+        assert to_sdk_model("us.anthropic.claude-sonnet-4-5-20250929-v1:0") == "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+        assert to_sdk_model("us.anthropic.claude-haiku-4-5-20251001-v1:0") == "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
     def test_short_name_passthrough(self):
         from cogos.executor.agent_sdk import to_sdk_model

@@ -124,15 +124,7 @@ def build_mcp_server(capabilities: dict[str, Any]) -> Any:
 
 
 def to_sdk_model(model_id: str) -> str:
-    name = model_id
-    for prefix in ("us.anthropic.", "anthropic."):
-        if name.startswith(prefix):
-            name = name[len(prefix):]
-    if name.endswith(":0"):
-        name = name[:-2]
-    if name.endswith("-v1"):
-        name = name[:-3]
-    return name
+    return model_id
 
 
 import asyncio
