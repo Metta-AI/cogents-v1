@@ -17,7 +17,9 @@ def _reset_repo_singleton(monkeypatch):
 def test_get_repo_returns_repository():
     """get_repo creates a Repository via create()."""
     mock_repo = MagicMock()
-    with patch("dashboard.db.Repository") as MockRepo:
+    mock_runtime = MagicMock()
+    with patch("dashboard.db.create_executor_runtime", return_value=mock_runtime), \
+         patch("dashboard.db.Repository") as MockRepo:
         MockRepo.create.return_value = mock_repo
         result = db_mod.get_repo()
         assert result is mock_repo
@@ -26,7 +28,9 @@ def test_get_repo_returns_repository():
 
 def test_get_repo_raises_on_missing_credentials():
     """get_repo raises when credentials are missing."""
-    with patch("dashboard.db.Repository") as MockRepo:
+    mock_runtime = MagicMock()
+    with patch("dashboard.db.create_executor_runtime", return_value=mock_runtime), \
+         patch("dashboard.db.Repository") as MockRepo:
         MockRepo.create.side_effect = ValueError("Missing credentials")
         with pytest.raises(ValueError, match="Missing credentials"):
             db_mod.get_repo()
