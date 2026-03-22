@@ -206,10 +206,10 @@ class EmailIntegration(Integration):
 # ── Registry ─────────────────────────────────────────────────────
 
 INTEGRATIONS: list[Integration] = [
+    EmailIntegration(),
     DiscordIntegration(),
     GitHubIntegration(),
     AsanaIntegration(),
-    EmailIntegration(),
 ]
 
 INTEGRATIONS_BY_NAME: dict[str, Integration] = {i.name: i for i in INTEGRATIONS}

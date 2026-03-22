@@ -145,6 +145,8 @@ function IntegrationSection({
   };
 
   const isConfigured = integration.status.configured;
+  const hasAnyConfig = Object.values(integration.config).some((v) => v && v !== "");
+  const missingFields = new Set(integration.status.missing_fields);
 
   return (
     <div
@@ -184,11 +186,19 @@ function IntegrationSection({
               borderRadius: 12,
               fontSize: "0.75rem",
               fontWeight: 500,
-              background: isConfigured ? "rgba(34,197,94,0.12)" : "rgba(250,204,21,0.12)",
-              color: isConfigured ? "var(--success, #22c55e)" : "var(--warning, #eab308)",
+              background: isConfigured
+                ? "rgba(34,197,94,0.12)"
+                : hasAnyConfig
+                  ? "rgba(239,68,68,0.12)"
+                  : "rgba(250,204,21,0.12)",
+              color: isConfigured
+                ? "var(--success, #22c55e)"
+                : hasAnyConfig
+                  ? "var(--error, #ef4444)"
+                  : "var(--warning, #eab308)",
             }}
           >
-            {isConfigured ? "Connected" : "Not configured"}
+            {isConfigured ? "Connected" : hasAnyConfig ? "Incomplete" : "Not configured"}
           </span>
           {!editing && (
             <button
@@ -210,7 +220,7 @@ function IntegrationSection({
       </div>
 
       {/* Current config display (when not editing) */}
-      {!editing && isConfigured && (
+      {!editing && hasAnyConfig && (
         <div style={{ padding: "12px 18px", borderTop: "1px solid var(--border)" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "8px 16px" }}>
             {integration.fields.map((field) => (
@@ -220,6 +230,7 @@ function IntegrationSection({
                 value={integration.config[field.name] ?? ""}
                 cogentName={cogentName}
                 integrationName={integration.name}
+                isMissing={missingFields.has(field.name)}
               />
             ))}
           </div>
@@ -312,11 +323,13 @@ function ConfigFieldDisplay({
   value,
   cogentName,
   integrationName,
+  isMissing,
 }: {
   field: IntegrationField;
   value: string;
   cogentName: string;
   integrationName: string;
+  isMissing: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
   const [revealedValue, setRevealedValue] = useState<string | null>(null);
@@ -350,10 +363,12 @@ function ConfigFieldDisplay({
 
   return (
     <div key={field.name} style={{ fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 6 }}>
-      <span style={{ color: "var(--text-muted)" }}>{field.label}: </span>
+      <span style={{ color: isMissing ? "var(--error, #ef4444)" : "var(--text-muted)" }}>
+        {field.label}{isMissing && " (required)"}:
+      </span>
       <span
         style={{
-          color: value ? "var(--text-secondary)" : "var(--text-muted)",
+          color: isMissing ? "var(--error, #ef4444)" : value ? "var(--text-secondary)" : "var(--text-muted)",
           fontFamily: "var(--font-mono, monospace)",
           fontStyle: value ? "normal" : "italic",
         }}
