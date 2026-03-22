@@ -1328,10 +1328,13 @@ def dashboard_start(ctx: click.Context):
     _write_pid("backend", be_port, be_proc.pid)
 
     # Start frontend
+    fe_env = {**env}
+    if cogent_name:
+        fe_env["NEXT_PUBLIC_COGENT"] = cogent_name
     fe_proc = _sp.Popen(
         ["npx", "next", "dev", "-p", str(fe_port)],
         cwd=str(_FRONTEND_DIR),
-        env=env,
+        env=fe_env,
         stdout=open("/tmp/cogent-frontend.log", "w"),
         stderr=_sp.STDOUT,
         start_new_session=True,

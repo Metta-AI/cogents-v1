@@ -390,7 +390,7 @@ The dashboard uses CogOS routers. Key tabs:
 | Overview | CogOS status, process counts, recent runs | Verify stat rendering |
 | Processes | Process list with detail panel | Click rows to open detail |
 | Files | File browser with version history | Click rows, edit versions |
-| Capabilities | Capability list with method introspection | Click rows for detail |
+| Configure | Setup, Integrations, and Capabilities sub-tabs | Switch sub-tabs, click rows for detail |
 | Handlers | Event handler list with fire counts | View handler patterns |
 | Runs | Run history with scope logs | Click for run detail |
 | Events | Event log with tree view | Expand events, click tree |

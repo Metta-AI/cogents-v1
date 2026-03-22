@@ -278,67 +278,8 @@ export function Header({
         )}
       </div>
 
-      {/* Right: time range picker + refresh */}
+      {/* Right: reboot + refresh */}
       <div className="flex items-center gap-3">
-        {/* Time range picker */}
-        <div
-          className="flex items-center rounded-md overflow-hidden"
-          style={{
-            border: "1px solid var(--border)",
-            gap: "1px",
-            background: "var(--border)",
-          }}
-        >
-          {TIME_RANGES.map((tr) => (
-            <button
-              key={tr.value}
-              onClick={() => onTimeRangeChange(tr.value)}
-              className="border-0 cursor-pointer transition-colors duration-100"
-              style={{
-                padding: "4px 10px",
-                fontSize: "11px",
-                fontFamily: "var(--font-mono)",
-                fontWeight: 500,
-                color: timeRange === tr.value ? "var(--bg-deep)" : "var(--text-secondary)",
-                background: timeRange === tr.value ? "var(--accent)" : "var(--bg-surface)",
-              }}
-              onMouseEnter={(e) => {
-                if (timeRange !== tr.value) {
-                  e.currentTarget.style.background = "var(--bg-hover)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (timeRange !== tr.value) {
-                  e.currentTarget.style.background = "var(--bg-surface)";
-                }
-              }}
-            >
-              {tr.label}
-            </button>
-          ))}
-        </div>
-
-        {/* History toggle */}
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "4px",
-            fontSize: "10px",
-            fontFamily: "var(--font-mono)",
-            color: showHistory ? "var(--accent)" : "var(--text-muted)",
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={showHistory}
-            onChange={(e) => onShowHistoryChange(e.target.checked)}
-            style={{ margin: 0 }}
-          />
-          history
-        </label>
-
         {/* Reboot button */}
         <RebootButton cogentName={cogentName} onRefresh={onRefresh} />
 

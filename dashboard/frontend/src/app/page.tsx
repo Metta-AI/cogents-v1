@@ -7,18 +7,16 @@ import { useCogentData } from "@/hooks/useCogentData";
 import { OverviewPanel } from "@/components/overview/OverviewPanel";
 import { ProcessesPanel } from "@/components/processes/ProcessesPanel";
 import { FilesPanel } from "@/components/files/FilesPanel";
-import { CapabilitiesPanel } from "@/components/capabilities/CapabilitiesPanel";
+import { ConfigurePanel } from "@/components/configure/ConfigurePanel";
 import { HandlersPanel } from "@/components/handlers/HandlersPanel";
 import { RunsPanel } from "@/components/runs/RunsPanel";
 import { TracePanel } from "@/components/traces/TracePanel";
 import { ResourcesPanel } from "@/components/resources/ResourcesPanel";
 import { AlertsPanel } from "@/components/alerts/AlertsPanel";
 import { CronPanel } from "@/components/cron/CronPanel";
-import { SetupPanel } from "@/components/setup/SetupPanel";
 import { DiagnosticsPanel } from "@/components/diagnostics/DiagnosticsPanel";
 import { TraceViewerPanel } from "@/components/trace-viewer/TraceViewerPanel";
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { IntegrationsPanel } from "@/components/integrations/IntegrationsPanel";
 import { ExecutorsPanel } from "@/components/executors/ExecutorsPanel";
 
 function getTabFromHash(): TabId {
@@ -26,6 +24,7 @@ function getTabFromHash(): TabId {
   const hash = window.location.hash.replace("#", "");
   if (hash === "events") return "trace";
   if (hash.startsWith("trace-viewer:") || hash === "trace-viewer") return "trace-viewer" as TabId;
+  if (hash === "setup" || hash === "integrations" || hash === "capabilities") return "configure" as TabId;
   return VALID_TABS.has(hash as TabId) ? (hash as TabId) : "overview";
 }
 
@@ -41,7 +40,12 @@ function getTraceIdFromHash(): string | undefined {
 function useCogentName(): string | null {
   const [name, setName] = useState<string | null>(null);
   useEffect(() => {
-    setName(window.location.hostname.split(".")[0].replace(/-/g, "."));
+    const hostname = window.location.hostname;
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      setName(process.env.NEXT_PUBLIC_COGENT || "localhost");
+    } else {
+      setName(hostname.split(".")[0].replace(/-/g, "."));
+    }
   }, []);
   return name;
 }
@@ -146,9 +150,6 @@ function Dashboard({ cogentName, activeTab, onTabChange, initialTraceId }: { cog
         {activeTab === "files" && (
           <FilesPanel files={data.files} cogentName={cogentName} onRefresh={refresh} />
         )}
-        {activeTab === "capabilities" && (
-          <CapabilitiesPanel capabilities={data.capabilities} cogentName={cogentName} onRefresh={refresh} />
-        )}
         {activeTab === "handlers" && (
           <HandlersPanel handlers={data.handlers} />
         )}
@@ -176,11 +177,8 @@ function Dashboard({ cogentName, activeTab, onTabChange, initialTraceId }: { cog
         {activeTab === "diagnostics" && (
           <DiagnosticsPanel cogentName={cogentName} />
         )}
-        {activeTab === "integrations" && (
-          <IntegrationsPanel cogentName={cogentName} />
-        )}
-        {activeTab === "setup" && (
-          <SetupPanel cogentName={cogentName} />
+        {activeTab === "configure" && (
+          <ConfigurePanel cogentName={cogentName} capabilities={data.capabilities} onRefresh={refresh} />
         )}
       </main>
     </div>
