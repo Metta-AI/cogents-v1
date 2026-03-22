@@ -132,15 +132,17 @@ def init_trace(
     """
     if trace_id is None:
         trace_id = uuid4()
-        try:
-            repo.create_request_trace(RequestTrace(
-                id=trace_id,
-                cogent_id=cogent_id,
-                source=source,
-                source_ref=source_ref,
-            ))
-        except Exception:
-            logger.debug("Failed to create request trace", exc_info=True)
+    # Ensure the RequestTrace row exists (required by cogos_span FK).
+    # This is idempotent — a duplicate insert is harmlessly ignored.
+    try:
+        repo.create_request_trace(RequestTrace(
+            id=trace_id,
+            cogent_id=cogent_id,
+            source=source,
+            source_ref=source_ref,
+        ))
+    except Exception:
+        logger.debug("Failed to create request trace", exc_info=True)
 
     root_span_id = uuid4()
     ctx = TraceContext(trace_id=trace_id, span_id=root_span_id, repo=repo)

@@ -146,11 +146,11 @@ class Repository:
                         val = p.get("value", {})
                         sv = val.get("stringValue")
                         if sv is not None:
-                            logger.error(
+                            logger.debug(
                                 "JSONB param %s value (first 200 chars): %s",
                                 name, sv[:200],
                             )
-            logger.error("Failing SQL: %s", sql[:500])
+            logger.warning("Failing SQL: %s", sql[:500])
             raise
 
     def _param(self, name: str, value: Any) -> dict:
@@ -477,6 +477,26 @@ class Repository:
             params,
         )
         return [self._process_from_row(r) for r in self._rows_to_dicts(response)]
+
+    def try_transition_process(
+        self, process_id: UUID, from_status: ProcessStatus, to_status: ProcessStatus
+    ) -> bool:
+        """Atomically transition process status only if current status matches from_status."""
+        extra = ""
+        if to_status == ProcessStatus.RUNNABLE:
+            extra = ", runnable_since = COALESCE(runnable_since, now())"
+        elif to_status in (ProcessStatus.RUNNING, ProcessStatus.WAITING, ProcessStatus.COMPLETED):
+            extra = ", runnable_since = NULL"
+        response = self._execute(
+            f"UPDATE cogos_process SET status = :to_status{extra}, updated_at = now() "
+            f"WHERE id = :id AND status = :from_status",
+            [
+                self._param("id", process_id),
+                self._param("to_status", to_status.value),
+                self._param("from_status", from_status.value),
+            ],
+        )
+        return response.get("numberOfRecordsUpdated", 0) == 1
 
     def update_process_status(self, process_id: UUID, status: ProcessStatus) -> bool:
         extra = ""
@@ -1720,6 +1740,7 @@ class Repository:
         response = self._execute(
             """INSERT INTO cogos_request_trace (id, cogent_id, source, source_ref)
                VALUES (:id, :cogent_id, :source, :source_ref)
+               ON CONFLICT (id) DO NOTHING
                RETURNING id, created_at""",
             [
                 self._param("id", trace.id),
@@ -1732,7 +1753,8 @@ class Repository:
         if row:
             trace.created_at = self._ts(row, "created_at")
             return UUID(row["id"])
-        raise RuntimeError("Failed to create request trace")
+        # ON CONFLICT DO NOTHING — trace already exists
+        return trace.id
 
     def get_request_trace(self, trace_id: UUID) -> RequestTrace | None:
         response = self._execute(

@@ -576,6 +576,16 @@ class LocalRepository(Repository):
         procs.sort(key=lambda p: p.name)
         return procs[:limit]
 
+    def try_transition_process(
+        self, process_id: UUID, from_status: ProcessStatus, to_status: ProcessStatus
+    ) -> bool:
+        """Atomically transition process status only if current status matches from_status."""
+        with self._writing():
+            process = self._processes.get(process_id)
+            if process is None or process.status != from_status:
+                return False
+            return self.update_process_status(process_id, to_status)
+
     def update_process_status(self, process_id: UUID, status: ProcessStatus) -> bool:
         with self._writing():
             process = self._processes.get(process_id)

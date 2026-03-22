@@ -73,8 +73,9 @@ elif not is_dm and not is_mention:
     # Channel message — check if it's addressed to us
     content_lower = content.lower()
     has_mention_tag = "<@" in content
-    mentions_me = (my_discord_id and f"<@{my_discord_id}>" in content) or (my_name and my_name.lower() in content_lower)
-    mentions_other = has_mention_tag and not (my_discord_id and f"<@{my_discord_id}>" in content)
+    my_mention_tag = "<@" + my_discord_id + ">" if my_discord_id else ""
+    mentions_me = (my_mention_tag and my_mention_tag in content) or (my_name and my_name.lower() in content_lower)
+    mentions_other = has_mention_tag and not (my_mention_tag and my_mention_tag in content)
 
     if (mentions_other and not mentions_me) or (not mentions_me):
         seen = waterline.get("seen", [])
