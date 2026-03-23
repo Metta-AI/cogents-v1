@@ -68,3 +68,15 @@ uv run cogos status
 ```
 
 Print: `Local cogent ready. Run /sandbox.local-test for full diagnostics + dashboard.`
+
+## Troubleshooting
+
+If any step fails silently or produces unexpected output, check the logs:
+
+```bash
+uv run cogent status   # shows log_dir path
+```
+
+Then read the relevant log in `{log_dir}/`:
+- `dispatcher.log` — dispatcher daemon output
+- `executor.log` — executor subprocess output
