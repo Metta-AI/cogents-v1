@@ -50,6 +50,12 @@ class _ExecutorRepoStub:
         self._executors[executor.executor_id] = executor
         return str(executor.id)
 
+    def get_channel_by_name(self, name: str):
+        return None
+
+    def upsert_channel(self, channel):
+        pass
+
     def get_executor(self, executor_id: str) -> Executor | None:
         return self._executors.get(executor_id)
 

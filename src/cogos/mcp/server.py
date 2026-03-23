@@ -103,7 +103,15 @@ class CogosServer:
                 },
             )
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+
+            # Subscribe to the executor's dedicated channel
+            executor_channel = data.get("channel", "")
+            if executor_channel:
+                self.channel_patterns.append(executor_channel)
+                logger.info("Subscribed to executor channel %s", executor_channel)
+
+            return data
         except Exception:
             logger.debug("register failed", exc_info=True)
             return {}
@@ -609,7 +617,6 @@ async def amain() -> None:
         tasks: list[asyncio.Task[None]] = []
         tasks.append(asyncio.create_task(cogos.run_heartbeat_loop()))
         tasks.append(asyncio.create_task(cogos.run_channel_poll_loop(mcp_srv)))
-        tasks.append(asyncio.create_task(cogos.run_work_poll_loop(mcp_srv)))
 
         try:
             await mcp_srv.run(read_stream, write_stream, mcp_srv.create_initialization_options())

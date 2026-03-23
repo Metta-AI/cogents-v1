@@ -26,6 +26,7 @@ class RegisterRequest(BaseModel):
 
 class RegisterResponse(BaseModel):
     executor_id: str
+    channel: str = ""
     heartbeat_interval_s: int = 30
     status: str = "registered"
 
@@ -142,8 +143,13 @@ def register_executor(
     body: RegisterRequest,
     auth: AuthContext = Depends(validate_token),
 ):
-    """Register a channel executor with the cogent."""
+    """Register a channel executor with the cogent.
+
+    Also creates a dedicated channel ``system:executor:<executor_id>`` so that
+    messages sent to that channel are forwarded to the executor's Claude Code session.
+    """
     from cogos.db.models import Executor
+    from cogos.db.models.channel import Channel, ChannelType
 
     repo = get_repo()
 
@@ -155,8 +161,16 @@ def register_executor(
     )
     repo.register_executor(executor)
 
+    # Create dedicated executor channel (idempotent)
+    channel_name = f"system:executor:{body.executor_id}"
+    existing = repo.get_channel_by_name(channel_name)
+    if not existing:
+        ch = Channel(name=channel_name, channel_type=ChannelType.NAMED)
+        repo.upsert_channel(ch)
+
     return RegisterResponse(
         executor_id=body.executor_id,
+        channel=channel_name,
         heartbeat_interval_s=30,
         status="registered",
     )
