@@ -99,13 +99,14 @@ class CogentStack(Stack):
             )
         )
 
-        # Secrets Manager — DB secret + cogent-specific secrets
+        # Secrets Manager — DB secret + cogent-specific + shared (cogent/all/*) secrets
         self.cogent_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue"],
                 resources=[
                     db_secret_arn,
                     f"arn:aws:secretsmanager:*:*:secret:cogent/{cogent_name}/*",
+                    "arn:aws:secretsmanager:*:*:secret:cogent/all/*",
                 ],
             )
         )
@@ -581,13 +582,14 @@ class CogentStack(Stack):
             )
         )
 
-        # Secrets
+        # Secrets — cogent-specific + shared (cogent/all/*) secrets
         task_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue"],
                 resources=[
                     db_secret_arn,
                     f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogent/{cogent_name}/*",
+                    f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogent/all/*",
                 ],
             )
         )
@@ -775,13 +777,14 @@ class CogentStack(Stack):
             )
         )
 
-        # Secrets Manager — DB secret + cogent discord secrets + shared discord secret
+        # Secrets Manager — DB secret + cogent-specific + shared (cogent/all/*) + agora/cogtainer secrets
         bridge_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue"],
                 resources=[
                     db_secret_arn,
                     f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogent/{cogent_name}/*",
+                    f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogent/all/*",
                     f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:agora/*",
                     f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogtainer/*",
                 ],
