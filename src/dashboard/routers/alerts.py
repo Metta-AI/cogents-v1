@@ -35,19 +35,27 @@ class AlertCreate(BaseModel):
     metadata: dict = {}
 
 
-def _fmt(row: dict) -> AlertItem:
-    meta = row.get("metadata")
+def _to_dict(row: object) -> dict:
+    """Normalise an alert row — works for both RDS dicts and Pydantic models."""
+    if isinstance(row, dict):
+        return row
+    return row.model_dump()  # type: ignore[union-attr]
+
+
+def _fmt(row: object) -> AlertItem:
+    d = _to_dict(row)
+    meta = d.get("metadata")
     if isinstance(meta, str):
         meta = _json.loads(meta)
     return AlertItem(
-        id=str(row.get("id", "")),
-        severity=row.get("severity", ""),
-        alert_type=row.get("alert_type", ""),
-        source=row.get("source", ""),
-        message=row.get("message", ""),
+        id=str(d.get("id", "")),
+        severity=d.get("severity", ""),
+        alert_type=d.get("alert_type", ""),
+        source=d.get("source", ""),
+        message=d.get("message", ""),
         metadata=meta,
-        resolved_at=str(row["resolved_at"]) if row.get("resolved_at") else None,
-        created_at=str(row["created_at"]) if row.get("created_at") else None,
+        resolved_at=str(d["resolved_at"]) if d.get("resolved_at") else None,
+        created_at=str(d["created_at"]) if d.get("created_at") else None,
     )
 
 
@@ -75,7 +83,7 @@ def resolve_all_alerts(name: str) -> dict:
     repo = get_repo()
     unresolved = repo.list_alerts(resolved=False, limit=500)
     for row in unresolved:
-        repo.resolve_alert(UUID(str(row["id"])))
+        repo.resolve_alert(UUID(str(_to_dict(row)["id"])))
     return {"ok": True, "resolved": len(unresolved)}
 
 
