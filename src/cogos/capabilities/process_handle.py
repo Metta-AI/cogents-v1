@@ -9,6 +9,8 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from cogos.db.models import Channel, ChannelMessage, ProcessStatus
+from cogos.db.models.wait_condition import WaitCondition, WaitConditionType
+from cogos.sandbox.executor import WaitSuspend
 
 
 class MessageInfo(BaseModel):
@@ -40,12 +42,14 @@ class ProcessHandle:
         process,
         send_channel: Channel | None,
         recv_channel: Channel | None,
+        run_id: UUID | None = None,
     ):
         self._repo = repo
         self._caller_id = caller_process_id
         self._process = process
         self._send_channel = send_channel
         self._recv_channel = recv_channel
+        self._run_id = run_id
 
     @property
     def id(self) -> str:
@@ -112,17 +116,58 @@ class ProcessHandle:
             return s.definition if s else None
         return None
 
-    def wait(self) -> dict:
-        """Return a wait spec -- the executor interprets this to end the run and re-wake when child completes."""
-        return {"type": "wait", "process_ids": [str(self._process.id)]}
+    def _child_already_exited(self, child_pid: UUID) -> bool:
+        ch = self._repo.get_channel_by_name(f"spawn:{child_pid}\u2192{self._caller_id}")
+        if not ch:
+            return False
+        msgs = self._repo.list_channel_messages(ch.id, limit=50)
+        return any(
+            isinstance(m.payload, dict) and m.payload.get("type") == "child:exited"
+            for m in msgs
+        )
+
+    def wait(self) -> None:
+        if self._child_already_exited(self._process.id):
+            return
+        if self._run_id is None:
+            raise RuntimeError("wait() requires run_id on ProcessHandle")
+        self._repo.create_wait_condition(WaitCondition(
+            run=self._run_id,
+            type=WaitConditionType.WAIT,
+            pending=[str(self._process.id)],
+        ))
+        raise WaitSuspend()
 
     @staticmethod
-    def wait_any(handles: list[ProcessHandle]) -> dict:
-        return {"type": "wait_any", "process_ids": [h.id for h in handles]}
+    def wait_any(handles: list[ProcessHandle]) -> None:
+        if any(h._child_already_exited(h._process.id) for h in handles):
+            return
+        repo = handles[0]._repo
+        run_id = handles[0]._run_id
+        if run_id is None:
+            raise RuntimeError("wait_any() requires run_id on ProcessHandle")
+        repo.create_wait_condition(WaitCondition(
+            run=run_id,
+            type=WaitConditionType.WAIT_ANY,
+            pending=[h.id for h in handles],
+        ))
+        raise WaitSuspend()
 
     @staticmethod
-    def wait_all(handles: list[ProcessHandle]) -> dict:
-        return {"type": "wait_all", "process_ids": [h.id for h in handles]}
+    def wait_all(handles: list[ProcessHandle]) -> None:
+        still_pending = [h.id for h in handles if not h._child_already_exited(h._process.id)]
+        if not still_pending:
+            return
+        repo = handles[0]._repo
+        run_id = handles[0]._run_id
+        if run_id is None:
+            raise RuntimeError("wait_all() requires run_id on ProcessHandle")
+        repo.create_wait_condition(WaitCondition(
+            run=run_id,
+            type=WaitConditionType.WAIT_ALL,
+            pending=still_pending,
+        ))
+        raise WaitSuspend()
 
     def cog_send(self, payload: dict[str, Any]) -> dict:
         """Send a message to the child via cog:from channel (injected into its context)."""
