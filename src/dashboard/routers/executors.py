@@ -68,7 +68,7 @@ class ExecutorsResponse(BaseModel):
 
 
 class CreateTokenRequest(BaseModel):
-    name: str
+    name: str = ""
 
 
 class CreateTokenResponse(BaseModel):
@@ -263,18 +263,26 @@ def create_token(name: str, body: CreateTokenRequest, request: Request):
     from cogos.db.models import ExecutorToken
 
     repo = get_repo()
+
+    # Auto-name tokens if no name provided
+    token_name = body.name
+    if not token_name:
+        existing = repo.list_executor_tokens()
+        idx = len(existing)
+        token_name = f"executor-{idx:03d}"
+
     raw_token = secrets.token_urlsafe(32)
     token = ExecutorToken(
-        name=body.name,
+        name=token_name,
         token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
     )
     repo.create_executor_token(token)
 
     api_url = str(request.base_url).rstrip("/")
-    launch_cmd = f"COGOS_API_KEY={raw_token} COGOS_API_URL={api_url} COGOS_COGENT_NAME={name} claude"
+    launch_cmd = f"COGOS_API_KEY={raw_token} COGOS_API_URL={api_url} COGENT={name} claude"
 
     return CreateTokenResponse(
-        name=body.name,
+        name=token_name,
         token=raw_token,
         launch_command=launch_cmd,
     )

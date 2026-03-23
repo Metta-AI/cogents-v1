@@ -2,7 +2,6 @@
 
 import type { CogosExecutor, CogosRun } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
-import { StatCard } from "@/components/shared/StatCard";
 import { TokenManager } from "@/components/executors/TokenManager";
 import { fmtRelative, fmtTimestamp } from "@/lib/format";
 
@@ -108,15 +107,6 @@ export function ExecutorsPanel({ executors = [], runs = [], cogentName }: Execut
     <div className="space-y-5">
       {/* Token Management */}
       <TokenManager cogentName={cogentName} />
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
-        <StatCard value={executors.length} label="Total Executors" />
-        <StatCard value={idle.length} label="Idle" variant="default" />
-        <StatCard value={busy.length} label="Busy" variant={busy.length > 0 ? "accent" : "default"} />
-        <StatCard value={stale.length} label="Stale" variant={stale.length > 0 ? "warning" : "default"} />
-        <StatCard value={dead.length} label="Dead" variant={dead.length > 0 ? "error" : "default"} />
-      </div>
 
       {/* Active Executors (busy first, then idle) */}
       <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md overflow-hidden">

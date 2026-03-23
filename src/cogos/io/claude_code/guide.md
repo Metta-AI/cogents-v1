@@ -25,7 +25,7 @@ Claude Code session. Claude can reply back to CogOS channels using the
 2. Set environment variables:
 
        export COGOS_API_URL=http://localhost:8100
-       export COGOS_COGENT_NAME=<your-cogent>
+       export COGENT=<your-cogent>
        export COGOS_API_KEY=<optional-api-key>
        export COGOS_CHANNELS="io:claude-code:*"
 

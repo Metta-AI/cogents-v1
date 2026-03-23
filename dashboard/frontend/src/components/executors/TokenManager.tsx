@@ -37,13 +37,11 @@ export function TokenManager({ cogentName }: TokenManagerProps) {
   }, [refresh]);
 
   const handleCreate = async () => {
-    const name = newTokenName.trim();
-    if (!name) return;
     setCreating(true);
     setError("");
     setCreatedToken(null);
     try {
-      const result = await createExecutorToken(cogentName, name);
+      const result = await createExecutorToken(cogentName, newTokenName.trim());
       setCreatedToken(result);
       setNewTokenName("");
       await refresh();
@@ -91,12 +89,12 @@ export function TokenManager({ cogentName }: TokenManagerProps) {
           value={newTokenName}
           onChange={(e) => setNewTokenName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-          placeholder="Token name (e.g. my-laptop)"
+          placeholder="Token name (optional, auto-generated if empty)"
           className="flex-1 px-2.5 py-1.5 text-[12px] bg-[var(--bg-base)] border border-[var(--border)] rounded text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
         />
         <button
           onClick={handleCreate}
-          disabled={creating || !newTokenName.trim()}
+          disabled={creating}
           className="px-3 py-1.5 text-[12px] font-medium bg-[var(--accent)] text-white rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
           {creating ? "Creating..." : "Create Token"}
