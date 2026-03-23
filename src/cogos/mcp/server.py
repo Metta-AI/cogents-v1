@@ -498,10 +498,14 @@ class CogosServer:
 
     async def run_channel_poll_loop(self, write_stream: Any) -> None:
         """Poll channels for new messages and emit MCP notifications."""
+        import sys
         while True:
             try:
                 new_messages = await self.poll_channels_once()
+                if new_messages:
+                    print(f"[cogos-mcp] polled {len(new_messages)} new messages", file=sys.stderr)
                 for msg in new_messages:
+                    print(f"[cogos-mcp] emitting notification for {msg.get('channel_name')}", file=sys.stderr)
                     await _emit_channel_notification(
                         write_stream,
                         channel=msg.get("channel_name", ""),
@@ -515,8 +519,9 @@ class CogosServer:
                             "created_at": msg.get("created_at", ""),
                         },
                     )
-            except Exception:
-                logger.debug("channel poll loop error", exc_info=True)
+                    print(f"[cogos-mcp] notification sent successfully", file=sys.stderr)
+            except Exception as e:
+                print(f"[cogos-mcp] poll error: {e}", file=sys.stderr)
             await asyncio.sleep(self.poll_ms / 1000)
 
     async def run_work_poll_loop(self, mcp_server: Server) -> None:
@@ -603,11 +608,15 @@ async def amain() -> None:
 
     mcp_srv = cogos.create_mcp_server()
 
+    import sys
     # Register executor
-    await cogos.register()
+    result = await cogos.register()
+    print(f"[cogos-mcp] registered: {result}", file=sys.stderr)
+    print(f"[cogos-mcp] channel_patterns: {cogos.channel_patterns}", file=sys.stderr)
 
     # Seed seen messages to avoid replaying history
     await cogos.seed_seen_messages()
+    print(f"[cogos-mcp] seeded {len(cogos.seen_messages)} seen messages", file=sys.stderr)
 
     # Run MCP server with background loops
     async with stdio_server() as (read_stream, write_stream):
@@ -617,7 +626,10 @@ async def amain() -> None:
         tasks.append(asyncio.create_task(cogos.run_channel_poll_loop(write_stream)))
 
         try:
-            await mcp_srv.run(read_stream, write_stream, mcp_srv.create_initialization_options())
+            init_options = mcp_srv.create_initialization_options(
+                experimental_capabilities={"claude/channel": {}},
+            )
+            await mcp_srv.run(read_stream, write_stream, init_options)
         finally:
             for t in tasks:
                 t.cancel()
