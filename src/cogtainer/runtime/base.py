@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cogos.runtime.local_ingress_queue import LocalIngressQueue
+    from cogtainer.secrets import SecretsProvider
 
 
 class CogtainerRuntime(ABC):
@@ -40,6 +44,15 @@ class CogtainerRuntime(ABC):
     def spawn_executor(self, cogent_name: str, process_id: str) -> None:
         """Launch an executor for the given process."""
 
+    def reap_dead_executors(self, repo: Any) -> int:
+        """Check for dead executor subprocesses and fail their runs. Returns count of failures."""
+        return 0
+
+    @property
+    def ingress_queue(self) -> LocalIngressQueue | None:
+        """Return the local ingress queue, or None if not applicable."""
+        return None
+
     @abstractmethod
     def list_cogents(self) -> list[str]:
         """Return names of all cogents managed by this cogtainer."""
@@ -49,7 +62,7 @@ class CogtainerRuntime(ABC):
         """Provision a new cogent."""
 
     @abstractmethod
-    def get_secrets_provider(self) -> Any:
+    def get_secrets_provider(self) -> SecretsProvider:
         """Return the SecretsProvider for this runtime."""
 
     @abstractmethod

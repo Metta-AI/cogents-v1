@@ -10,6 +10,7 @@ from typing import Any
 from cogtainer.config import CogtainerEntry
 from cogtainer.llm.provider import LLMProvider
 from cogtainer.runtime.base import CogtainerRuntime
+from cogtainer.secrets import SecretsProvider
 
 logger = logging.getLogger(__name__)
 
@@ -324,7 +325,7 @@ class AwsRuntime(CogtainerRuntime):
         except Exception:
             logger.warning("Could not create DNS record for %s (create manually)", cogent_name, exc_info=True)
 
-    def get_secrets_provider(self):
+    def get_secrets_provider(self) -> SecretsProvider:
         return self._secrets
 
     def _deploy_cogent_stack(self, cogent_name: str) -> None:
