@@ -84,23 +84,42 @@ print(f"SINCE: {since}")
 
 ## Step 4: Gather GitHub activity per owner
 
-For each GitHub username, fetch from all Metta-AI repos:
+Focus on the **three main repos** (metta, cogos, cogents-v1) to avoid excessive API calls.
+Fetch commits per user efficiently using the `author` filter, then fetch recent closed PRs
+per repo once (not per user).
 
 ```python
 import datetime
-repos = github.list_org_repos("Metta-AI", limit=50)
-repo_names = [(r.full_name.split("/")[0], r.full_name.split("/")[1]) for r in repos] if not hasattr(repos, 'error') else []
 since_dt = datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))
 
-# For each mapped owner, gather PRs and commits
-for owner, github_login in owner_mappings.items():
-    for repo_owner, repo_name in repo_names:
-        # Merged PRs
-        prs = github.list_pull_requests(repo_owner, repo_name, state="closed", limit=50)
-        # Commits
-        commits = github.list_commits(repo_owner, repo_name, author=github_login, since=since_dt, limit=50)
-        # ... collect and filter
+# Only check the repos that matter
+REPOS = [("Metta-AI", "metta"), ("Metta-AI", "cogos"), ("Metta-AI", "cogents-v1")]
+
+# 1. Fetch recent closed PRs per repo (once each, not per user)
+all_prs = {}
+for owner, repo in REPOS:
+    prs = github.list_pull_requests(owner, repo, state="closed", limit=50)
+    if not hasattr(prs, 'error'):
+        all_prs[repo] = prs
+        print(f"{repo}: {len(prs)} recent closed PRs")
+
+# 2. Fetch commits per user per repo (uses author filter — one call each)
+all_commits = {}
+for github_login in github_users:
+    user_commits = {}
+    for owner, repo in REPOS:
+        commits = github.list_commits(owner, repo, author=github_login, since=since_dt, limit=30)
+        if not hasattr(commits, 'error') and commits:
+            user_commits[repo] = commits
+            print(f"  {github_login}/{repo}: {len(commits)} commits")
+    all_commits[github_login] = user_commits
+
+# 3. Match PRs to users by author field
+# Filter all_prs to find merged PRs by each user within the window
 ```
+
+**IMPORTANT:** Do NOT iterate all org repos. Only check `metta`, `cogos`, and `cogents-v1`.
+This keeps the total API calls under 50 (3 PR calls + 3 x 11 commit calls = 36).
 
 ## Step 5: Correlate activity to threads
 
