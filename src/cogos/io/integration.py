@@ -397,6 +397,59 @@ class WebIntegration(Integration):
         return {"configured": True, "missing_fields": []}
 
 
+class GoogleIntegration(Integration):
+    """Provide Google Drive, Docs, Sheets, and Calendar access via a per-cogent
+    GCP service account whose JSON key is stored in Secrets Manager."""
+
+    GCP_PROJECT = "cogents-project"
+
+    @property
+    def name(self) -> str:
+        return "google"
+
+    @property
+    def display_name(self) -> str:
+        return "Google"
+
+    @property
+    def description(self) -> str:
+        return "Access Google Drive, Docs, Sheets, and Calendar via service account."
+
+    def fields(self) -> list[FieldSpec]:
+        return [
+            FieldSpec(name="service_account_email", label="Service Account Email", field_type="text", required=False, help_text="Auto-provisioned GCP service account email (read-only)."),
+            FieldSpec(name="drive_enabled", label="Google Drive", field_type="toggle", required=False, help_text="Enable access to Google Drive."),
+            FieldSpec(name="docs_enabled", label="Google Docs", field_type="toggle", required=False, help_text="Enable access to Google Docs."),
+            FieldSpec(name="sheets_enabled", label="Google Sheets", field_type="toggle", required=False, help_text="Enable access to Google Sheets."),
+            FieldSpec(name="calendar_enabled", label="Google Calendar", field_type="toggle", required=False, help_text="Enable access to Google Calendar."),
+        ]
+
+    @staticmethod
+    def service_account_email_for(cogent_name: str) -> str:
+        """Derive the GCP service account email for a cogent."""
+        return f"cogent-{cogent_name}@{GoogleIntegration.GCP_PROJECT}.iam.gserviceaccount.com"
+
+    def status(
+        self,
+        cogent_name: str,
+        *,
+        secrets_provider: object,
+        _config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Check whether the service account key has been provisioned."""
+        config = (
+            _config
+            if _config is not None
+            else self.load_config(cogent_name, secrets_provider=secrets_provider)
+        )
+        has_key = bool(config.get("private_key") or config.get("type") == "service_account")
+        return {
+            "configured": has_key,
+            "missing_fields": [] if has_key else ["service_account_key"],
+            "service_account_email": self.service_account_email_for(cogent_name),
+        }
+
+
 # ── Registry ─────────────────────────────────────────────────────
 
 INTEGRATIONS: list[Integration] = [
@@ -408,6 +461,7 @@ INTEGRATIONS: list[Integration] = [
     DiscordIntegration(),
     GitHubIntegration(),
     AsanaIntegration(),
+    GoogleIntegration(),
 ]
 
 INTEGRATIONS_BY_NAME: dict[str, Integration] = {i.name: i for i in INTEGRATIONS}
