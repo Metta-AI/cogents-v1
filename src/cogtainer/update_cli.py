@@ -941,7 +941,8 @@ def _docker_build_push_deploy(ctx, session, name, safe_name, project_root, skip_
 
     # 2. ECR login
     ecr = session.client("ecr", region_name=DEFAULT_REGION)
-    repo_uri = f"{ACCOUNT_ID}.dkr.ecr.{DEFAULT_REGION}.amazonaws.com/cogent"
+    ecr_repo = naming.ecr_repo_name(CogtainerConfig().name or None)
+    repo_uri = f"{ACCOUNT_ID}.dkr.ecr.{DEFAULT_REGION}.amazonaws.com/{ecr_repo}"
     click.echo("  Logging into ECR...")
     token_resp = ecr.get_authorization_token()
     auth_data = token_resp.get("authorizationData", [])

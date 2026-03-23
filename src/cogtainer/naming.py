@@ -17,7 +17,12 @@ def stack_name(cogent_name: str) -> str:
     return f"{RESOURCE_PREFIX}-{safe(cogent_name)}-cogtainer"
 
 
-def cogtainer_stack_name() -> str:
+def cogtainer_stack_name(cogtainer_name: str | None = None) -> str:
+    if not cogtainer_name:
+        from cogtainer.deploy_config import CogtainerConfig
+        cogtainer_name = CogtainerConfig().name or None
+    if cogtainer_name:
+        return f"cogtainer-{cogtainer_name}"
     return "cogtainer"
 
 
@@ -78,7 +83,12 @@ def log_group_name(safe_name: str, suffix: str) -> str:
     return f"/ecs/{_join(RESOURCE_PREFIX, safe_name, suffix)}"
 
 
-def cluster_name() -> str:
+def cluster_name(cogtainer_name: str | None = None) -> str:
+    if not cogtainer_name:
+        from cogtainer.deploy_config import CogtainerConfig
+        cogtainer_name = CogtainerConfig().name or None
+    if cogtainer_name:
+        return f"cogtainer-{cogtainer_name}"
     return "cogtainer"
 
 
