@@ -115,12 +115,14 @@ class AwsSecretsProvider:
             session = boto3.Session(region_name=region)
         self._session = session
         self._region = region
+        self._sm_client = None
+        self._ssm_client = None
 
     def get_secret(self, key: str, field: str | None = None) -> str:
-        """Try SSM Parameter Store first, then Secrets Manager."""
-        value = self._try_ssm(key)
+        """Try Secrets Manager first, then SSM Parameter Store."""
+        value = self._try_secrets_manager(key)
         if value is None:
-            value = self._try_secrets_manager(key)
+            value = self._try_ssm(key)
         if value is None:
             raise KeyError(key)
         if field is not None:
@@ -132,39 +134,44 @@ class AwsSecretsProvider:
 
     def set_secret(self, key: str, value: str) -> None:
         """Write to Secrets Manager."""
-        client = self._session.client("secretsmanager", region_name=self._region)
+        if self._sm_client is None:
+            self._sm_client = self._session.client("secretsmanager", region_name=self._region)
         try:
-            client.put_secret_value(SecretId=key, SecretString=value)
-        except client.exceptions.ResourceNotFoundException:
-            client.create_secret(Name=key, SecretString=value)
+            self._sm_client.put_secret_value(SecretId=key, SecretString=value)
+        except self._sm_client.exceptions.ResourceNotFoundException:
+            self._sm_client.create_secret(Name=key, SecretString=value)
 
     def list_secrets(self, prefix: str) -> list[str]:
-        client = self._session.client("secretsmanager", region_name=self._region)
+        if self._sm_client is None:
+            self._sm_client = self._session.client("secretsmanager", region_name=self._region)
         keys: list[str] = []
-        paginator = client.get_paginator("list_secrets")
+        paginator = self._sm_client.get_paginator("list_secrets")
         for page in paginator.paginate(Filters=[{"Key": "name", "Values": [prefix]}]):
             for secret in page.get("SecretList", []):
                 keys.append(secret["Name"])
         return keys
 
     def delete_secret(self, key: str) -> None:
-        client = self._session.client("secretsmanager", region_name=self._region)
-        client.delete_secret(SecretId=key, ForceDeleteWithoutRecovery=True)
+        if self._sm_client is None:
+            self._sm_client = self._session.client("secretsmanager", region_name=self._region)
+        self._sm_client.delete_secret(SecretId=key, ForceDeleteWithoutRecovery=True)
 
     # -- private --
 
     def _try_ssm(self, key: str) -> str | None:
         try:
-            client = self._session.client("ssm", region_name=self._region)
-            resp = client.get_parameter(Name=key, WithDecryption=True)
+            if self._ssm_client is None:
+                self._ssm_client = self._session.client("ssm", region_name=self._region)
+            resp = self._ssm_client.get_parameter(Name=key, WithDecryption=True)
             return resp["Parameter"]["Value"]
         except Exception:
             return None
 
     def _try_secrets_manager(self, key: str) -> str | None:
         try:
-            client = self._session.client("secretsmanager", region_name=self._region)
-            resp = client.get_secret_value(SecretId=key)
+            if self._sm_client is None:
+                self._sm_client = self._session.client("secretsmanager", region_name=self._region)
+            resp = self._sm_client.get_secret_value(SecretId=key)
             return resp["SecretString"]
         except Exception:
             return None
