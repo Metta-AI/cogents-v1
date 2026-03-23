@@ -49,6 +49,7 @@ Repository = "https://github.com/Metta-AI/cogos"
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    "pytest-httpx>=0.34",
     "pytest-timeout>=2.3",
     "ruff>=0.11",
     "pyright>=1.1.400",
