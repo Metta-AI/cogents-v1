@@ -184,7 +184,7 @@ class DiscordIntegration(Integration):
         # Check shared bot token
         bot_configured = False
         try:
-            raw = secrets_provider.get_secret("cogtainer/discord")  # type: ignore[union-attr]
+            raw = secrets_provider.get_secret("agora/discord")  # type: ignore[union-attr]
             data = json.loads(raw)
             bot_configured = bool(data.get("access_token") or data.get("bot_token"))
         except Exception:
