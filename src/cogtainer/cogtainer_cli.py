@@ -192,6 +192,54 @@ def create(
     _save_config(cfg)
     click.echo(f"Created cogtainer '{name}' (type={ctype}, account_id={account_id}).")
 
+    # Prompt for cogtainer-level integration secrets
+    _prompt_cogtainer_secrets(name, entry)
+
+
+def _prompt_cogtainer_secrets(name: str, entry: CogtainerEntry) -> None:
+    """Prompt for cogtainer-level integration secrets (enter to skip)."""
+    from cogos.io.integration import INTEGRATIONS
+
+    has_fields = [(i, i.cogtainer_fields()) for i in INTEGRATIONS if i.cogtainer_fields()]
+    if not has_fields:
+        return
+
+    click.echo()
+    click.echo("Configure integration secrets (press Enter to skip):")
+
+    secrets: dict[str, str] = {}
+    for integration, fields in has_fields:
+        for field in fields:
+            prompt = f"  {integration.display_name} — {field.label}"
+            if field.help_text:
+                prompt += f" ({field.help_text})"
+            is_secret = field.field_type == "secret"
+            value = click.prompt(prompt, default="", show_default=False, hide_input=is_secret)
+            if value:
+                key = f"cogtainer/{name}/{integration.name}/{field.name}"
+                secrets[key] = value
+
+    if not secrets:
+        click.echo("  No secrets configured. You can set them later.")
+        return
+
+    # Write secrets
+    region = entry.region or "us-east-1"
+    try:
+        from cogtainer.secrets import AwsSecretsProvider, LocalSecretsProvider
+
+        if entry.type == "aws":
+            sp = AwsSecretsProvider(region=region)
+        else:
+            data_dir = entry.data_dir or ""
+            sp = LocalSecretsProvider(str(Path(data_dir) / "secrets.json"))
+
+        for key, value in secrets.items():
+            sp.set_secret(key, value)
+            click.echo(f"  Saved: {key}")
+    except Exception as exc:
+        click.echo(f"  Warning: could not save secrets ({exc}). Set them manually later.")
+
 
 @cli.command()
 @click.argument("name")
@@ -754,7 +802,10 @@ def dns_validate_cert(cert_arn: str | None, profile: str | None, region: str) ->
     store = SecretStore(session=session)
     acm = session.client("acm", region_name=region)
 
-    domain = deploy_config("domain", "softmax-cogents.com")
+    domain = deploy_config("domain", "")
+    if not domain:
+        click.echo("Error: domain is not configured. Set it in deploy_config.")
+        return
 
     if not cert_arn:
         resp = acm.list_certificates(CertificateStatuses=["PENDING_VALIDATION"])
@@ -794,7 +845,10 @@ def dns_status(profile: str | None, region: str) -> None:
 
     from cogtainer.deploy_config import deploy_config
 
-    domain = deploy_config("domain", "softmax-cogents.com")
+    domain = deploy_config("domain", "")
+    if not domain:
+        click.echo("Error: domain is not configured. Set it in deploy_config.")
+        return
 
     click.echo(f"Domain: {domain}")
 

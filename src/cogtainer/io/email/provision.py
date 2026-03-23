@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DOMAIN = os.environ.get("EMAIL_DOMAIN", "softmax-cogents.com")
+_DEFAULT_DOMAIN = ""
 
 
 def _cf_headers() -> dict[str, str]:

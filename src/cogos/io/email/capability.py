@@ -38,11 +38,19 @@ class EmailError(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────
 
 
-def _get_sender(runtime=None) -> SesSender:
-    cogent_name = os.environ.get("COGENT", "")
-    domain = os.environ.get("EMAIL_DOMAIN", "softmax-cogents.com")
+def _get_email_domain(secrets_provider=None) -> str:
+    """Read email domain from cogtainer secrets."""
+    cogtainer = os.environ.get("COGTAINER", "")
+    if secrets_provider and cogtainer:
+        try:
+            return secrets_provider.get_secret(f"cogtainer/{cogtainer}/email/domain")
+        except Exception:
+            pass
+    return ""
+
+
+def _get_sender(from_address: str, runtime=None) -> SesSender:
     region = os.environ.get("AWS_REGION", "us-east-1")
-    from_address = f"{cogent_name}@{domain}"
     return SesSender(from_address=from_address, region=region, runtime=runtime)
 
 
@@ -86,10 +94,10 @@ class EmailCapability(Capability):
     ALL_OPS = {"send", "receive"}
 
     def __init__(self, repo, process_id, **kwargs):
-        super().__init__(repo, process_id)
+        super().__init__(repo, process_id, **kwargs)
         cogent_name = os.environ.get("COGENT", "")
-        domain = os.environ.get("EMAIL_DOMAIN", "softmax-cogents.com")
-        self._from_address = f"{cogent_name}@{domain}" if cogent_name else ""
+        domain = _get_email_domain(self._secrets_provider)
+        self._from_address = f"{cogent_name}@{domain}" if cogent_name and domain else ""
 
     def addresses(self) -> str:
         """The cogent's email address."""
@@ -150,7 +158,7 @@ class EmailCapability(Capability):
 
         self._check("send", to=to)
 
-        sender = _get_sender(runtime=self._runtime)
+        sender = _get_sender(self._from_address, runtime=self._runtime)
         response = sender.send(to=to, subject=subject, body=body, reply_to=reply_to)
         return SendResult(
             message_id=response.get("MessageId", ""),

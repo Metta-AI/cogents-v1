@@ -57,6 +57,15 @@ class Integration(ABC):
         """Return the list of configurable fields."""
         ...
 
+    def cogtainer_fields(self) -> list[FieldSpec]:
+        """Return cogtainer-level secret fields prompted during cogtainer create.
+
+        Each field's ``name`` is used as the sub-key under
+        ``cogtainer/{cogtainer_name}/{integration_name}/``.
+        Override in subclasses that need shared cogtainer-level config.
+        """
+        return []
+
     # ── secrets storage ──────────────────────────────────────────
 
     def _secret_key(self, cogent_name: str) -> str:
@@ -171,6 +180,11 @@ class DiscordIntegration(Integration):
     def description(self) -> str:
         return "Connect to Discord to receive and send messages via a bot."
 
+    def cogtainer_fields(self) -> list[FieldSpec]:
+        return [
+            FieldSpec(name="bot_token", label="Discord Bot Token", field_type="secret", required=False, help_text="Shared bot token for all cogents in this cogtainer."),
+        ]
+
     def fields(self) -> list[FieldSpec]:
         return [
             FieldSpec(name="display_name", label="Display Name", required=False, help_text="Bot display name in Discord."),
@@ -212,6 +226,11 @@ class GitHubIntegration(Integration):
     def description(self) -> str:
         return "Connect to GitHub to receive webhooks and interact with repositories."
 
+    def cogtainer_fields(self) -> list[FieldSpec]:
+        return [
+            FieldSpec(name="org", label="GitHub Organization", required=False, help_text="GitHub org name (e.g. Metta-AI)."),
+        ]
+
     def fields(self) -> list[FieldSpec]:
         return [
             FieldSpec(name="app_id", label="App ID", help_text="GitHub App ID."),
@@ -234,6 +253,11 @@ class AsanaIntegration(Integration):
     def description(self) -> str:
         return "Connect to Asana to sync tasks and receive project updates."
 
+    def cogtainer_fields(self) -> list[FieldSpec]:
+        return [
+            FieldSpec(name="domain", label="Asana Workspace Domain", required=False, help_text="Asana workspace domain (e.g. softmax)."),
+        ]
+
     def fields(self) -> list[FieldSpec]:
         return [
             FieldSpec(name="access_token", label="Personal Access Token", field_type="secret", help_text="Asana personal access token."),
@@ -243,7 +267,6 @@ class AsanaIntegration(Integration):
 
 
 class EmailIntegration(Integration):
-    EMAIL_DOMAIN = "softmax-cogents.com"
 
     @property
     def name(self) -> str:
@@ -257,24 +280,44 @@ class EmailIntegration(Integration):
     def description(self) -> str:
         return "Send and receive email via CloudFlare + SES."
 
+    def cogtainer_fields(self) -> list[FieldSpec]:
+        return [
+            FieldSpec(name="domain", label="Email Domain", required=False, help_text="Domain for cogent emails (e.g. example-cogents.com)."),
+        ]
+
     def fields(self) -> list[FieldSpec]:
         return [
-            FieldSpec(name="address", label="Email Address", field_type="email", required=False, help_text="Auto-configured as cogent-name@softmax-cogents.com."),
+            FieldSpec(name="address", label="Email Address", field_type="email", required=False, help_text="Auto-configured as cogent-name@<your-domain>."),
             FieldSpec(name="ses_region", label="SES Region", required=False, placeholder="us-east-1", help_text="AWS region for SES."),
             FieldSpec(name="ingest_url", label="Ingest URL", field_type="url", required=False, help_text="CloudFlare worker URL for inbound mail."),
         ]
 
     @staticmethod
-    def address_for(cogent_name: str) -> str:
+    def address_for(cogent_name: str, domain: str = "") -> str:
         """Derive the email address for a cogent."""
-        return f"{cogent_name}@{EmailIntegration.EMAIL_DOMAIN}"
+        if not domain:
+            return ""
+        return f"{cogent_name}@{domain}"
 
     def _secret_key(self, cogent_name: str) -> str:
         return f"identity_service/{cogent_name}/{self.name}"
 
     def status(self, cogent_name: str, *, secrets_provider: object, _config: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Email is always configured — address is derived from the cogent name."""
-        return {"configured": True, "missing_fields": [], "address": self.address_for(cogent_name)}
+        """Email is configured when the cogtainer email domain secret is set."""
+        domain = self._read_domain(secrets_provider)
+        address = self.address_for(cogent_name, domain)
+        return {"configured": bool(address), "missing_fields": [] if address else ["domain"], "address": address}
+
+    @staticmethod
+    def _read_domain(secrets_provider: object) -> str:
+        """Read email domain from cogtainer/{name}/email/domain secret."""
+        cogtainer = os.environ.get("COGTAINER", "")
+        if cogtainer and hasattr(secrets_provider, "get_secret"):
+            try:
+                return secrets_provider.get_secret(f"cogtainer/{cogtainer}/email/domain")  # type: ignore[union-attr]
+            except Exception:
+                pass
+        return ""
 
 
 class AnthropicIntegration(Integration):
@@ -321,6 +364,31 @@ class GeminiIntegration(Integration):
         return ["cogent/all/gemini"]
 
 
+class WebIntegration(Integration):
+    @property
+    def name(self) -> str:
+        return "web"
+
+    @property
+    def display_name(self) -> str:
+        return "Web"
+
+    @property
+    def description(self) -> str:
+        return "Web publishing and static file hosting."
+
+    def cogtainer_fields(self) -> list[FieldSpec]:
+        return [
+            FieldSpec(name="domain", label="Web Domain", required=False, help_text="Domain for cogent dashboards (e.g. example-cogents.com)."),
+        ]
+
+    def fields(self) -> list[FieldSpec]:
+        return []
+
+    def status(self, cogent_name: str, *, secrets_provider: object, _config: dict[str, Any] | None = None) -> dict[str, Any]:
+        return {"configured": True, "missing_fields": []}
+
+
 # ── Registry ─────────────────────────────────────────────────────
 
 INTEGRATIONS: list[Integration] = [
@@ -328,6 +396,7 @@ INTEGRATIONS: list[Integration] = [
     AnthropicIntegration(),
     GeminiIntegration(),
     EmailIntegration(),
+    WebIntegration(),
     DiscordIntegration(),
     GitHubIntegration(),
     AsanaIntegration(),

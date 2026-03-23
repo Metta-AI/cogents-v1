@@ -111,7 +111,7 @@ class CogtainerConfig(BaseModel):
     name: str = Field(default_factory=lambda: deploy_config("cogtainer_name", ""))
     organization: str = Field(default_factory=lambda: deploy_config("organization", "Softmax"))
     owner: str = Field(default_factory=lambda: deploy_config("owner", ""))
-    domain: str = Field(default_factory=lambda: deploy_config("domain", "softmax-cogents.com"))
+    domain: str = Field(default_factory=lambda: deploy_config("domain", ""))
     cogents: dict[str, CogentMeta] = {}
     bedrock_quotas: list[ServiceQuotaTarget] = Field(default_factory=_default_bedrock_quotas)
 

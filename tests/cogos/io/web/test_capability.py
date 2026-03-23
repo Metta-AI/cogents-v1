@@ -256,10 +256,13 @@ class TestUrl:
         monkeypatch.delenv("DASHBOARD_FE_PORT", raising=False)
         monkeypatch.delenv("DASHBOARD_BE_PORT", raising=False)
         monkeypatch.setenv("COGENT", "dr.gamma")
-        monkeypatch.setenv("COGENT_DOMAIN", "softmax-cogents.com")
+        monkeypatch.setenv("COGTAINER", "test-agora")
+        mock_sp = MagicMock()
+        mock_sp.get_secret.return_value = "example.com"
+        cap._secrets_provider = mock_sp
 
         assert cap.url("least-favorite-fruit") == (
-            "https://dr-gamma.softmax-cogents.com/web/static/least-favorite-fruit"
+            "https://dr-gamma.example.com/web/static/least-favorite-fruit"
         )
 
     def test_url_prefers_local_frontend_port(self, cap, monkeypatch):

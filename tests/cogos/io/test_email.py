@@ -22,12 +22,12 @@ class TestSesSender:
         runtime = MagicMock()
         runtime.send_email.return_value = "abc123"
 
-        sender = SesSender(from_address="ovo@softmax-cogents.com", runtime=runtime)
+        sender = SesSender(from_address="ovo@example.com", runtime=runtime)
         result = sender.send(to="user@example.com", subject="Hello", body="Hi there")
 
         assert result["MessageId"] == "abc123"
         runtime.send_email.assert_called_once_with(
-            source="ovo@softmax-cogents.com",
+            source="ovo@example.com",
             to="user@example.com",
             subject="Hello",
             body="Hi there",
@@ -38,11 +38,11 @@ class TestSesSender:
         runtime = MagicMock()
         runtime.send_email.return_value = "def456"
 
-        sender = SesSender(from_address="ovo@softmax-cogents.com", runtime=runtime)
+        sender = SesSender(from_address="ovo@example.com", runtime=runtime)
         sender.send(to="a@b.com", subject="Re: test", body="reply", reply_to="c@d.com")
 
         runtime.send_email.assert_called_once_with(
-            source="ovo@softmax-cogents.com",
+            source="ovo@example.com",
             to="a@b.com",
             subject="Re: test",
             body="reply",

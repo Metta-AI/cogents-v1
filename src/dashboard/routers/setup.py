@@ -651,20 +651,30 @@ def _build_anthropic_setup(name: str) -> ChannelSetup:
 
 
 def _email_ses_status(
-    name: str,
+    domain: str,
     region: str,
 ) -> tuple[bool | None, str | None]:
     """Check if the email domain is verified in SES."""
+    if not domain:
+        return False, None
     from cogtainer.io.email.provision import ses_domain_status
 
-    return ses_domain_status(region=region)
+    return ses_domain_status(domain=domain, region=region)
 
 
 def _build_email_setup(name: str) -> ChannelSetup:
     from cogos.io.integration import EmailIntegration
 
     region = os.environ.get("AWS_REGION", "us-east-1")
-    address = EmailIntegration.address_for(name)
+    cogtainer_name = os.environ.get("COGTAINER", "")
+    sp = _get_secrets_provider()
+    domain = ""
+    if cogtainer_name:
+        try:
+            domain = sp.get_secret(f"cogtainer/{cogtainer_name}/email/domain")
+        except Exception:
+            pass
+    address = EmailIntegration.address_for(name, domain)
 
     # Check CogOS wiring
     cogos_initialized = True
@@ -680,7 +690,7 @@ def _build_email_setup(name: str) -> ChannelSetup:
         cogos_error = type(exc).__name__
 
     # SES domain verification
-    ses_verified, ses_error = _email_ses_status(name, region)
+    ses_verified, ses_error = _email_ses_status(domain, region)
 
     diagnostics: list[str] = []
     if cogos_error:
@@ -728,17 +738,17 @@ def _build_email_setup(name: str) -> ChannelSetup:
         ses_step = SetupStep(
             key="ses-domain",
             title="SES domain verification",
-            description=f"The domain {EmailIntegration.EMAIL_DOMAIN} must be verified in SES.",
+            description=f"The domain {domain} must be verified in SES.",
             status=SetupStatus.READY,
-            detail=f"Domain {EmailIntegration.EMAIL_DOMAIN} is verified in SES.",
+            detail=f"Domain {domain} is verified in SES.",
         )
     elif ses_verified is False:
         ses_step = SetupStep(
             key="ses-domain",
             title="SES domain verification",
-            description=f"The domain {EmailIntegration.EMAIL_DOMAIN} must be verified in SES.",
+            description=f"The domain {domain} must be verified in SES.",
             status=SetupStatus.NEEDS_ACTION,
-            detail=f"Domain {EmailIntegration.EMAIL_DOMAIN} is not verified in SES.",
+            detail=f"Domain {domain} is not verified in SES.",
             action=SetupAction(
                 label="Deploy cogtainer stack",
                 command="uv run cogtainer deploy",
@@ -748,7 +758,7 @@ def _build_email_setup(name: str) -> ChannelSetup:
         ses_step = SetupStep(
             key="ses-domain",
             title="SES domain verification",
-            description=f"The domain {EmailIntegration.EMAIL_DOMAIN} must be verified in SES.",
+            description=f"The domain {domain} must be verified in SES.",
             status=SetupStatus.UNKNOWN,
             detail=f"Could not check SES domain status. Error: {ses_error}.",
         )

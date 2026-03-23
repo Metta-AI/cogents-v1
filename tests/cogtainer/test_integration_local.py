@@ -32,7 +32,7 @@ def test_full_local_flow(tmp_path: Path, monkeypatch):
         "--llm-model", "anthropic/claude-sonnet-4-20250514",
         "--llm-api-key-env", "OPENROUTER_API_KEY",
         "--data-dir", str(data_dir),
-    ])
+    ], input="\n" * 10)
     assert result.exit_code == 0, result.output
     assert "Created cogtainer 'my-local'" in result.output
 

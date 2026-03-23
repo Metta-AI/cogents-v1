@@ -97,7 +97,6 @@ def create(io_name: str | None, cogent_name: str | None):
 
     if io_type == "cloudflare_ses":
         from cogos.io.email.provision import provision_email
-        domain = os.environ.get("EMAIL_DOMAIN", "softmax-cogents.com")
         region = os.environ.get("AWS_REGION", "us-east-1")
         try:
             from cogtainer.config import load_config
@@ -106,6 +105,8 @@ def create(io_name: str | None, cogent_name: str | None):
             cfg = load_config()
             entry = cfg.cogtainers[cogtainer_name]
             runtime = create_runtime(entry, cogtainer_name)
+            sp = runtime.get_secrets_provider()
+            domain = sp.get_secret(f"cogtainer/{cogtainer_name}/email/domain")
             result = provision_email(cogent_name, domain=domain, region=region, runtime=runtime)
             click.echo(f"\nEmail provisioned for {cogent_name}:")
             click.echo(f"  Address:      {result['address']}")
@@ -190,10 +191,12 @@ def send(io_name: str, cogent_name: str, message: str):
     if io_name == "email":
         from cogos.io.email.sender import SesSender
         from cogtainer.runtime.factory import create_executor_runtime
-        domain = os.environ.get("EMAIL_DOMAIN", "softmax-cogents.com")
         region = os.environ.get("AWS_REGION", "us-east-1")
-        from_address = f"{cogent_name}@{domain}"
+        cogtainer_name = os.environ.get("COGTAINER", "")
         runtime = create_executor_runtime()
+        sp = runtime.get_secrets_provider()
+        domain = sp.get_secret(f"cogtainer/{cogtainer_name}/email/domain") if cogtainer_name else ""
+        from_address = f"{cogent_name}@{domain}" if domain else ""
         sender = SesSender(from_address=from_address, region=region, runtime=runtime)
         try:
             result = sender.send(to=from_address, subject="Test message", body=message)

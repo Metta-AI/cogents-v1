@@ -26,15 +26,21 @@ def test_create_email_no_cogent_name_shows_usage():
     assert "Usage" in result.output
 
 
-@patch("cogtainer.runtime.factory.create_runtime", return_value=MagicMock())
+@patch.dict("os.environ", {"COGTAINER": "test-agora"})
+@patch("cogtainer.runtime.factory.create_runtime")
 @patch("cogtainer.config.load_config")
 @patch("cogos.io.email.provision.provision_email")
 def test_create_email_calls_provision(mock_provision, mock_load_config, mock_create_runtime):
     """io create email my-cogent should call provision_email and print results."""
-    mock_load_config.return_value.cogtainers = {"": MagicMock()}
+    mock_sp = MagicMock()
+    mock_sp.get_secret.return_value = "example.com"
+    mock_runtime = MagicMock()
+    mock_runtime.get_secrets_provider.return_value = mock_sp
+    mock_create_runtime.return_value = mock_runtime
+    mock_load_config.return_value.cogtainers = {"test-agora": MagicMock()}
     mock_provision.return_value = {
-        "address": "my-cogent@softmax-cogents.com",
-        "ingest_url": "https://my-cogent.softmax-cogents.com/api/ingest/email",
+        "address": "my-cogent@example.com",
+        "ingest_url": "https://my-cogent.example.com/api/ingest/email",
         "cf_rule_id": "rule-123",
         "ses_verified": True,
     }
@@ -44,7 +50,7 @@ def test_create_email_calls_provision(mock_provision, mock_load_config, mock_cre
 
     assert result.exit_code == 0
     mock_provision.assert_called_once()
-    assert "my-cogent@softmax-cogents.com" in result.output
+    assert "my-cogent@example.com" in result.output
     assert "rule-123" in result.output
     assert "True" in result.output
 
@@ -64,11 +70,15 @@ def test_create_email_provision_failure(mock_provision, mock_load_config, mock_c
     assert "Email provisioning failed" in result.output
 
 
+@patch.dict("os.environ", {"COGTAINER": "test-agora"})
 @patch("cogtainer.runtime.factory.create_executor_runtime")
 def test_send_email_calls_sender(mock_create_runtime):
     """io send email my-cogent should call runtime.send_email and print message ID."""
+    mock_sp = MagicMock()
+    mock_sp.get_secret.return_value = "example.com"
     mock_runtime = MagicMock()
     mock_runtime.send_email.return_value = "msg-abc-123"
+    mock_runtime.get_secrets_provider.return_value = mock_sp
     mock_create_runtime.return_value = mock_runtime
 
     runner = CliRunner()

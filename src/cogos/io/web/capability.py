@@ -182,5 +182,15 @@ class WebCapability(Capability):
 
         cogent_name = (os.environ.get("COGENT") or "").strip()
         safe_name = cogent_name.replace(".", "-") if cogent_name else "local"
-        domain = (os.environ.get("COGENT_DOMAIN") or "softmax-cogents.com").strip() or "softmax-cogents.com"
+        domain = self._get_web_domain()
         return f"https://{safe_name}.{domain}/web/static"
+
+    def _get_web_domain(self) -> str:
+        """Read web domain from cogtainer secrets."""
+        cogtainer = (os.environ.get("COGTAINER") or "").strip()
+        if self._secrets_provider and cogtainer:
+            try:
+                return self._secrets_provider.get_secret(f"cogtainer/{cogtainer}/web/domain")
+            except Exception:
+                pass
+        return ""

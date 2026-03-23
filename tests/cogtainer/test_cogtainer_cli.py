@@ -26,7 +26,7 @@ def test_cogtainer_create_local(tmp_path, monkeypatch):
         "--llm-model", "claude-sonnet-4-20250514",
         "--llm-api-key-env", "ANTHROPIC_API_KEY",
         "--data-dir", str(tmp_path / "data"),
-    ])
+    ], input="\n" * 10)
     assert result.exit_code == 0, result.output
 
     cfg = _read_config(config_path)
@@ -51,7 +51,7 @@ def test_cogtainer_create_aws(tmp_path, monkeypatch):
             "create", "prod",
             "--type", "aws",
             "--region", "us-west-2",
-        ])
+        ], input="\n" * 10)
 
     assert result.exit_code == 0, result.output
 
@@ -73,7 +73,7 @@ def test_cogtainer_create_aws_default_region(tmp_path, monkeypatch):
         result = runner.invoke(cli, [
             "create", "prod",
             "--type", "aws",
-        ])
+        ], input="\n" * 10)
 
     assert result.exit_code == 0, result.output
     mock.assert_called_once_with("prod", region="us-east-1", profile=None)
