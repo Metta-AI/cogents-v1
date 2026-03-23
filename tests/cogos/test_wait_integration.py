@@ -1,3 +1,4 @@
+import tempfile
 from uuid import uuid4
 
 from cogos.db.local_repository import LocalRepository
@@ -8,7 +9,11 @@ from cogos.db.models import (
 from cogos.db.models.wait_condition import WaitCondition, WaitConditionType, WaitConditionStatus
 
 
-def _setup_parent_child(repo, *, num_children=1):
+def _fresh_repo() -> LocalRepository:
+    return LocalRepository(data_dir=tempfile.mkdtemp())
+
+
+def _setup_parent_child(repo, *, num_children=1, with_handlers=False):
     parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING)
     repo.upsert_process(parent)
     run = Run(process=parent.id, status=RunStatus.SUSPENDED)
@@ -26,15 +31,22 @@ def _setup_parent_child(repo, *, num_children=1):
             channel_type=ChannelType.SPAWN,
         )
         repo.upsert_channel(recv_ch)
-        repo.create_handler(Handler(process=parent.id, channel=recv_ch.id))
+        if with_handlers:
+            repo.create_handler(Handler(process=parent.id, channel=recv_ch.id))
         children.append((child, recv_ch))
 
     return parent, run, children
 
 
+def _get(repo: LocalRepository, pid) -> Process:
+    p = repo.get_process(pid)
+    assert p is not None
+    return p
+
+
 def test_wait_all_blocks_until_all_children_exit():
-    repo = LocalRepository()
-    parent, run, children = _setup_parent_child(repo, num_children=2)
+    repo = _fresh_repo()
+    parent, run, children = _setup_parent_child(repo, num_children=2, with_handlers=True)
     child_a, ch_a = children[0]
     child_b, ch_b = children[1]
 
@@ -48,19 +60,19 @@ def test_wait_all_blocks_until_all_children_exit():
         channel=ch_a.id, sender_process=child_a.id,
         payload={"type": "child:exited", "exit_code": 0, "process_id": str(child_a.id)},
     ))
-    assert repo.get_process(parent.id).status == ProcessStatus.WAITING
+    assert _get(repo, parent.id).status == ProcessStatus.WAITING
 
     repo.append_channel_message(ChannelMessage(
         channel=ch_b.id, sender_process=child_b.id,
         payload={"type": "child:exited", "exit_code": 0, "process_id": str(child_b.id)},
     ))
-    assert repo.get_process(parent.id).status == ProcessStatus.RUNNABLE
+    assert _get(repo, parent.id).status == ProcessStatus.RUNNABLE
     assert repo.get_pending_wait_condition_for_process(parent.id) is None
 
 
 def test_wait_any_wakes_on_first_child():
-    repo = LocalRepository()
-    parent, run, children = _setup_parent_child(repo, num_children=2)
+    repo = _fresh_repo()
+    parent, run, children = _setup_parent_child(repo, num_children=2, with_handlers=True)
     child_a, ch_a = children[0]
 
     wc = WaitCondition(
@@ -73,11 +85,12 @@ def test_wait_any_wakes_on_first_child():
         channel=ch_a.id, sender_process=child_a.id,
         payload={"type": "child:exited", "exit_code": 0, "process_id": str(child_a.id)},
     ))
-    assert repo.get_process(parent.id).status == ProcessStatus.RUNNABLE
+    assert _get(repo, parent.id).status == ProcessStatus.RUNNABLE
 
 
-def test_no_wait_condition_normal_wake():
-    repo = LocalRepository()
+def test_no_handler_no_wake():
+    """Without a handler (no wait() called), child:exited does not wake parent."""
+    repo = _fresh_repo()
     parent, _run, children = _setup_parent_child(repo, num_children=1)
     child, ch = children[0]
 
@@ -85,12 +98,25 @@ def test_no_wait_condition_normal_wake():
         channel=ch.id, sender_process=child.id,
         payload={"type": "child:exited", "exit_code": 0, "process_id": str(child.id)},
     ))
-    assert repo.get_process(parent.id).status == ProcessStatus.RUNNABLE
+    assert _get(repo, parent.id).status == ProcessStatus.WAITING
+
+
+def test_handler_without_wait_condition_wakes():
+    """With a handler but no wait condition, child:exited wakes the parent."""
+    repo = _fresh_repo()
+    parent, _run, children = _setup_parent_child(repo, num_children=1, with_handlers=True)
+    child, ch = children[0]
+
+    repo.append_channel_message(ChannelMessage(
+        channel=ch.id, sender_process=child.id,
+        payload={"type": "child:exited", "exit_code": 0, "process_id": str(child.id)},
+    ))
+    assert _get(repo, parent.id).status == ProcessStatus.RUNNABLE
 
 
 def test_non_exit_message_does_not_resolve_wait():
-    repo = LocalRepository()
-    parent, run, children = _setup_parent_child(repo, num_children=1)
+    repo = _fresh_repo()
+    parent, run, children = _setup_parent_child(repo, num_children=1, with_handlers=True)
     child, ch = children[0]
 
     wc = WaitCondition(
@@ -104,12 +130,12 @@ def test_non_exit_message_does_not_resolve_wait():
         channel=ch.id, sender_process=child.id,
         payload={"type": "data", "result": 42},
     ))
-    assert repo.get_process(parent.id).status == ProcessStatus.WAITING
+    assert _get(repo, parent.id).status == ProcessStatus.WAITING
     assert repo.get_pending_wait_condition_for_process(parent.id) is not None
 
 
 def test_orphan_cleanup_on_disable():
-    repo = LocalRepository()
+    repo = _fresh_repo()
     parent, run, _children = _setup_parent_child(repo, num_children=1)
 
     wc = WaitCondition(
