@@ -15,7 +15,7 @@ def list_resources(name: str) -> ResourcesResponse:
     items = [
         ResourceItem(
             name=r.name,
-            resource_type=r.resource_type.value if hasattr(r.resource_type, "value") else str(r.resource_type),
+            resource_type=r.resource_type.value,
             capacity=r.capacity,
             used=0.0,
             metadata=r.metadata or {},

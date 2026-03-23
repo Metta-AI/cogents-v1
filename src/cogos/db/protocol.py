@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Iterator, Protocol, runtime_checkable
 from uuid import UUID
@@ -164,7 +165,7 @@ class RepositoryProtocol(Protocol):
         error: str | None = None,
     ) -> None: ...
 
-    def get_latest_delivery_time(self, handler_id: UUID) -> Any: ...
+    def get_latest_delivery_time(self, handler_id: UUID) -> datetime | None: ...
 
     # ── Cron Rules ───────────────────────────────────────────
 
@@ -333,7 +334,7 @@ class RepositoryProtocol(Protocol):
 
     def list_alerts(self, *, resolved: bool = False, limit: int = 50) -> list: ...
 
-    def resolve_alert(self, alert_id: Any) -> None: ...
+    def resolve_alert(self, alert_id: UUID) -> None: ...
 
     # ── Schemas ──────────────────────────────────────────────
 
@@ -364,7 +365,7 @@ class RepositoryProtocol(Protocol):
     def get_channel_message(self, message_id: UUID) -> ChannelMessage | None: ...
 
     def list_channel_messages(
-        self, channel_id: UUID | None = None, *, limit: int = 100, since: Any = None,
+        self, channel_id: UUID | None = None, *, limit: int = 100, since: datetime | None = None,
     ) -> list[ChannelMessage]: ...
 
     # ── Discord Metadata ─────────────────────────────────────

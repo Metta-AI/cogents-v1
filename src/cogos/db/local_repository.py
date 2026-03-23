@@ -834,7 +834,7 @@ class LocalRepository(Repository):
                         {
                             "process_id": str(proc.id),
                             "process_name": proc.name,
-                            "process_status": proc.status.value if hasattr(proc.status, "value") else str(proc.status),
+                            "process_status": proc.status.value,
                             "grant_name": pc.name,
                             "config": pc.config,
                         }
@@ -1063,7 +1063,7 @@ class LocalRepository(Repository):
     def has_pending_deliveries(self, process_id: UUID) -> bool:
         return bool(self.get_pending_deliveries(process_id))
 
-    def get_latest_delivery_time(self, handler_id: UUID):
+    def get_latest_delivery_time(self, handler_id: UUID) -> datetime | None:
         self._maybe_reload()
         times = [
             self._channel_messages[d.message].created_at
@@ -1238,7 +1238,7 @@ class LocalRepository(Repository):
             pid_set = set(process_ids)
             runs = [r for r in runs if r.process in pid_set]
         if status:
-            runs = [r for r in runs if (r.status.value if hasattr(r.status, "value") else r.status) == status]
+            runs = [r for r in runs if r.status.value == status]
         if since:
             from datetime import datetime as dt
 
@@ -1416,7 +1416,7 @@ class LocalRepository(Repository):
         return self._channel_messages.get(message_id)
 
     def list_channel_messages(
-        self, channel_id: UUID | None = None, *, limit: int = 100, since=None
+        self, channel_id: UUID | None = None, *, limit: int = 100, since: datetime | None = None,
     ) -> list[ChannelMessage]:
         self._maybe_reload()
         msgs = list(self._channel_messages.values())
@@ -1758,7 +1758,7 @@ class LocalRepository(Repository):
 
     # ── Alerts (gap-fill) ────────────────────────────────────
 
-    def resolve_alert(self, alert_id: Any) -> None:
+    def resolve_alert(self, alert_id: UUID) -> None:
         with self._writing():
             alert = self._alerts.get(alert_id)
             if alert:
