@@ -81,10 +81,11 @@ def resolve_alert(name: str, alert_id: str) -> dict:
 @router.post("/alerts/resolve-all")
 def resolve_all_alerts(name: str) -> dict:
     repo = get_repo()
-    unresolved = repo.list_alerts(resolved=False, limit=500)
-    for row in unresolved:
-        repo.resolve_alert(UUID(str(_to_dict(row)["id"])))
-    return {"ok": True, "resolved": len(unresolved)}
+    response = repo._execute(
+        "UPDATE alerts SET resolved_at = now() WHERE resolved_at IS NULL",
+    )
+    count = response.get("numberOfRecordsUpdated", 0)
+    return {"ok": True, "resolved": count}
 
 
 @router.post("/alerts", response_model=AlertItem)
