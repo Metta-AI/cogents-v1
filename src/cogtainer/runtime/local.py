@@ -8,11 +8,15 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cogos.runtime.local_ingress_queue import LocalIngressQueue
 
 from cogtainer.config import CogtainerEntry
 from cogtainer.llm.provider import LLMProvider
 from cogtainer.runtime.base import CogtainerRuntime
+from cogtainer.secrets import SecretsProvider
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +34,15 @@ class LocalRuntime(CogtainerRuntime):
 
         from cogos.runtime.local_ingress_queue import LocalIngressQueue
 
-        self.ingress_queue = LocalIngressQueue()
+        self._ingress_queue = LocalIngressQueue()
 
         from cogtainer.secrets import LocalSecretsProvider
 
         self._secrets = LocalSecretsProvider(data_dir=str(self._data_dir))
+
+    @property
+    def ingress_queue(self) -> LocalIngressQueue:
+        return self._ingress_queue
 
     # ── Repository ───────────────────────────────────────────
 
@@ -152,7 +160,7 @@ class LocalRuntime(CogtainerRuntime):
         cogent_dir.mkdir(parents=True, exist_ok=True)
         (cogent_dir / "files").mkdir(exist_ok=True)
 
-    def get_secrets_provider(self):
+    def get_secrets_provider(self) -> SecretsProvider:
         return self._secrets
 
     def destroy_cogent(self, name: str) -> None:
