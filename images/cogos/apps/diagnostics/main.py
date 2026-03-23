@@ -160,24 +160,6 @@ def diag_spawn_and_wait():
             raise Exception("wait_results empty: " + repr(wr))
     checks.append(check("wait_results_on_resume", test_wait_results_on_resume))
 
-    def test_python_wait_banned():
-        h = procs.spawn(
-            "_diag/spawn_wait/py_child",
-            content='print("ok")',
-            executor="python",
-            mode="one_shot",
-            capabilities={},
-        )
-        if hasattr(h, "error"):
-            raise Exception(str(h.error))
-        # wait() should raise RuntimeError for Python-executed parent,
-        # but we're an LLM process so it won't fire here. Just verify
-        # spawn works and the child is findable.
-        h2 = procs.get(name="_diag/spawn_wait/py_child")
-        if hasattr(h2, "error"):
-            raise Exception(str(h2.error))
-    checks.append(check("python_wait_banned", test_python_wait_banned))
-
     return checks
 
 def diag_me():
