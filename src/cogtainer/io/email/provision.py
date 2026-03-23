@@ -98,6 +98,26 @@ def set_kv_route(
     logger.info("Set KV route: %s -> %s", cogent_name, ingest_url)
 
 
+def ses_domain_status(
+    domain: str = _DEFAULT_DOMAIN,
+    region: str = "us-east-1",
+) -> tuple[bool | None, str | None]:
+    """Check if the email domain is verified in SES.
+
+    Returns (verified, error).  *verified* is True/False/None (on error).
+    """
+    try:
+        import boto3
+
+        ses = boto3.client("ses", region_name=region)
+        resp = ses.get_identity_verification_attributes(Identities=[domain])
+        attrs = resp.get("VerificationAttributes", {}).get(domain, {})
+        return attrs.get("VerificationStatus") == "Success", None
+    except Exception as exc:
+        logger.warning("SES domain check failed for %s: %s", domain, exc)
+        return None, type(exc).__name__
+
+
 def verify_ses_email(
     cogent_name: str,
     domain: str = _DEFAULT_DOMAIN,

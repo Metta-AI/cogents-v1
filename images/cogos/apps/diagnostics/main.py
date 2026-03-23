@@ -408,6 +408,35 @@ def diag_email():
         if email is None:
             raise Exception("email is None")
     checks.append(check("wired", test_wired))
+
+    def test_address():
+        addr = email.addresses()
+        if not addr or "@" not in addr:
+            raise Exception("no valid address: " + repr(addr))
+    checks.append(check("address", test_address))
+
+    # Send a test email to the cogent's own address
+    send_result = [None]
+    def test_send():
+        addr = email.addresses()
+        if not addr:
+            raise Exception("no address configured")
+        r = email.send(
+            to=addr,
+            subject="[diagnostics] send test " + _now(),
+            body="Automated diagnostics send test.",
+        )
+        if hasattr(r, "error") and r.error:
+            raise Exception(r.error)
+        send_result[0] = r
+    checks.append(check("send", test_send))
+
+    def test_receive():
+        msgs = email.receive(limit=5)
+        if not isinstance(msgs, list):
+            raise Exception("receive returned " + str(type(msgs)))
+    checks.append(check("receive", test_receive))
+
     return checks
 
 def diag_asana():

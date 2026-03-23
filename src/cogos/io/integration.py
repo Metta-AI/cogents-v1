@@ -243,6 +243,8 @@ class AsanaIntegration(Integration):
 
 
 class EmailIntegration(Integration):
+    EMAIL_DOMAIN = "softmax-cogents.com"
+
     @property
     def name(self) -> str:
         return "email"
@@ -257,13 +259,22 @@ class EmailIntegration(Integration):
 
     def fields(self) -> list[FieldSpec]:
         return [
-            FieldSpec(name="address", label="Email Address", field_type="email", help_text="The email address assigned to this cogent."),
+            FieldSpec(name="address", label="Email Address", field_type="email", required=False, help_text="Auto-configured as cogent-name@softmax-cogents.com."),
             FieldSpec(name="ses_region", label="SES Region", required=False, placeholder="us-east-1", help_text="AWS region for SES."),
             FieldSpec(name="ingest_url", label="Ingest URL", field_type="url", required=False, help_text="CloudFlare worker URL for inbound mail."),
         ]
 
+    @staticmethod
+    def address_for(cogent_name: str) -> str:
+        """Derive the email address for a cogent."""
+        return f"{cogent_name}@{EmailIntegration.EMAIL_DOMAIN}"
+
     def _secret_key(self, cogent_name: str) -> str:
         return f"identity_service/{cogent_name}/{self.name}"
+
+    def status(self, cogent_name: str, *, secrets_provider: object, _config: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Email is always configured — address is derived from the cogent name."""
+        return {"configured": True, "missing_fields": [], "address": self.address_for(cogent_name)}
 
 
 class AnthropicIntegration(Integration):

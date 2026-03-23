@@ -650,10 +650,158 @@ def _build_anthropic_setup(name: str) -> ChannelSetup:
     )
 
 
+def _email_ses_status(
+    name: str,
+    region: str,
+) -> tuple[bool | None, str | None]:
+    """Check if the email domain is verified in SES."""
+    from cogtainer.io.email.provision import ses_domain_status
+
+    return ses_domain_status(region=region)
+
+
+def _build_email_setup(name: str) -> ChannelSetup:
+    from cogos.io.integration import EmailIntegration
+
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    address = EmailIntegration.address_for(name)
+
+    # Check CogOS wiring
+    cogos_initialized = True
+    capability_enabled = False
+    cogos_error = None
+    try:
+        repo = get_repo()
+        caps = repo.list_capabilities()
+        capability_enabled = any(cap.name == "email" and cap.enabled for cap in caps)
+    except Exception as exc:
+        logger.warning("CogOS email check failed for %s: %s", name, exc)
+        cogos_initialized = False
+        cogos_error = type(exc).__name__
+
+    # SES domain verification
+    ses_verified, ses_error = _email_ses_status(name, region)
+
+    diagnostics: list[str] = []
+    if cogos_error:
+        diagnostics.append(f"CogOS checks unavailable: {cogos_error}")
+    if ses_error:
+        diagnostics.append(f"SES domain check unavailable: {ses_error}")
+
+    # Step 1: Address (always ready — auto-derived)
+    address_step = SetupStep(
+        key="email-address",
+        title="Email address",
+        description="Each cogent gets an email address derived from its name.",
+        status=SetupStatus.READY,
+        detail=f"Address: **{address}**",
+    )
+
+    # Step 2: CogOS capability wiring
+    wiring_ready = cogos_initialized and capability_enabled
+    if wiring_ready:
+        wiring_step = SetupStep(
+            key="cogos-defaults",
+            title="CogOS email capability",
+            description="The CogOS image provides the email capability.",
+            status=SetupStatus.READY,
+            detail="Email capability is loaded and enabled.",
+        )
+    else:
+        detail = "Reload the default CogOS image to restore the email capability."
+        if cogos_error:
+            detail = f"{detail} Latest check error: {cogos_error}."
+        wiring_step = SetupStep(
+            key="cogos-defaults",
+            title="CogOS email capability",
+            description="The CogOS image provides the email capability.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail=detail,
+            action=SetupAction(
+                label="Reload CogOS defaults",
+                command=f"uv run cogent {name} cogos reload --yes",
+            ),
+        )
+
+    # Step 3: SES domain verification
+    if ses_verified is True:
+        ses_step = SetupStep(
+            key="ses-domain",
+            title="SES domain verification",
+            description=f"The domain {EmailIntegration.EMAIL_DOMAIN} must be verified in SES.",
+            status=SetupStatus.READY,
+            detail=f"Domain {EmailIntegration.EMAIL_DOMAIN} is verified in SES.",
+        )
+    elif ses_verified is False:
+        ses_step = SetupStep(
+            key="ses-domain",
+            title="SES domain verification",
+            description=f"The domain {EmailIntegration.EMAIL_DOMAIN} must be verified in SES.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail=f"Domain {EmailIntegration.EMAIL_DOMAIN} is not verified in SES.",
+            action=SetupAction(
+                label="Deploy cogtainer stack",
+                command="uv run cogtainer deploy",
+            ),
+        )
+    else:
+        ses_step = SetupStep(
+            key="ses-domain",
+            title="SES domain verification",
+            description=f"The domain {EmailIntegration.EMAIL_DOMAIN} must be verified in SES.",
+            status=SetupStatus.UNKNOWN,
+            detail=f"Could not check SES domain status. Error: {ses_error}.",
+        )
+
+    ready_for_test = wiring_ready and ses_verified is True
+
+    if ready_for_test:
+        test_step = SetupStep(
+            key="test-email",
+            title="Test email",
+            description=f"Send a test email to {address} and verify it arrives.",
+            status=SetupStatus.MANUAL,
+            detail="Diagnostics will test send/receive automatically.",
+        )
+    else:
+        test_step = SetupStep(
+            key="test-email",
+            title="Test email",
+            description=f"Send a test email to {address} and verify it arrives.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail="Finish the earlier steps first.",
+        )
+
+    status = (
+        SetupStatus.READY
+        if ready_for_test
+        else SetupStatus.UNKNOWN
+        if any(s.status == SetupStatus.UNKNOWN for s in (wiring_step, ses_step))
+        else SetupStatus.NEEDS_ACTION
+    )
+    summary = (
+        f"Email is ready at {address}."
+        if ready_for_test
+        else "Finish the remaining email setup steps."
+    )
+
+    return ChannelSetup(
+        key="email",
+        title="Email",
+        description=f"Send and receive email as {address}.",
+        status=status,
+        summary=summary,
+        ready_for_test=ready_for_test,
+        steps=[address_step, wiring_step, ses_step, test_step],
+        diagnostics=diagnostics,
+    )
+
+
 @router.get("/setup", response_model=SetupResponse)
 def get_setup(name: str) -> SetupResponse:
     return SetupResponse(channels=[
         _build_profile_setup(name),
+        _build_email_setup(name),
         _build_discord_setup(name),
         _build_anthropic_setup(name),
         _build_gemini_setup(name),

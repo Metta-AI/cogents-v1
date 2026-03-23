@@ -124,6 +124,118 @@ class TestGeminiSecretStatus:
         assert source is None
 
 
+class TestEmailIntegrationAutoConfig:
+    """Tests for EmailIntegration auto-configuration."""
+
+    def test_address_for_derives_from_name(self):
+        from cogos.io.integration import EmailIntegration
+
+        assert EmailIntegration.address_for("alpha") == "alpha@softmax-cogents.com"
+        assert EmailIntegration.address_for("dr.beta") == "dr.beta@softmax-cogents.com"
+
+    def test_status_always_configured(self):
+        from cogos.io.integration import EmailIntegration
+
+        integration = EmailIntegration()
+        provider = _make_secrets_provider({})
+
+        with _patch_sp(provider):
+            status = integration.status("alpha", secrets_provider=provider)
+
+        assert status["configured"] is True
+        assert status["missing_fields"] == []
+        assert status["address"] == "alpha@softmax-cogents.com"
+
+
+class TestEmailSesStatus:
+    """Tests for _email_ses_status SES domain verification check."""
+
+    def test_domain_verified(self):
+        from dashboard.routers.setup import _email_ses_status
+
+        with patch("cogtainer.io.email.provision.ses_domain_status", return_value=(True, None)):
+            verified, error = _email_ses_status("alpha", "us-east-1")
+
+        assert verified is True
+        assert error is None
+
+    def test_domain_not_verified(self):
+        from dashboard.routers.setup import _email_ses_status
+
+        with patch("cogtainer.io.email.provision.ses_domain_status", return_value=(False, None)):
+            verified, error = _email_ses_status("alpha", "us-east-1")
+
+        assert verified is False
+        assert error is None
+
+    def test_returns_error_on_exception(self):
+        from dashboard.routers.setup import _email_ses_status
+
+        with patch("cogtainer.io.email.provision.ses_domain_status", return_value=(None, "RuntimeError")):
+            verified, error = _email_ses_status("alpha", "us-east-1")
+
+        assert verified is None
+        assert error == "RuntimeError"
+
+
+def _patch_email_ses(verified, error=None):
+    """Patch ses_domain_status for email setup tests."""
+    return patch("cogtainer.io.email.provision.ses_domain_status", return_value=(verified, error))
+
+
+class TestBuildEmailSetup:
+    """Tests for _build_email_setup."""
+
+    def test_ready_when_ses_verified_and_capability_enabled(self):
+        from dashboard.routers.setup import _build_email_setup
+
+        mock_repo = MagicMock()
+        cap = MagicMock()
+        cap.name = "email"
+        cap.enabled = True
+        mock_repo.list_capabilities.return_value = [cap]
+
+        with patch("dashboard.routers.setup.get_repo", return_value=mock_repo), \
+             _patch_email_ses(True):
+            setup = _build_email_setup("alpha")
+
+        assert setup.status.value == "ready"
+        assert setup.ready_for_test is True
+        assert "alpha@softmax-cogents.com" in setup.summary
+
+    def test_needs_action_when_ses_not_verified(self):
+        from dashboard.routers.setup import _build_email_setup
+
+        mock_repo = MagicMock()
+        cap = MagicMock()
+        cap.name = "email"
+        cap.enabled = True
+        mock_repo.list_capabilities.return_value = [cap]
+
+        with patch("dashboard.routers.setup.get_repo", return_value=mock_repo), \
+             _patch_email_ses(False):
+            setup = _build_email_setup("alpha")
+
+        assert setup.status.value == "needs_action"
+        assert setup.ready_for_test is False
+
+    def test_address_step_always_ready(self):
+        from dashboard.routers.setup import _build_email_setup
+
+        mock_repo = MagicMock()
+        mock_repo.list_capabilities.return_value = []
+
+        with patch("dashboard.routers.setup.get_repo", return_value=mock_repo), \
+             _patch_email_ses(False):
+            setup = _build_email_setup("alpha")
+
+        address_step = setup.steps[0]
+        assert address_step.key == "email-address"
+        assert address_step.status.value == "ready"
+        assert address_step.detail is not None
+        assert "alpha@softmax-cogents.com" in address_step.detail
+
+
 class TestBuildGeminiSetup:
     """Tests for _build_gemini_setup showing shared vs cogent-specific summary."""
 
