@@ -34,8 +34,8 @@ def test_reveal_rejects_non_secret_field(monkeypatch):
         lambda: mock_sp,
     )
     client = _client()
-    # application_id is a text field, not secret
-    resp = client.get("/api/cogents/test/integrations/discord/reveal/application_id")
+    # app_id is a text field on github, not secret
+    resp = client.get("/api/cogents/test/integrations/github/reveal/app_id")
     assert resp.status_code == 400
 
 
@@ -43,18 +43,18 @@ def test_reveal_returns_unmasked_secret(monkeypatch):
     """The reveal endpoint should return the raw secret value."""
     mock_sp = MagicMock()
     mock_sp.get_secret.return_value = json.dumps({
-        "type": "discord",
-        "bot_token": "xoxb-real-token-value",
-        "application_id": "12345",
+        "type": "github",
+        "app_id": "12345",
+        "private_key": "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----",
     })
     monkeypatch.setattr(
         "dashboard.routers.integrations._get_secrets_provider",
         lambda: mock_sp,
     )
     client = _client()
-    resp = client.get("/api/cogents/test/integrations/discord/reveal/bot_token")
+    resp = client.get("/api/cogents/test/integrations/github/reveal/private_key")
     assert resp.status_code == 200
-    assert resp.json()["value"] == "xoxb-real-token-value"
+    assert "BEGIN RSA PRIVATE KEY" in resp.json()["value"]
 
 
 def test_reveal_unknown_integration():

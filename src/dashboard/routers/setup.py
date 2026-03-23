@@ -9,17 +9,33 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from cogos.io.discord.setup import discord_persona_status, discord_secret_status, discord_service_status
-from cogtainer.secrets import AwsSecretsProvider
 from dashboard.db import get_repo
 
 logger = logging.getLogger(__name__)
 
 _region = os.environ.get("AWS_REGION", "us-east-1")
-_secrets_provider = AwsSecretsProvider(region=_region)
+_runtime = None
+_secrets_provider = None
+
+
+def _get_runtime():
+    global _runtime
+    if _runtime is None:
+        from cogtainer.runtime.factory import create_executor_runtime
+        _runtime = create_executor_runtime()
+    return _runtime
+
+
+def _get_secrets_provider():
+    global _secrets_provider
+    if _secrets_provider is None:
+        _secrets_provider = _get_runtime().get_secrets_provider()
+    return _secrets_provider
+
 
 def _get_ecs_client():
-    import boto3
-    return boto3.client("ecs", region_name=_region)
+    """Return an ECS client via the runtime, or None for local."""
+    return _get_runtime().get_ecs_client(region=_region)
 
 router = APIRouter(tags=["setup"])
 
@@ -92,15 +108,21 @@ def _build_discord_setup(name: str) -> ChannelSetup:
         cogos_error = type(exc).__name__
 
     # Shared bot token (cogtainer-level)
-    secret_configured, secret_check_error = discord_secret_status(region, secrets_provider=_secrets_provider)
+    secret_configured, secret_check_error = discord_secret_status(region, secrets_provider=_get_secrets_provider())
     # Shared bridge service (cogtainer-level)
-    service_status, service_check_error = discord_service_status(region, ecs_client=_get_ecs_client())
-    bridge_running = (
-        service_status["bridge_running_count"] is not None
-        and int(service_status["bridge_running_count"]) > 0
-    )
+    ecs_client = _get_ecs_client()
+    if ecs_client is not None:
+        service_status, service_check_error = discord_service_status(region, ecs_client=ecs_client)
+        bridge_running = (
+            service_status["bridge_running_count"] is not None
+            and int(service_status["bridge_running_count"]) > 0
+        )
+    else:
+        service_status = {}
+        service_check_error = None
+        bridge_running = False
     # Per-cogent persona config
-    persona_data, persona_error = discord_persona_status(name, region, secrets_provider=_secrets_provider)
+    persona_data, persona_error = discord_persona_status(name, region, secrets_provider=_get_secrets_provider())
     has_persona = persona_data is not None and bool(persona_data.get("display_name"))
 
     wiring_ready = (
@@ -247,9 +269,10 @@ def _gemini_secret_status(
     region: str,
 ) -> tuple[bool | None, str | None, str | None]:
     """Return (configured, error, source_path) for the Gemini secret."""
+    sp = _get_secrets_provider()
     for secret_id in (f"cogent/{name}/gemini", "cogent/all/gemini"):
         try:
-            raw = _secrets_provider.get_secret(secret_id)
+            raw = sp.get_secret(secret_id)
             data = json.loads(raw)
             if data.get("api_key"):
                 return True, None, secret_id
@@ -385,13 +408,12 @@ def _asana_secret_status(
     name: str,
     region: str,
 ) -> tuple[bool | None, str | None]:
-    secret_id = f"cogent/{name}/asana"
+    from cogos.io.integration import INTEGRATIONS_BY_NAME
+
+    integration = INTEGRATIONS_BY_NAME["asana"]
     try:
-        raw = _secrets_provider.get_secret(secret_id)
-        data = json.loads(raw)
-        return bool(data.get("access_token")), None
-    except KeyError:
-        return False, None
+        status = integration.status(name, secrets_provider=_get_secrets_provider())
+        return status["configured"], None
     except Exception as exc:
         logger.warning("Asana secret check failed for %s: %s", name, exc)
         return None, type(exc).__name__
@@ -563,11 +585,80 @@ def _build_profile_setup(name: str) -> ChannelSetup:
     )
 
 
+def _anthropic_secret_status(
+    name: str,
+    region: str,
+) -> tuple[bool | None, str | None]:
+    from cogos.io.integration import INTEGRATIONS_BY_NAME
+
+    integration = INTEGRATIONS_BY_NAME["anthropic"]
+    try:
+        status = integration.status(name, secrets_provider=_get_secrets_provider())
+        return status["configured"], None
+    except Exception as exc:
+        logger.warning("Anthropic secret check failed for %s: %s", name, exc)
+        return None, type(exc).__name__
+
+
+def _build_anthropic_setup(name: str) -> ChannelSetup:
+    secret_path = f"cogent/{name}/anthropic"
+    secret_configured, secret_check_error = _anthropic_secret_status(name, os.environ.get("AWS_REGION", "us-east-1"))
+
+    diagnostics: list[str] = []
+    if secret_check_error:
+        diagnostics.append(f"Anthropic secret check unavailable: {secret_check_error}")
+
+    if secret_configured is True:
+        key_step = SetupStep(
+            key="store-api-key",
+            title="Store the API key",
+            description="The Anthropic API key is stored in Secrets Manager.",
+            status=SetupStatus.READY,
+            detail="An Anthropic API key is already stored.",
+        )
+    elif secret_configured is False:
+        key_step = SetupStep(
+            key="store-api-key",
+            title="Store the API key",
+            description="Write the API key into cogtainer secrets.",
+            status=SetupStatus.NEEDS_ACTION,
+            detail=f"Expected secret path: {secret_path}.",
+            action=SetupAction(
+                label="Write Anthropic API key",
+                command=f"""uv run cogtainer secrets set {secret_path} --value '{{"api_key":"YOUR_ANTHROPIC_API_KEY"}}'""",
+            ),
+        )
+    else:
+        key_step = SetupStep(
+            key="store-api-key",
+            title="Store the API key",
+            description="Write the API key into cogtainer secrets.",
+            status=SetupStatus.UNKNOWN,
+            detail=f"Expected secret path: {secret_path}. Latest check error: {secret_check_error}.",
+        )
+
+    ready = secret_configured is True
+    status = SetupStatus.READY if ready else SetupStatus.UNKNOWN if key_step.status == SetupStatus.UNKNOWN else SetupStatus.NEEDS_ACTION
+    summary = "Anthropic API key is configured." if ready else "Store an Anthropic API key to enable Claude model access."
+
+    return ChannelSetup(
+        key="anthropic",
+        title="Anthropic",
+        description="Configure the Anthropic API key for Claude model access.",
+        status=status,
+        summary=summary,
+        ready_for_test=ready,
+        steps=[key_step],
+        diagnostics=diagnostics,
+    )
+
+
 @router.get("/setup", response_model=SetupResponse)
 def get_setup(name: str) -> SetupResponse:
     return SetupResponse(channels=[
         _build_profile_setup(name),
         _build_discord_setup(name),
+        _build_anthropic_setup(name),
         _build_gemini_setup(name),
         _build_asana_setup(name),
     ])
@@ -583,7 +674,7 @@ class IdentitySecrets(BaseModel):
 def _read_secret_value(secret_id: str, region: str) -> str:
     """Read a plain string secret. Returns empty string on failure."""
     try:
-        raw = _secrets_provider.get_secret(secret_id)
+        raw = _get_secrets_provider().get_secret(secret_id)
         # Unwrap JSON-encoded strings (e.g. "\"dr.alpha\"" → "dr.alpha")
         try:
             parsed = json.loads(raw)
@@ -599,7 +690,7 @@ def _read_secret_value(secret_id: str, region: str) -> str:
 def _write_secret_value(secret_id: str, value: str, region: str) -> None:
     """Write a plain string as a JSON-encoded secret."""
     encoded = json.dumps(value)
-    _secrets_provider.set_secret(secret_id, encoded)
+    _get_secrets_provider().set_secret(secret_id, encoded)
 
 
 @router.get("/identity", response_model=IdentitySecrets)

@@ -10,7 +10,7 @@ import pytest
 
 
 def _make_secrets_provider(secrets: dict[str, str] | None = None):
-    """Create a mock AwsSecretsProvider."""
+    """Create a mock SecretsProvider."""
     provider = MagicMock()
 
     def _get(secret_id):
@@ -22,18 +22,22 @@ def _make_secrets_provider(secrets: dict[str, str] | None = None):
     return provider
 
 
+def _patch_sp(provider):
+    """Patch _get_secrets_provider to return the given provider."""
+    return patch("dashboard.routers.setup._get_secrets_provider", return_value=provider)
+
+
 @pytest.fixture(autouse=True)
-def _patch_aws_secrets():
-    """Patch AwsSecretsProvider so importing dashboard.routers.setup doesn't need AWS."""
-    # If the module is already imported, just patch the provider
-    if "dashboard.routers.setup" in sys.modules:
-        mock_provider = MagicMock()
-        mock_provider.get_secret.side_effect = KeyError("not mocked")
-        with patch("dashboard.routers.setup._secrets_provider", mock_provider):
-            yield
-    else:
-        with patch("cogtainer.secrets.AwsSecretsProvider", return_value=MagicMock()):
-            yield
+def _patch_runtime():
+    """Patch create_executor_runtime so importing setup doesn't need COGTAINER."""
+    mock_rt = MagicMock()
+    mock_sp = MagicMock()
+    mock_sp.get_secret.side_effect = KeyError("not mocked")
+    mock_rt.get_secrets_provider.return_value = mock_sp
+    mock_rt.get_ecs_client.return_value = None
+    with patch("dashboard.routers.setup._get_runtime", return_value=mock_rt), \
+         patch("dashboard.routers.setup._get_secrets_provider", return_value=mock_sp):
+        yield
 
 
 class TestGeminiSecretStatus:
@@ -46,7 +50,7 @@ class TestGeminiSecretStatus:
             "cogent/alpha/gemini": json.dumps({"api_key": "key-alpha"}),
         })
 
-        with patch("dashboard.routers.setup._secrets_provider", provider):
+        with _patch_sp(provider):
             configured, error, source = _gemini_secret_status("alpha", "us-east-1")
 
         assert configured is True
@@ -60,7 +64,7 @@ class TestGeminiSecretStatus:
             "cogent/all/gemini": json.dumps({"api_key": "shared-key"}),
         })
 
-        with patch("dashboard.routers.setup._secrets_provider", provider):
+        with _patch_sp(provider):
             configured, error, source = _gemini_secret_status("alpha", "us-east-1")
 
         assert configured is True
@@ -75,7 +79,7 @@ class TestGeminiSecretStatus:
             "cogent/all/gemini": json.dumps({"api_key": "shared-key"}),
         })
 
-        with patch("dashboard.routers.setup._secrets_provider", provider):
+        with _patch_sp(provider):
             configured, error, source = _gemini_secret_status("alpha", "us-east-1")
 
         assert configured is True
@@ -87,7 +91,7 @@ class TestGeminiSecretStatus:
 
         provider = _make_secrets_provider({})
 
-        with patch("dashboard.routers.setup._secrets_provider", provider):
+        with _patch_sp(provider):
             configured, error, source = _gemini_secret_status("alpha", "us-east-1")
 
         assert configured is False
@@ -102,7 +106,7 @@ class TestGeminiSecretStatus:
             "cogent/all/gemini": json.dumps({"api_key": ""}),
         })
 
-        with patch("dashboard.routers.setup._secrets_provider", provider):
+        with _patch_sp(provider):
             configured, error, source = _gemini_secret_status("alpha", "us-east-1")
 
         assert configured is False
@@ -115,7 +119,7 @@ class TestGeminiSecretStatus:
         provider = MagicMock()
         provider.get_secret.side_effect = RuntimeError("connection failed")
 
-        with patch("dashboard.routers.setup._secrets_provider", provider):
+        with _patch_sp(provider):
             configured, error, source = _gemini_secret_status("alpha", "us-east-1")
 
         assert configured is None
@@ -133,7 +137,7 @@ class TestBuildGeminiSetup:
             "cogent/all/gemini": json.dumps({"api_key": "shared-key"}),
         })
 
-        with patch("dashboard.routers.setup._secrets_provider", provider):
+        with _patch_sp(provider):
             setup = _build_gemini_setup("alpha")
 
         assert "shared" in setup.summary
@@ -146,7 +150,7 @@ class TestBuildGeminiSetup:
             "cogent/alpha/gemini": json.dumps({"api_key": "alpha-key"}),
         })
 
-        with patch("dashboard.routers.setup._secrets_provider", provider):
+        with _patch_sp(provider):
             setup = _build_gemini_setup("alpha")
 
         assert "cogent-specific" in setup.summary
@@ -157,7 +161,7 @@ class TestBuildGeminiSetup:
 
         provider = _make_secrets_provider({})
 
-        with patch("dashboard.routers.setup._secrets_provider", provider):
+        with _patch_sp(provider):
             setup = _build_gemini_setup("alpha")
 
         assert setup.status.value == "needs_action"

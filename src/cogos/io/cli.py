@@ -15,6 +15,8 @@ IO_TYPES = {
     "asana": "static",
     "email": "cloudflare_ses",
     "claude-code": "mcp_channel",
+    "anthropic": "api_key",
+    "gemini": "api_key",
 }
 
 _DEFAULT_ORG_PROFILE = os.environ.get("AWS_ORG_PROFILE", "softmax-org")

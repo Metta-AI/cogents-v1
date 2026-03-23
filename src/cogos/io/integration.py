@@ -60,16 +60,25 @@ class Integration(ABC):
     # ── secrets storage ──────────────────────────────────────────
 
     def _secret_key(self, cogent_name: str) -> str:
-        return f"identity_service/{cogent_name}/{self.name}"
+        return f"cogent/{cogent_name}/{self.name}"
+
+    def _fallback_keys(self) -> list[str]:
+        """Additional secret keys to try if the primary key has no config."""
+        return []
 
     def load_config(self, cogent_name: str, *, secrets_provider: object) -> dict[str, Any]:
         """Load persisted configuration from the secrets provider."""
-        key = self._secret_key(cogent_name)
-        try:
-            raw = secrets_provider.get_secret(key)  # type: ignore[union-attr]
-            return json.loads(raw)
-        except (KeyError, json.JSONDecodeError):
-            return {}
+        for key in [self._secret_key(cogent_name)] + self._fallback_keys():
+            try:
+                raw = secrets_provider.get_secret(key)  # type: ignore[union-attr]
+                config = json.loads(raw)
+                if config:
+                    return config
+            except (KeyError, json.JSONDecodeError):
+                continue
+            except Exception:
+                logger.exception("Failed to load config from %s", key)
+        return {}
 
     def save_config(self, cogent_name: str, config: dict[str, Any], *, secrets_provider: object) -> None:
         """Persist configuration via the secrets provider."""
@@ -115,6 +124,37 @@ class Integration(ABC):
         }
 
 
+class NotificationsIntegration(Integration):
+    @property
+    def name(self) -> str:
+        return "notifications"
+
+    @property
+    def display_name(self) -> str:
+        return "Notifications"
+
+    @property
+    def description(self) -> str:
+        return "Where to send alerts and approval requests."
+
+    def fields(self) -> list[FieldSpec]:
+        return [
+            FieldSpec(name="discord_handle", label="Discord Handle", required=False, placeholder="username", help_text="Your Discord username for DM notifications."),
+            FieldSpec(name="discord_alerts", label="Alerts", field_type="toggle", required=False),
+            FieldSpec(name="discord_requests", label="Requests", field_type="toggle", required=False),
+            FieldSpec(name="email_address", label="Email Address", field_type="email", required=False, placeholder="you@example.com", help_text="Email address for notifications."),
+            FieldSpec(name="email_alerts", label="Alerts", field_type="toggle", required=False),
+            FieldSpec(name="email_requests", label="Requests", field_type="toggle", required=False),
+        ]
+
+    def status(self, cogent_name: str, *, secrets_provider: object) -> dict[str, Any]:
+        config = self.load_config(cogent_name, secrets_provider=secrets_provider)
+        has_discord = bool(config.get("discord_handle"))
+        has_email = bool(config.get("email_address"))
+        configured = has_discord or has_email
+        return {"configured": configured, "missing_fields": []}
+
+
 # ── Concrete integrations ────────────────────────────────────────
 
 
@@ -133,10 +173,30 @@ class DiscordIntegration(Integration):
 
     def fields(self) -> list[FieldSpec]:
         return [
-            FieldSpec(name="bot_token", label="Bot Token", field_type="secret", help_text="Discord bot token from the Developer Portal."),
-            FieldSpec(name="application_id", label="Application ID", help_text="Discord application ID."),
-            FieldSpec(name="guild_id", label="Guild ID", required=False, help_text="Restrict the bot to a specific server."),
+            FieldSpec(name="display_name", label="Display Name", required=False, help_text="Bot display name in Discord."),
+            FieldSpec(name="default_channels", label="Default Channels", required=False, help_text="Comma-separated list of default channel names."),
         ]
+
+    def status(self, cogent_name: str, *, secrets_provider: object) -> dict[str, Any]:
+        """Check both shared bot token and per-cogent persona config."""
+        # Check per-cogent persona config
+        persona = self.load_config(cogent_name, secrets_provider=secrets_provider)
+        # Check shared bot token
+        bot_configured = False
+        try:
+            raw = secrets_provider.get_secret("cogtainer/discord")  # type: ignore[union-attr]
+            data = json.loads(raw)
+            bot_configured = bool(data.get("access_token") or data.get("bot_token"))
+        except Exception:
+            pass
+        has_persona = bool(persona.get("display_name"))
+        configured = bot_configured and has_persona
+        missing: list[str] = []
+        if not bot_configured:
+            missing.append("bot_token (shared)")
+        if not has_persona:
+            missing.append("display_name")
+        return {"configured": configured, "missing_fields": missing}
 
 
 class GitHubIntegration(Integration):
@@ -202,10 +262,60 @@ class EmailIntegration(Integration):
             FieldSpec(name="ingest_url", label="Ingest URL", field_type="url", required=False, help_text="CloudFlare worker URL for inbound mail."),
         ]
 
+    def _secret_key(self, cogent_name: str) -> str:
+        return f"identity_service/{cogent_name}/{self.name}"
+
+
+class AnthropicIntegration(Integration):
+    @property
+    def name(self) -> str:
+        return "anthropic"
+
+    @property
+    def display_name(self) -> str:
+        return "Anthropic"
+
+    @property
+    def description(self) -> str:
+        return "Anthropic API key for Claude model access."
+
+    def fields(self) -> list[FieldSpec]:
+        return [
+            FieldSpec(name="api_key", label="API Key", field_type="secret", help_text="Anthropic API key (sk-ant-...)."),
+        ]
+
+    def _fallback_keys(self) -> list[str]:
+        return ["cogent/all/anthropic"]
+
+
+class GeminiIntegration(Integration):
+    @property
+    def name(self) -> str:
+        return "gemini"
+
+    @property
+    def display_name(self) -> str:
+        return "Gemini"
+
+    @property
+    def description(self) -> str:
+        return "Google Gemini API key for model access."
+
+    def fields(self) -> list[FieldSpec]:
+        return [
+            FieldSpec(name="api_key", label="API Key", field_type="secret", help_text="Google AI API key for Gemini."),
+        ]
+
+    def _fallback_keys(self) -> list[str]:
+        return ["cogent/all/gemini"]
+
 
 # ── Registry ─────────────────────────────────────────────────────
 
 INTEGRATIONS: list[Integration] = [
+    NotificationsIntegration(),
+    AnthropicIntegration(),
+    GeminiIntegration(),
     EmailIntegration(),
     DiscordIntegration(),
     GitHubIntegration(),

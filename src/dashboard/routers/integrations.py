@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -15,17 +13,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["integrations"])
 
-_region = os.environ.get("AWS_REGION", "us-east-1")
+_secrets_provider = None
 
 
 def _get_secrets_provider():
-    from cogtainer.secrets import create_secrets_provider
-
-    use_local = os.environ.get("USE_LOCAL_DB") == "1"
-    if use_local:
-        data_dir = os.environ.get("COGOS_DATA_DIR", "/tmp/cogos")
-        return create_secrets_provider("local", data_dir=data_dir)
-    return create_secrets_provider("aws", region=_region)
+    global _secrets_provider
+    if _secrets_provider is None:
+        from cogtainer.runtime.factory import create_executor_runtime
+        _secrets_provider = create_executor_runtime().get_secrets_provider()
+    return _secrets_provider
 
 
 # ── Models ───────────────────────────────────────────────────────
@@ -77,6 +73,11 @@ def _mask_value(field_type: str, value: str) -> str:
 def _build_response(integration, cogent_name: str, secrets_provider) -> dict:
     config = integration.load_config(cogent_name, secrets_provider=secrets_provider)
     status = integration.status(cogent_name, secrets_provider=secrets_provider)
+    logger.info(
+        "Integration %s for %s: configured=%s, missing=%s, config_keys=%s",
+        integration.name, cogent_name, status["configured"],
+        status["missing_fields"], list(config.keys()),
+    )
 
     # Mask secret fields
     field_types = {f.name: f.field_type for f in integration.fields()}

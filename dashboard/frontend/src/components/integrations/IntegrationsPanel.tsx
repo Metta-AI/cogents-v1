@@ -24,20 +24,11 @@ export function IntegrationsPanel({ cogentName }: IntegrationsPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [expandedName, setExpandedName] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchIntegrations = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [intData, setupData] = await Promise.all([
-        getIntegrations(cogentName),
-        api.getSetup(cogentName).catch(() => ({ channels: [] })),
-      ]);
-      setIntegrations(intData);
-      const setupMap: Record<string, ChannelSetup> = {};
-      for (const ch of setupData.channels) {
-        setupMap[ch.key] = ch;
-      }
-      setSetup(setupMap);
+      setIntegrations(await getIntegrations(cogentName));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load integrations");
     } finally {
@@ -45,7 +36,22 @@ export function IntegrationsPanel({ cogentName }: IntegrationsPanelProps) {
     }
   }, [cogentName]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchSetup = useCallback(async () => {
+    try {
+      const setupData = await api.getSetup(cogentName);
+      const setupMap: Record<string, ChannelSetup> = {};
+      for (const ch of setupData.channels) {
+        setupMap[ch.key] = ch;
+      }
+      setSetup(setupMap);
+    } catch { /* setup is optional, don't block on it */ }
+  }, [cogentName]);
+
+  const fetchData = useCallback(async () => {
+    await fetchIntegrations();
+  }, [fetchIntegrations]);
+
+  useEffect(() => { fetchIntegrations(); fetchSetup(); }, [fetchIntegrations, fetchSetup]);
 
   if (loading && integrations.length === 0) {
     return <div style={{ color: "var(--text-muted)", padding: "2rem" }}>Loading integrations...</div>;
@@ -70,6 +76,21 @@ export function IntegrationsPanel({ cogentName }: IntegrationsPanelProps) {
       ))}
     </div>
   );
+}
+
+/** Group fields: each non-toggle field starts a group, followed by any consecutive toggles. */
+function groupFields(fields: IntegrationField[]): { input: IntegrationField; toggles: IntegrationField[] }[] {
+  const groups: { input: IntegrationField; toggles: IntegrationField[] }[] = [];
+  for (const field of fields) {
+    if (field.type === "toggle") {
+      if (groups.length > 0) {
+        groups[groups.length - 1].toggles.push(field);
+      }
+    } else {
+      groups.push({ input: field, toggles: [] });
+    }
+  }
+  return groups;
 }
 
 function IntegrationRow({
@@ -97,13 +118,18 @@ function IntegrationRow({
     if (expanded) {
       const values: Record<string, string> = {};
       for (const field of integration.fields) {
-        values[field.name] = "";
+        if (field.type === "toggle") {
+          // Initialize toggles from current config, default false
+          values[field.name] = integration.config[field.name] === "true" ? "true" : "false";
+        } else {
+          values[field.name] = "";
+        }
       }
       setFormValues(values);
       setSaveError(null);
       setDeleteConfirm(false);
     }
-  }, [expanded, integration.fields]);
+  }, [expanded, integration.fields, integration.config]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -111,9 +137,24 @@ function IntegrationRow({
     try {
       const config: Record<string, string> = {};
       for (const [k, v] of Object.entries(formValues)) {
-        if (v.trim()) config[k] = v.trim();
+        const field = integration.fields.find((f) => f.name === k);
+        if (field?.type === "toggle") {
+          // Always include toggle values
+          config[k] = v;
+        } else if (v.trim()) {
+          config[k] = v.trim();
+        }
       }
-      if (Object.keys(config).length === 0) {
+      // Check that at least one meaningful value is being saved
+      const hasNonToggle = Object.entries(config).some(([k]) => {
+        const field = integration.fields.find((f) => f.name === k);
+        return field?.type !== "toggle";
+      });
+      const hasAnyToggleOn = Object.entries(config).some(([k, v]) => {
+        const field = integration.fields.find((f) => f.name === k);
+        return field?.type === "toggle" && v === "true";
+      });
+      if (!hasNonToggle && !hasAnyToggleOn) {
         setSaveError("Enter at least one field.");
         setSaving(false);
         return;
@@ -141,8 +182,10 @@ function IntegrationRow({
   };
 
   const isConfigured = integration.status.configured;
-  const hasAnyConfig = Object.values(integration.config).some((v) => v && v !== "");
+  const hasAnyConfig = Object.values(integration.config).some((v) => v && v !== "" && v !== "false");
   const missingFields = new Set(integration.status.missing_fields);
+  const fieldGroups = groupFields(integration.fields);
+  const hasToggles = integration.fields.some((f) => f.type === "toggle");
 
   return (
     <div
@@ -189,20 +232,35 @@ function IntegrationRow({
       {/* Expanded content */}
       {expanded && (
         <div style={{ borderTop: "1px solid var(--border)", padding: "14px 16px" }}>
-          {/* Config fields — always editable */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 480 }}>
-            {integration.fields.map((field) => (
-              <FieldRow
-                key={field.name}
-                field={field}
-                currentValue={integration.config[field.name] ?? ""}
-                editValue={formValues[field.name] ?? ""}
-                onChange={(v) => setFormValues((prev) => ({ ...prev, [field.name]: v }))}
-                cogentName={cogentName}
-                integrationName={integration.name}
-                isMissing={missingFields.has(field.name)}
-              />
-            ))}
+          <div style={{ display: "flex", flexDirection: "column", gap: hasToggles ? 14 : 10, maxWidth: 480 }}>
+            {hasToggles ? (
+              fieldGroups.map((group) => (
+                <FieldGroup
+                  key={group.input.name}
+                  inputField={group.input}
+                  toggleFields={group.toggles}
+                  config={integration.config}
+                  formValues={formValues}
+                  onChange={(name, v) => setFormValues((prev) => ({ ...prev, [name]: v }))}
+                  cogentName={cogentName}
+                  integrationName={integration.name}
+                  missingFields={missingFields}
+                />
+              ))
+            ) : (
+              integration.fields.map((field) => (
+                <FieldRow
+                  key={field.name}
+                  field={field}
+                  currentValue={integration.config[field.name] ?? ""}
+                  editValue={formValues[field.name] ?? ""}
+                  onChange={(v) => setFormValues((prev) => ({ ...prev, [field.name]: v }))}
+                  cogentName={cogentName}
+                  integrationName={integration.name}
+                  isMissing={missingFields.has(field.name)}
+                />
+              ))
+            )}
           </div>
 
           {saveError && (
@@ -270,6 +328,71 @@ function IntegrationRow({
         </div>
       )}
     </div>
+  );
+}
+
+/** Renders a text/email/secret field followed by inline toggle pills. */
+function FieldGroup({
+  inputField,
+  toggleFields,
+  config,
+  formValues,
+  onChange,
+  cogentName,
+  integrationName,
+  missingFields,
+}: {
+  inputField: IntegrationField;
+  toggleFields: IntegrationField[];
+  config: Record<string, string>;
+  formValues: Record<string, string>;
+  onChange: (name: string, value: string) => void;
+  cogentName: string;
+  integrationName: string;
+  missingFields: Set<string>;
+}) {
+  return (
+    <div>
+      <FieldRow
+        field={inputField}
+        currentValue={config[inputField.name] ?? ""}
+        editValue={formValues[inputField.name] ?? ""}
+        onChange={(v) => onChange(inputField.name, v)}
+        cogentName={cogentName}
+        integrationName={integrationName}
+        isMissing={missingFields.has(inputField.name)}
+      />
+      {toggleFields.length > 0 && (
+        <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+          {toggleFields.map((tf) => (
+            <TogglePill
+              key={tf.name}
+              label={tf.label}
+              active={formValues[tf.name] === "true"}
+              onToggle={() => onChange(tf.name, formValues[tf.name] === "true" ? "false" : "true")}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TogglePill({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="text-[10px] px-2.5 py-1 rounded-full border cursor-pointer select-none transition-colors"
+      style={{
+        background: active ? "rgba(99,102,241,0.15)" : "transparent",
+        borderColor: active ? "rgba(99,102,241,0.4)" : "var(--border)",
+        color: active ? "var(--accent)" : "var(--text-muted)",
+        fontWeight: active ? 600 : 400,
+      }}
+    >
+      {active ? "● " : "○ "}{label}
+    </button>
   );
 }
 
@@ -441,6 +564,15 @@ function IntegrationIcon({ name }: { name: string }) {
   const style = { width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 5, flexShrink: 0 } as const;
 
   switch (name) {
+    case "notifications":
+      return (
+        <div style={{ ...style, background: "rgba(168,85,247,0.15)", color: "#a855f7" }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+          </svg>
+        </div>
+      );
     case "discord":
       return (
         <div style={{ ...style, background: "rgba(88,101,242,0.15)", color: "#5865f2" }}>
@@ -471,6 +603,22 @@ function IntegrationIcon({ name }: { name: string }) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="2" y="4" width="20" height="16" rx="2" />
             <path d="M22 7l-10 7L2 7" />
+          </svg>
+        </div>
+      );
+    case "anthropic":
+      return (
+        <div style={{ ...style, background: "rgba(204,119,34,0.15)", color: "#cc7722" }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M13.827 3.52h3.603L24 20.48h-3.603l-6.57-16.96zm-7.258 0h3.767L16.906 20.48h-3.674l-1.636-4.32H5.163l-1.636 4.32H0L6.57 3.52zm1.04 4.078L5.12 13.34h5.024L7.608 7.598z" />
+          </svg>
+        </div>
+      );
+    case "gemini":
+      return (
+        <div style={{ ...style, background: "rgba(66,133,244,0.15)", color: "#4285f4" }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.4 0 0 5.4 0 12c1.2-2.1 2.7-3.9 4.5-5.4C6.3 4.8 9 3.6 12 3.6s5.7 1.2 7.5 3c1.8 1.5 3.3 3.3 4.5 5.4C24 5.4 18.6 0 12 0zm0 24c6.6 0 12-5.4 12-12-1.2 2.1-2.7 3.9-4.5 5.4-1.8 1.8-4.5 3-7.5 3s-5.7-1.2-7.5-3C2.7 15.9 1.2 14.1 0 12c0 6.6 5.4 12 12 12z" />
           </svg>
         </div>
       );
