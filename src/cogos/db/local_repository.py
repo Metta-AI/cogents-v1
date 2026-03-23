@@ -37,9 +37,9 @@ from cogos.db.models import (
     Schema,
 )
 from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
-from cogos.db.models.wait_condition import WaitCondition, WaitConditionStatus, WaitConditionType
 from cogos.db.models.span import Span, SpanEvent, SpanStatus
 from cogos.db.models.trace import RequestTrace
+from cogos.db.models.wait_condition import WaitCondition, WaitConditionStatus
 from cogos.db.repository import Repository
 
 logger = logging.getLogger(__name__)
