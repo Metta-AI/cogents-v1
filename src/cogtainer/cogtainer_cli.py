@@ -392,9 +392,9 @@ def discover_aws(region: str, profile: str | None) -> None:
 
 
 def _get_cogent_names(session, cogtainer_name: str, region: str) -> list[str]:
-    """Get cogent names for a cogtainer from DynamoDB cogent-status table."""
+    """Get cogent names for a cogtainer from DynamoDB status table."""
     ddb = session.resource("dynamodb", region_name=region)
-    table = ddb.Table("cogent-status")
+    table = ddb.Table(f"cogtainer-{cogtainer_name}-status")
 
     items: list[dict] = []
     params: dict = {}
@@ -468,20 +468,32 @@ def _update_services(
 ) -> None:
     """Force new ECS deployment for all cogent services."""
     ecs_client = session.client("ecs", region_name=region)
-    cluster = f"cogent-{cogtainer_name}"
 
-    # Try default cluster name, fall back to cogtainer
+    # Try cogtainer-prefixed cluster first, fall back to shared "cogtainer"
+    cluster = f"cogtainer-{cogtainer_name}"
     try:
-        ecs_client.describe_clusters(clusters=[cluster])["clusters"]
+        resp = ecs_client.describe_clusters(clusters=[cluster])
+        active = [c for c in resp.get("clusters", []) if c.get("status") == "ACTIVE"]
+        if not active:
+            cluster = naming.cluster_name()
     except Exception:
         cluster = naming.cluster_name()
 
-    service_types = ["dashboard", "discord"]
+    # List all services in the cluster and match by cogent name
+    all_services: list[str] = []
+    paginator = ecs_client.get_paginator("list_services")
+    for page in paginator.paginate(cluster=cluster):
+        for arn in page.get("serviceArns", []):
+            all_services.append(arn.split("/")[-1])
 
     for cogent_name in cogent_names:
         safe_name = cogent_name.replace(".", "-")
-        for stype in service_types:
-            service_name = f"cogent-{safe_name}-{stype}"
+        # Match services containing this cogent's safe name
+        matching = [s for s in all_services if f"-{safe_name}-" in s]
+        if not matching:
+            click.echo(f"  {safe_name}: no services found (skip)")
+            continue
+        for service_name in matching:
             try:
                 ecs_client.update_service(
                     cluster=cluster,
@@ -489,8 +501,6 @@ def _update_services(
                     forceNewDeployment=True,
                 )
                 click.echo(f"  {service_name}: restarted")
-            except ecs_client.exceptions.ServiceNotFoundException:
-                click.echo(f"  {service_name}: not found (skip)")
             except Exception as e:
                 click.echo(f"  {service_name}: {e}")
 
