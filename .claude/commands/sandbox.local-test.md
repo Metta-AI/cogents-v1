@@ -89,3 +89,15 @@ uv run cogos dashboard reload
 | Diagnostics says "Ignoring wakeup" | Pass `--event '{"channel_name":"system:diagnostics"}'` |
 | Dashboard port conflict | Check `uv run cogtainer status dev` for assigned ports |
 | Frontend 404 | Run `cd dashboard/frontend && npm ci` then restart dashboard |
+| Any silent failure | Run `uv run cogent status` to find log_dir, then read the relevant log below |
+
+### Log files
+
+All logs live under the cogent's log directory (shown by `uv run cogent status`):
+
+| Log file | Source |
+|----------|--------|
+| `dispatcher.log` | Dispatcher daemon (step 3) |
+| `executor.log` | Executor subprocess (step 4) |
+| `dashboard-backend.log` | Dashboard API server (step 5) |
+| `dashboard-frontend.log` | Dashboard Next.js dev server (step 5) |
