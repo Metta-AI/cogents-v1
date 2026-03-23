@@ -2043,7 +2043,7 @@ class Repository:
         )
         return self._rows_to_dicts(response)
 
-    def resolve_alert(self, alert_id) -> None:
+    def resolve_alert(self, alert_id: UUID) -> None:
         self._execute(
             "UPDATE alerts SET resolved_at = now() WHERE id = :id",
             [self._param("id", alert_id)],
@@ -2277,7 +2277,7 @@ class Repository:
 
         return msg_id
 
-    def get_latest_delivery_time(self, handler_id: UUID):
+    def get_latest_delivery_time(self, handler_id: UUID) -> datetime | None:
         """Return the created_at of the most recent message delivered to this handler."""
         row = self._first_row(self._execute(
             """SELECT MAX(cm.created_at) AS latest
@@ -2308,7 +2308,7 @@ class Repository:
         )
 
     def list_channel_messages(
-        self, channel_id: UUID | None = None, *, limit: int = 100, since=None,
+        self, channel_id: UUID | None = None, *, limit: int = 100, since: datetime | None = None,
     ) -> list[ChannelMessage]:
         if channel_id is not None:
             if since:
