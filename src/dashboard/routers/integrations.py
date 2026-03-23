@@ -3,25 +3,21 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from cogos.io.integration import INTEGRATIONS, INTEGRATIONS_BY_NAME
+from cogtainer.secrets import AwsSecretsProvider
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["integrations"])
 
-_secrets_provider = None
-
 
 def _get_secrets_provider():
-    global _secrets_provider
-    if _secrets_provider is None:
-        from cogtainer.runtime.factory import create_executor_runtime
-        _secrets_provider = create_executor_runtime().get_secrets_provider()
-    return _secrets_provider
+    return AwsSecretsProvider(region=os.environ.get("AWS_REGION", "us-east-1"))
 
 
 # ── Models ───────────────────────────────────────────────────────

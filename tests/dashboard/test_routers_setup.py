@@ -28,15 +28,12 @@ def _patch_sp(provider):
 
 
 @pytest.fixture(autouse=True)
-def _patch_runtime():
-    """Patch create_executor_runtime so importing setup doesn't need COGTAINER."""
-    mock_rt = MagicMock()
+def _patch_secrets():
+    """Patch secrets provider so tests don't need AWS."""
     mock_sp = MagicMock()
     mock_sp.get_secret.side_effect = KeyError("not mocked")
-    mock_rt.get_secrets_provider.return_value = mock_sp
-    mock_rt.get_ecs_client.return_value = None
-    with patch("dashboard.routers.setup._get_runtime", return_value=mock_rt), \
-         patch("dashboard.routers.setup._get_secrets_provider", return_value=mock_sp):
+    with patch("dashboard.routers.setup._get_secrets_provider", return_value=mock_sp), \
+         patch("dashboard.routers.setup._get_ecs_client", return_value=None):
         yield
 
 

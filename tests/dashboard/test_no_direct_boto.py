@@ -16,8 +16,10 @@ _CHECKED_DIRS = [
     Path("src/cogos/io"),
 ]
 
-# Files that are explicitly allowed to use boto3 (legacy, should be migrated)
-_ALLOWED_FILES: set[str] = set()
+# Files that are explicitly allowed to use boto3 (ECS client for setup checks)
+_ALLOWED_FILES: set[str] = {
+    "src/dashboard/routers/setup.py",
+}
 
 
 def _find_boto_imports(filepath: Path) -> list[int]:

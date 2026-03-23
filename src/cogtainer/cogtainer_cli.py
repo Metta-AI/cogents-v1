@@ -495,12 +495,38 @@ def _update_services(
             continue
         for service_name in matching:
             try:
-                ecs_client.update_service(
-                    cluster=cluster,
-                    service=service_name,
-                    forceNewDeployment=True,
-                )
-                click.echo(f"  {service_name}: restarted")
+                update_kwargs: dict = {
+                    "cluster": cluster,
+                    "service": service_name,
+                    "forceNewDeployment": True,
+                }
+                if image_tag:
+                    # Update the task definition with the new image
+                    svc_resp = ecs_client.describe_services(cluster=cluster, services=[service_name])
+                    td_arn = svc_resp["services"][0]["taskDefinition"]
+                    td = ecs_client.describe_task_definition(taskDefinition=td_arn)["taskDefinition"]
+                    new_containers = []
+                    for c in td["containerDefinitions"]:
+                        current_image = c.get("image", "")
+                        if current_image:
+                            repo = current_image.rsplit(":", 1)[0]
+                            c = {**c, "image": f"{repo}:{image_tag}"}
+                        new_containers.append(c)
+                    # Register new task definition revision
+                    reg_kwargs = {
+                        k: td[k] for k in td
+                        if k in (
+                            "family", "taskRoleArn", "executionRoleArn", "networkMode",
+                            "volumes", "placementConstraints", "requiresCompatibilities",
+                            "cpu", "memory", "runtimePlatform",
+                        ) and td.get(k)
+                    }
+                    reg_kwargs["containerDefinitions"] = new_containers
+                    new_td = ecs_client.register_task_definition(**reg_kwargs)
+                    new_td_arn = new_td["taskDefinition"]["taskDefinitionArn"]
+                    update_kwargs["taskDefinition"] = new_td_arn
+                ecs_client.update_service(**update_kwargs)
+                click.echo(f"  {service_name}: restarted" + (f" (image: {image_tag})" if image_tag else ""))
             except Exception as e:
                 click.echo(f"  {service_name}: {e}")
 

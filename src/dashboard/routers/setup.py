@@ -14,28 +14,25 @@ from dashboard.db import get_repo
 logger = logging.getLogger(__name__)
 
 _region = os.environ.get("AWS_REGION", "us-east-1")
-_runtime = None
+from cogtainer.secrets import AwsSecretsProvider
+
 _secrets_provider = None
-
-
-def _get_runtime():
-    global _runtime
-    if _runtime is None:
-        from cogtainer.runtime.factory import create_executor_runtime
-        _runtime = create_executor_runtime()
-    return _runtime
 
 
 def _get_secrets_provider():
     global _secrets_provider
     if _secrets_provider is None:
-        _secrets_provider = _get_runtime().get_secrets_provider()
+        _secrets_provider = AwsSecretsProvider(region=_region)
     return _secrets_provider
 
 
 def _get_ecs_client():
-    """Return an ECS client via the runtime, or None for local."""
-    return _get_runtime().get_ecs_client(region=_region)
+    """Return an ECS client, or None if unavailable."""
+    try:
+        import boto3
+        return boto3.client("ecs", region_name=_region)
+    except Exception:
+        return None
 
 router = APIRouter(tags=["setup"])
 
