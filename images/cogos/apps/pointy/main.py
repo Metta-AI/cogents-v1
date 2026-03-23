@@ -1,5 +1,6 @@
 # Pointy — Python Orchestrator
 # Routes channel events, fetches data (no LLM), spawns LLM coglets for synthesis.
+# Uses procs.spawn() directly instead of cog_registry + coglet_runtime.
 
 import datetime
 
@@ -19,22 +20,6 @@ TEAM = {
     "Alexandros Vardakostas": "Al-does", "Martin Hess": "marty-spec",
     "Nishad Singh": "nishu-builder", "David Bloomin": "daveey",
     "Yatharth Agarwal": "yatharth",
-}
-
-# ── Coglet definitions ──────────────────────────────────────────
-daily_coglet = cog.make_coglet("daily", entrypoint="main.md",
-    files={"main.md": src.get("daily-coglet.md").read().content})
-pitch_coglet = cog.make_coglet("pitch", entrypoint="main.md",
-    files={"main.md": src.get("pitch-instructions.md").read().content})
-feedback_coglet = cog.make_coglet("feedback", entrypoint="main.md",
-    files={"main.md": src.get("feedback-coglet.md").read().content})
-followup_coglet = cog.make_coglet("followup", entrypoint="main.md",
-    files={"main.md": src.get("followup-coglet.md").read().content})
-
-coglet_caps = {
-    "asana": None, "github": None, "google_docs": None,
-    "discord": None, "channels": None, "secrets": None,
-    "disk": disk,
 }
 
 
@@ -118,13 +103,11 @@ def fetch_github_activity(threads, since):
                     "user": getattr(p, "user", ""),
                     "merged_at": getattr(p, "merged_at", ""),
                     "url": getattr(p, "html_url", getattr(p, "url", "")),
-                    "additions": getattr(p, "additions", 0),
-                    "deletions": getattr(p, "deletions", 0),
                 })
             all_prs[repo] = repo_prs
             print("  " + repo + ": " + str(len(repo_prs)) + " closed PRs")
 
-    # Commits per user per repo (up to 33 calls: 11 users x 3 repos)
+    # Commits per user per repo
     all_commits = {}
     for gl in sorted(github_users):
         user_commits = {}
@@ -142,62 +125,26 @@ def fetch_github_activity(threads, since):
     return all_prs, all_commits
 
 
-def publish_to_google_docs(report_text, date_str):
-    """Create a Google Doc, insert text, apply basic formatting, notify Discord."""
-    doc = google_docs.create_doc("Daily Thread Update \u2014 " + date_str, FOLDER_ID)
-    if hasattr(doc, "error"):
-        print("ERROR creating doc: " + str(doc.error))
+def spawn_coglet(name, prompt_key):
+    """Spawn an LLM coglet by reading its prompt from the file store."""
+    content = src.get(prompt_key).read()
+    if hasattr(content, "content"):
+        content = content.content
+    if not content:
+        print("ERROR: no content for coglet at " + prompt_key)
         return None
-
-    # Insert text
-    requests = [{"insertText": {"location": {"index": 1}, "text": report_text}}]
-    result = google_docs.batch_update(doc.id, requests)
-    if hasattr(result, "error"):
-        print("ERROR inserting text: " + str(result.error))
-    else:
-        print("Inserted text into doc")
-
-    # Apply heading styles
-    fmt_requests = []
-    lines = report_text.split("\n")
-    idx = 1  # doc starts at index 1
-    for line in lines:
-        line_len = len(line) + 1  # +1 for newline
-        if line.startswith("# ") and not line.startswith("## "):
-            fmt_requests.append({
-                "updateParagraphStyle": {
-                    "range": {"startIndex": idx, "endIndex": idx + line_len},
-                    "paragraphStyle": {"namedStyleType": "HEADING_1"},
-                    "fields": "namedStyleType",
-                }
-            })
-        elif line.startswith("## "):
-            fmt_requests.append({
-                "updateParagraphStyle": {
-                    "range": {"startIndex": idx, "endIndex": idx + line_len},
-                    "paragraphStyle": {"namedStyleType": "HEADING_2"},
-                    "fields": "namedStyleType",
-                }
-            })
-        elif line.startswith("### "):
-            fmt_requests.append({
-                "updateParagraphStyle": {
-                    "range": {"startIndex": idx, "endIndex": idx + line_len},
-                    "paragraphStyle": {"namedStyleType": "HEADING_3"},
-                    "fields": "namedStyleType",
-                }
-            })
-        idx += line_len
-
-    if fmt_requests:
-        fmt_result = google_docs.batch_update(doc.id, fmt_requests)
-        if not hasattr(fmt_result, "error"):
-            print("Applied " + str(len(fmt_requests)) + " heading styles")
-
-    # Notify Discord
-    discord.send(DISCORD_CHANNEL, "Daily Thread Update ready: " + doc.url)
-    print("Published: " + doc.url)
-    return doc
+    caps = {
+        "asana": None, "github": None, "google_docs": None,
+        "discord": None, "channels": None, "secrets": None,
+        "file": None, "disk": disk,
+    }
+    return procs.spawn(
+        name=name,
+        content=content,
+        mode="one_shot",
+        executor="llm",
+        capabilities=caps,
+    )
 
 
 # ── Channel routing ─────────────────────────────────────────────
@@ -221,56 +168,53 @@ if channel == "pointy:daily-tick":
             for p in prs:
                 if p["user"] == gl and p["merged_at"]:
                     user_prs.append(repo + "#" + str(p["number"]) + " " + p["title"])
-        thread_summaries.append({
-            "name": t["name"],
-            "assignee": t["assignee"],
-            "github": gl,
-            "stage": t["stage"],
-            "phase": t["phase"],
-            "status": t["status"],
-            "priority": t["priority"],
-            "notes": t["notes"],
-            "id": t["id"],
-            "commit_count": commits,
-            "pr_titles": user_prs[:10],
-            "commit_messages": [],
-        })
-        # Add commit messages for context
+        commit_msgs = []
         if gl in all_commits:
-            msgs = []
             for repo, repo_commits in all_commits[gl].items():
                 for c in repo_commits[:5]:
-                    msgs.append(repo + " " + c["sha"] + " " + c["message"])
-            thread_summaries[-1]["commit_messages"] = msgs[:10]
+                    commit_msgs.append(repo + " " + c["sha"] + " " + c["message"])
+        thread_summaries.append({
+            "name": t["name"], "assignee": t["assignee"],
+            "github": gl, "stage": t["stage"], "phase": t["phase"],
+            "status": t["status"], "priority": t["priority"],
+            "notes": t["notes"], "id": t["id"],
+            "commit_count": commits,
+            "pr_titles": user_prs[:10],
+            "commit_messages": commit_msgs[:10],
+        })
 
     # Write data to file store for the coglet
     data_payload = {
-        "since": since,
-        "until": until,
+        "since": since, "until": until,
         "threads": thread_summaries,
         "thread_count": len(threads),
     }
     disk.get("daily-data.json").write(json.dumps(data_payload, indent=2, default=str))
-    print("Data written to disk. Spawning daily coglet...")
+    print("Data written. Spawning daily coglet...")
 
     # Phase 2: Spawn LLM coglet for synthesis
-    run = coglet_runtime.run(daily_coglet, procs, capability_overrides=coglet_caps)
-    run.process().send({"action": "synthesize", "data_key": "daily-data.json"})
+    handle = spawn_coglet("pointy/daily", "daily-coglet.md")
+    if handle:
+        handle.send({"action": "synthesize", "data_key": "daily-data.json"})
+        print("Daily coglet spawned: " + str(handle))
 
 elif channel == "pointy:pitch-requested":
     print("=== Pitch Review ===")
-    run = coglet_runtime.run(pitch_coglet, procs, capability_overrides=coglet_caps)
-    run.process().send(payload)
+    handle = spawn_coglet("pointy/pitch", "pitch-instructions.md")
+    if handle:
+        handle.send(payload)
 
 elif channel == "pointy:feedback-requested":
     print("=== Feedback Processing ===")
-    run = coglet_runtime.run(feedback_coglet, procs, capability_overrides=coglet_caps)
-    run.process().send(payload)
+    handle = spawn_coglet("pointy/feedback", "feedback-coglet.md")
+    if handle:
+        handle.send(payload)
 
 elif channel == "pointy:followup-requested":
     print("=== Pitch Follow-Up ===")
-    run = coglet_runtime.run(followup_coglet, procs, capability_overrides=coglet_caps)
-    run.process().send(payload)
+    handle = spawn_coglet("pointy/followup", "followup-coglet.md")
+    if handle:
+        handle.send(payload)
 
 else:
     print("pointy: unknown channel " + channel)
