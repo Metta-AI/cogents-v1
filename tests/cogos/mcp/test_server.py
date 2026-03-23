@@ -180,7 +180,7 @@ class TestCompleteRun:
             method="POST",
             json={"id": "run-456", "status": "completed"},
         )
-        result = await server.complete_run(status="completed", output="done")
+        result = await server.complete_run(status="completed", output={"text": "done"})
         assert result["status"] == "completed"
         assert server.current_run_id is None
         await server.close()
@@ -498,7 +498,7 @@ class TestCreateMcpServer:
 
 class TestMcpTools:
     @pytest.fixture
-    def mcp_srv(self, server: CogosServer) -> "MCP server":
+    def mcp_srv(self, server: CogosServer):  # type: ignore[no-untyped-def]
         return server.create_mcp_server()
 
     @pytest.mark.anyio
@@ -556,7 +556,7 @@ class TestHeartbeatLoop:
             call_count += 1
 
         server.heartbeat = mock_heartbeat  # type: ignore[assignment]
-        server.heartbeat_s = 0.05  # 50ms for testing
+        server.heartbeat_s = 0  # type: ignore[assignment]  # 50ms for testing
         task = asyncio.create_task(server.run_heartbeat_loop())
         await asyncio.sleep(0.15)
         task.cancel()
@@ -676,7 +676,7 @@ class TestEntryPoint:
         assert inspect.iscoroutinefunction(amain)
 
     def test_dunder_main_importable(self):
-        import importlib
+        import importlib.util
         spec = importlib.util.find_spec("cogos.mcp.__main__")
         assert spec is not None
 
