@@ -1,7 +1,11 @@
-"""Local dispatcher — tick-based process scheduling for local runtime.
+"""Local dispatcher — tick + event-driven process scheduling for local runtime.
 
 Mirrors the Lambda dispatcher handler but runs as a long-lived loop,
 dispatching via CogtainerRuntime.spawn_executor instead of Lambda invoke.
+
+Between full scheduler ticks the loop also drains the local ingress queue
+(an in-memory SQS mock) so that channel-message nudges trigger near-instant
+dispatch — matching production behaviour where SQS wakes the ingress Lambda.
 """
 
 from __future__ import annotations
@@ -111,8 +115,77 @@ def run_tick(repo: Any, runtime: Any, cogent_name: str) -> dict:
     return {"dispatched": dispatched}
 
 
+def _dispatch_nudged_processes(repo: Any, runtime: Any, cogent_name: str) -> int:
+    """Drain the local ingress queue and dispatch any nudged processes.
+
+    This mirrors the production ingress Lambda: explicitly nudged process IDs
+    are dispatched immediately (bypassing weighted random selection), then a
+    small batch of other runnable processes is selected.
+    """
+    ingress_queue = getattr(runtime, "ingress_queue", None)
+    if ingress_queue is None:
+        return 0
+
+    messages = ingress_queue.drain()
+    if not messages:
+        return 0
+
+    from cogos.capabilities.scheduler import SchedulerCapability
+    from cogos.db.models import ProcessStatus
+
+    if hasattr(repo, "_load"):
+        repo._load()
+
+    scheduler = SchedulerCapability(repo, _NULL_UUID)
+    dispatched = 0
+
+    # First pass: dispatch explicitly nudged process IDs
+    seen: set[str] = set()
+    for msg in messages:
+        pid_str = msg.get("process_id")
+        if not pid_str or pid_str in seen:
+            continue
+        seen.add(pid_str)
+        try:
+            proc = repo.get_process(UUID(pid_str))
+            if proc is None or proc.status != ProcessStatus.RUNNABLE:
+                continue
+            dispatch_result = scheduler.dispatch_process(process_id=pid_str)
+            if hasattr(dispatch_result, "error"):
+                logger.warning("Nudge dispatch failed for %s: %s", pid_str, dispatch_result.error)
+                continue
+            runtime.spawn_executor(cogent_name, pid_str)
+            dispatched += 1
+        except Exception:
+            logger.exception("Failed to dispatch nudged process %s", pid_str)
+
+    # Second pass: pick up to 5 additional runnable processes (like prod ingress)
+    try:
+        select_result = scheduler.select_processes(slots=5)
+        for proc_info in select_result.selected:
+            try:
+                dispatch_result = scheduler.dispatch_process(process_id=proc_info.id)
+                if hasattr(dispatch_result, "error"):
+                    continue
+                runtime.spawn_executor(cogent_name, proc_info.id)
+                dispatched += 1
+            except Exception:
+                logger.exception("Failed to dispatch process %s", proc_info.name)
+    except Exception:
+        logger.debug("select_processes after nudge failed", exc_info=True)
+
+    if dispatched:
+        logger.info("Ingress nudge dispatched %d process(es)", dispatched)
+
+    return dispatched
+
+
 def run_loop(repo: Any, runtime: Any, cogent_name: str, *, tick_interval: int = _DEFAULT_TICK_INTERVAL) -> None:
-    """Tick every *tick_interval* seconds until SIGINT/SIGTERM."""
+    """Tick every *tick_interval* seconds until SIGINT/SIGTERM.
+
+    Between full ticks the loop drains the local ingress queue (SQS mock)
+    every second so that channel-message nudges trigger near-instant dispatch.
+    """
     shutdown = False
 
     def _handle_signal(signum: int, frame: Any) -> None:
@@ -123,7 +196,14 @@ def run_loop(repo: Any, runtime: Any, cogent_name: str, *, tick_interval: int = 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    logger.info("Local dispatcher started for cogent %s (tick every %ds)", cogent_name, tick_interval)
+    ingress_queue = getattr(runtime, "ingress_queue", None)
+    if ingress_queue is not None:
+        logger.info(
+            "Local dispatcher started for cogent %s (tick every %ds, ingress queue enabled)",
+            cogent_name, tick_interval,
+        )
+    else:
+        logger.info("Local dispatcher started for cogent %s (tick every %ds)", cogent_name, tick_interval)
 
     while not shutdown:
         try:
@@ -132,10 +212,16 @@ def run_loop(repo: Any, runtime: Any, cogent_name: str, *, tick_interval: int = 
         except Exception:
             logger.exception("Tick failed")
 
-        # Sleep in small increments to respond to signals promptly
+        # Between ticks, sleep in 1-second increments but check the ingress
+        # queue each iteration for near-instant event-driven dispatch.
         for _ in range(tick_interval):
             if shutdown:
                 break
+            if ingress_queue is not None:
+                try:
+                    _dispatch_nudged_processes(repo, runtime, cogent_name)
+                except Exception:
+                    logger.debug("Ingress drain failed", exc_info=True)
             time.sleep(1)
 
     logger.info("Local dispatcher stopped")
