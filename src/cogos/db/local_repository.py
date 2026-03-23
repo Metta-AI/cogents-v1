@@ -95,6 +95,9 @@ class LocalRepository(Repository):
         self._executors: dict[str, Executor] = {}  # keyed by executor_id (str)
         self._executor_tokens: dict[UUID, ExecutorToken] = {}
         self._reboot_epoch: int = 0
+        # Ingress nudge — set by the runtime to enable event-driven dispatch.
+        self._ingress_queue_url: str = ""
+        self._nudge_callback: Any = None
 
         self._load()
 
@@ -1337,6 +1340,7 @@ class LocalRepository(Repository):
                     proc = self.get_process(handler.process)
                     if proc and proc.status == ProcessStatus.WAITING:
                         self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
+                        self._nudge_ingress(process_id=handler.process)
 
             return msg.id
 

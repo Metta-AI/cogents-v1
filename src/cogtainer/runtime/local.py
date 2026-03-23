@@ -28,6 +28,10 @@ class LocalRuntime(CogtainerRuntime):
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._child_procs: list[tuple[subprocess.Popen, str]] = []
 
+        from cogos.runtime.local_ingress_queue import LocalIngressQueue
+
+        self.ingress_queue = LocalIngressQueue()
+
         from cogtainer.secrets import LocalSecretsProvider
 
         self._secrets = LocalSecretsProvider(data_dir=str(self._data_dir))
@@ -39,7 +43,12 @@ class LocalRuntime(CogtainerRuntime):
 
         cogent_dir = self._data_dir / cogent_name
         cogent_dir.mkdir(parents=True, exist_ok=True)
-        return LocalRepository(data_dir=str(cogent_dir))
+        repo = LocalRepository(data_dir=str(cogent_dir))
+        # Wire up the local ingress queue so channel-message nudges
+        # trigger immediate dispatch instead of waiting for the next tick.
+        repo._ingress_queue_url = "local://ingress"
+        repo._nudge_callback = self.ingress_queue.send
+        return repo
 
     # ── LLM ──────────────────────────────────────────────────
 
