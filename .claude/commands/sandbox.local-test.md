@@ -22,21 +22,23 @@ If no local cogtainer exists:
 ```bash
 uv run cogtainer create dev --type local --llm-provider anthropic --llm-model claude-sonnet-4-20250514 --llm-api-key-env ANTHROPIC_API_KEY
 uv run cogent create alpha
+uv run cogent select alpha
 ```
 
-### 3. Boot the image and run init
+The `select` writes `COGTAINER` and `COGENT` to a repo-local `.env` file, so all subsequent `cogos` commands resolve automatically.
+
+### 3. Boot the image and start dispatcher
 
 ```bash
-COGTAINER=dev COGENT=alpha uv run cogos start cogos
-COGTAINER=dev COGENT=alpha uv run cogos process run init --executor local
+uv run cogos start
 ```
 
-Expect: `Init complete` with all cogs started. If init fails with `'COGTAINER'`, make sure `COGTAINER=dev` is set.
+This boots the image and starts the dispatcher, which automatically runs init. Expect: `Boot complete` followed by `Dispatcher started in background`.
 
 ### 4. Run diagnostics
 
 ```bash
-COGTAINER=dev COGENT=alpha uv run cogos process run diagnostics --executor local --event '{"channel_name":"system:diagnostics"}'
+uv run cogos process run diagnostics --executor local --event '{"channel_name":"system:diagnostics"}'
 ```
 
 The `--event` flag is required — diagnostics only runs when triggered via the `system:diagnostics` channel.
@@ -46,7 +48,7 @@ Expect: `Run completed` with pass/fail counts. External-service checks (asana, b
 ### 5. Start dashboard and verify
 
 ```bash
-COGTAINER=dev COGENT=alpha uv run cogos dashboard start
+uv run cogos dashboard start
 ```
 
 Verify diagnostics are visible:
@@ -68,14 +70,13 @@ Print: `Dashboard running at http://localhost:5200 — diagnostics visible`
 
 If you changed image files (`images/**`), diagnostics code, or sandbox code:
 ```bash
-COGTAINER=dev COGENT=alpha uv run cogos restart
-COGTAINER=dev COGENT=alpha uv run cogos process run init --executor local
-COGTAINER=dev COGENT=alpha uv run cogos process run diagnostics --executor local --event '{"channel_name":"system:diagnostics"}'
+uv run cogos restart
+uv run cogos process run diagnostics --executor local --event '{"channel_name":"system:diagnostics"}'
 ```
 
 If you only changed dashboard code:
 ```bash
-COGTAINER=dev COGENT=alpha uv run cogos dashboard reload
+uv run cogos dashboard reload
 ```
 
 ## Troubleshooting
@@ -83,8 +84,8 @@ COGTAINER=dev COGENT=alpha uv run cogos dashboard reload
 | Symptom | Fix |
 |---------|-----|
 | `NameError: name 'time' is not defined` | Sandbox code needs `import time` — allowed modules are in `src/cogos/sandbox/executor.py` |
-| `'COGTAINER'` KeyError | Set `COGTAINER=dev` in the environment |
-| `Process not found: diagnostics` | Run `cogos start` then `cogos process run init --executor local` first |
+| `'COGTAINER'` KeyError | Run `uv run cogent select alpha` to persist selection to `.env` |
+| `Process not found: diagnostics` | Run `cogos start` first (boots image and runs init via dispatcher) |
 | Diagnostics says "Ignoring wakeup" | Pass `--event '{"channel_name":"system:diagnostics"}'` |
 | Dashboard port conflict | Check `uv run cogtainer status dev` for assigned ports |
 | Frontend 404 | Run `cd dashboard/frontend && npm ci` then restart dashboard |

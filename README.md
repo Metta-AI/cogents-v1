@@ -33,18 +33,15 @@ uv run cogtainer create dev --type local --llm-provider bedrock --llm-model us.a
 # 3. Create a cogent
 uv run cogent create alpha
 
-# 4. Boot the cogos image
-COGENT=alpha uv run cogos image boot cogos
+# 4. Start (boots image, runs init via dispatcher)
+uv run cogos start
 
-# 5. Run the init process
-COGENT=alpha uv run cogos process run init --executor local
+# 5. Check status
+uv run cogos status
 
-# 6. Check status
-COGENT=alpha uv run cogos status
-
-# 7. Start the dashboard
+# 6. Start the dashboard
 cd dashboard/frontend && npm ci && cd ../..
-COGENT=alpha uv run cogos dashboard start
+uv run cogos dashboard start
 ```
 
 ### LLM Providers
@@ -69,7 +66,13 @@ uv run cogtainer create dev --type local --llm-provider anthropic --llm-model cl
 | `COGTAINER` | Active cogtainer name | Yes, if only one exists |
 | `COGENT` | Active cogent name | Yes, if only one exists |
 
-When only one cogtainer or cogent exists, it's selected automatically. Otherwise set the env var.
+When only one cogtainer or cogent exists, it's selected automatically. Otherwise, use `select` to persist your choice to a repo-local `.env` file:
+
+```bash
+uv run cogent select alpha    # writes COGTAINER and COGENT to .env
+```
+
+After selecting, all `cogos` commands pick up the selection automatically — no env var prefix needed.
 
 ## Deploying to AWS
 
