@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from "react";
 import type { Alert } from "@/lib/types";
 import { Badge } from "@/components/shared/Badge";
 import { resolveAlert, resolveAllAlerts, getResolvedAlerts, createAlert, deleteAlert } from "@/lib/api";
-import { fmtTimestamp } from "@/lib/format";
+import { fmtTimestamp, fmtRelative } from "@/lib/format";
 
 interface AlertsPanelProps {
   alerts: Alert[];
@@ -13,6 +13,47 @@ interface AlertsPanelProps {
 }
 
 type BadgeVariant = "success" | "warning" | "error" | "info" | "neutral" | "accent";
+
+/** A group of alerts with the same message, type, and source. */
+interface AlertGroup {
+  key: string;
+  alerts: Alert[];
+  count: number;
+  severity: string;
+  alert_type: string | null;
+  source: string | null;
+  message: string | null;
+  first_seen: string | null;
+  last_seen: string | null;
+}
+
+/** Group alerts by (message, alert_type, source). */
+function aggregateAlerts(alerts: Alert[]): AlertGroup[] {
+  const groups = new Map<string, Alert[]>();
+  for (const a of alerts) {
+    const key = `${a.message ?? ""}||${a.alert_type ?? ""}||${a.source ?? ""}`;
+    const group = groups.get(key);
+    if (group) group.push(a);
+    else groups.set(key, [a]);
+  }
+  return Array.from(groups.entries()).map(([key, groupAlerts]) => {
+    // Sort by created_at ascending to find first/last
+    const sorted = [...groupAlerts].sort((a, b) =>
+      (a.created_at ?? "").localeCompare(b.created_at ?? "")
+    );
+    return {
+      key,
+      alerts: sorted,
+      count: sorted.length,
+      severity: sorted[sorted.length - 1].severity ?? "info",
+      alert_type: sorted[0].alert_type,
+      source: sorted[0].source,
+      message: sorted[0].message,
+      first_seen: sorted[0].created_at,
+      last_seen: sorted.length > 1 ? sorted[sorted.length - 1].created_at : null,
+    };
+  });
+}
 
 const SEVERITY_VARIANT: Record<string, BadgeVariant> = {
   critical: "error",
@@ -275,13 +316,16 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
         </div>
       )}
 
-      {/* Alerts table */}
+      {/* Alerts table (aggregated) */}
       <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-md overflow-hidden">
         <table className="w-full text-left text-[12px]">
           <thead>
             <tr className="border-b border-[var(--border)]">
               <th className="px-4 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">
                 Severity
+              </th>
+              <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">
+                Count
               </th>
               <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">
                 Type
@@ -293,7 +337,7 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
                 Message
               </th>
               <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium">
-                First Seen
+                Time Range
               </th>
               <th className="px-3 py-2 text-[10px] text-[var(--text-muted)] uppercase tracking-wide font-medium text-right">
                 Actions
@@ -304,37 +348,48 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
             {alerts.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="text-[var(--text-muted)] text-[13px] py-8 text-center"
                 >
                   No alerts
                 </td>
               </tr>
             )}
-            {alerts.map((a) => {
-              const severity = a.severity ?? "info";
-              const msg = a.message ?? "--";
+            {aggregateAlerts(alerts).map((g) => {
+              const msg = g.message ?? "--";
               const truncated = msg.length > 100 ? msg.slice(0, 100) + "..." : msg;
+              // For resolve/delete, use the most recent alert in the group
+              const latestAlert = g.alerts[g.alerts.length - 1];
 
               return (
                 <tr
-                  key={a.id}
+                  key={g.key}
                   className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--bg-hover)] transition-colors"
                 >
                   <td className="px-4 py-2">
-                    <Badge variant={SEVERITY_VARIANT[severity] ?? "neutral"}>
-                      {severity === "emergency" ? (
-                        <span style={{ color: "red" }}>{severity}</span>
+                    <Badge variant={SEVERITY_VARIANT[g.severity] ?? "neutral"}>
+                      {g.severity === "emergency" ? (
+                        <span style={{ color: "red" }}>{g.severity}</span>
                       ) : (
-                        severity
+                        g.severity
                       )}
                     </Badge>
                   </td>
                   <td className="px-3 py-2 font-mono text-[var(--text-secondary)]">
-                    {a.alert_type ?? "--"}
+                    {g.count > 1 ? (
+                      <span className="inline-flex items-center justify-center min-w-[20px] px-1 py-0.5 rounded-full text-[10px] font-semibold"
+                        style={{ background: "var(--error)", color: "white" }}>
+                        {g.count}x
+                      </span>
+                    ) : (
+                      <span className="text-[var(--text-muted)]">1</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[var(--text-secondary)]">
+                    {g.alert_type ?? "--"}
                   </td>
                   <td className="px-3 py-2 font-mono text-[var(--text-muted)]">
-                    {a.source ?? "--"}
+                    {g.source ?? "--"}
                   </td>
                   <td
                     className="px-3 py-2 text-[var(--text-secondary)]"
@@ -343,14 +398,24 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
                     {truncated}
                   </td>
                   <td className="px-3 py-2 text-[var(--text-muted)] text-[11px]">
-                    {fmtTimestamp(a.created_at)}
+                    {g.last_seen ? (
+                      <span title={`First: ${g.first_seen}\nLast: ${g.last_seen}`}>
+                        {fmtRelative(g.first_seen)} — {fmtRelative(g.last_seen)}
+                      </span>
+                    ) : (
+                      fmtTimestamp(g.first_seen)
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {deleteConfirm === a.id ? (
+                    {deleteConfirm === g.key ? (
                       <span className="text-[11px]">
-                        <span className="text-[var(--text-muted)] mr-1">Delete?</span>
+                        <span className="text-[var(--text-muted)] mr-1">Delete{g.count > 1 ? ` all ${g.count}` : ""}?</span>
                         <button
-                          onClick={() => handleDelete(a.id)}
+                          onClick={async () => {
+                            for (const a of g.alerts) await deleteAlert(cogentName, a.id);
+                            setDeleteConfirm(null);
+                            onRefresh();
+                          }}
                           className="text-[var(--error)] border-0 bg-transparent cursor-pointer text-[11px] font-semibold mr-1"
                         >
                           Yes
@@ -364,21 +429,30 @@ export function AlertsPanel({ alerts, cogentName, onRefresh }: AlertsPanelProps)
                       </span>
                     ) : (
                       <div className="flex gap-1 justify-end">
-                        {!a.resolved_at && (
+                        {!latestAlert.resolved_at && (
                           <button
-                            onClick={() => handleResolve(a.id)}
-                            disabled={resolving.has(a.id)}
+                            onClick={async () => {
+                              setResolving((s) => new Set(s).add(g.key));
+                              try {
+                                for (const a of g.alerts) await resolveAlert(cogentName, a.id);
+                                onRefresh();
+                                if (showResolved) fetchResolved();
+                              } finally {
+                                setResolving((s) => { const next = new Set(s); next.delete(g.key); return next; });
+                              }
+                            }}
+                            disabled={resolving.has(g.key)}
                             className="text-[10px] px-2 py-0.5 rounded border-0 cursor-pointer transition-colors disabled:opacity-40"
                             style={{
                               background: "var(--accent)",
                               color: "white",
                             }}
                           >
-                            Resolve
+                            Resolve{g.count > 1 ? ` (${g.count})` : ""}
                           </button>
                         )}
                         <button
-                          onClick={() => setDeleteConfirm(a.id)}
+                          onClick={() => setDeleteConfirm(g.key)}
                           className="text-[10px] px-2 py-0.5 rounded border cursor-pointer transition-colors"
                           style={{
                             background: "transparent",
