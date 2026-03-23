@@ -42,6 +42,7 @@ from cogos.db.models import (
     Trace,
 )
 from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
+from cogos.db.models.wait_condition import WaitCondition, WaitConditionStatus, WaitConditionType
 
 logger = logging.getLogger(__name__)
 
@@ -539,7 +540,72 @@ class Repository:
             f"UPDATE cogos_process SET status = :status{extra}, updated_at = now() WHERE id = :id",
             [self._param("id", process_id), self._param("status", status.value)],
         )
-        return response.get("numberOfRecordsUpdated", 0) == 1
+        updated = response.get("numberOfRecordsUpdated", 0) == 1
+        if status == ProcessStatus.DISABLED:
+            self.resolve_wait_conditions_for_process(process_id)
+        return updated
+
+    def create_wait_condition(self, wc: WaitCondition) -> UUID:
+        self._execute(
+            """INSERT INTO cogos_wait_condition (id, run, type, status, pending)
+               VALUES (:id, :run, :type, :status, :pending::jsonb)""",
+            [
+                self._param("id", wc.id),
+                self._param("run", wc.run),
+                self._param("type", wc.type.value),
+                self._param("status", wc.status.value),
+                self._param("pending", wc.pending),
+            ],
+        )
+        return wc.id
+
+    def get_pending_wait_condition_for_process(self, process_id: UUID) -> WaitCondition | None:
+        row = self._first_row(self._execute(
+            """SELECT wc.* FROM cogos_wait_condition wc
+               JOIN cogos_run r ON wc.run = r.id
+               WHERE r.process = :process_id AND wc.status = 'pending'
+               LIMIT 1""",
+            [self._param("process_id", process_id)],
+        ))
+        if not row:
+            return None
+        return WaitCondition(
+            id=UUID(row["id"]),
+            run=UUID(row["run"]),
+            type=WaitConditionType(row["type"]),
+            status=WaitConditionStatus(row["status"]),
+            pending=self._parse_json(row.get("pending", "[]")),
+            created_at=self._ts(row, "created_at"),
+        )
+
+    def remove_from_pending(self, wc_id: UUID, child_pid: str) -> list[str]:
+        row = self._first_row(self._execute(
+            """UPDATE cogos_wait_condition
+               SET pending = (
+                   SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                   FROM jsonb_array_elements(pending) AS elem
+                   WHERE elem #>> '{}' != :child_pid
+               )
+               WHERE id = :id
+               RETURNING pending""",
+            [self._param("id", wc_id), self._param("child_pid", child_pid)],
+        ))
+        return self._parse_json(row["pending"]) if row else []
+
+    def resolve_wait_condition(self, wc_id: UUID) -> None:
+        self._execute(
+            "UPDATE cogos_wait_condition SET status = 'resolved' WHERE id = :id",
+            [self._param("id", wc_id)],
+        )
+
+    def resolve_wait_conditions_for_process(self, process_id: UUID) -> None:
+        self._execute(
+            """UPDATE cogos_wait_condition SET status = 'resolved'
+               WHERE status = 'pending' AND run IN (
+                   SELECT id FROM cogos_run WHERE process = :process_id
+               )""",
+            [self._param("process_id", process_id)],
+        )
 
     def get_runnable_processes(self, limit: int = 50) -> list[Process]:
         response = self._execute(
@@ -2179,8 +2245,23 @@ class Repository:
             if inserted:
                 proc = self.get_process(handler.process)
                 if proc and proc.status == ProcessStatus.WAITING:
-                    self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
-                    self._nudge_ingress(process_id=handler.process)
+                    wc = self.get_pending_wait_condition_for_process(handler.process)
+                    if wc is None:
+                        self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
+                        self._nudge_ingress(process_id=handler.process)
+                    else:
+                        payload = msg.payload if isinstance(msg.payload, dict) else {}
+                        if payload.get("type") == "child:exited":
+                            sender_pid = str(msg.sender_process)
+                            remaining = self.remove_from_pending(wc.id, sender_pid)
+                            should_wake = (
+                                wc.type.value in ("wait", "wait_any")
+                                or (wc.type.value == "wait_all" and len(remaining) == 0)
+                            )
+                            if should_wake:
+                                self.resolve_wait_condition(wc.id)
+                                self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
+                                self._nudge_ingress(process_id=handler.process)
 
         return msg_id
 

@@ -39,6 +39,7 @@ from cogos.db.models import (
 from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
 from cogos.db.models.span import Span, SpanEvent, SpanStatus
 from cogos.db.models.trace import RequestTrace
+from cogos.db.models.wait_condition import WaitCondition, WaitConditionStatus
 from cogos.db.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class LocalRepository(Repository):
         self._span_events: dict[UUID, SpanEvent] = {}
         self._executors: dict[str, Executor] = {}  # keyed by executor_id (str)
         self._executor_tokens: dict[UUID, ExecutorToken] = {}
+        self._wait_conditions: dict[UUID, WaitCondition] = {}
         self._reboot_epoch: int = 0
         # Ingress nudge — set by the runtime to enable event-driven dispatch.
         self._ingress_queue_url: str = ""
@@ -123,6 +125,7 @@ class LocalRepository(Repository):
         self._operations.clear()
         self._executors.clear()
         self._executor_tokens.clear()
+        self._wait_conditions.clear()
         self._reboot_epoch = 0
 
     def _read_persisted_data(self) -> dict[str, Any]:
@@ -159,6 +162,7 @@ class LocalRepository(Repository):
             "span_events": [e.model_dump(mode="json") for e in self._span_events.values()],
             "executors": [e.model_dump(mode="json") for e in self._executors.values()],
             "executor_tokens": [t.model_dump(mode="json") for t in self._executor_tokens.values()],
+            "wait_conditions": [wc.model_dump(mode="json") for wc in self._wait_conditions.values()],
             "reboot_epoch": self._reboot_epoch,
             "meta": self._meta,
         }
@@ -243,6 +247,7 @@ class LocalRepository(Repository):
             "span_events": (("id",), None),
             "executors": (("id",), ("executor_id",)),
             "executor_tokens": (("id",), ("name",)),
+            "wait_conditions": (("id",), None),
         }
 
         merged = {}
@@ -342,6 +347,9 @@ class LocalRepository(Repository):
         for et in data.get("executor_tokens", []):
             token = ExecutorToken(**et)
             self._executor_tokens[token.id] = token
+        for wc_data in data.get("wait_conditions", []):
+            wc = WaitCondition(**wc_data)
+            self._wait_conditions[wc.id] = wc
 
     def _migrate_legacy_process_prompt(self, raw: dict[str, Any]) -> dict[str, Any]:
         migrated = dict(raw)
@@ -638,6 +646,7 @@ class LocalRepository(Repository):
             # Cascade: if disabling, recursively disable all children
             if status == ProcessStatus.DISABLED:
                 self._cascade_disable(process_id)
+                self.resolve_wait_conditions_for_process(process_id)
             return True
 
     def _cascade_disable(self, parent_id: UUID) -> None:
@@ -1374,8 +1383,23 @@ class LocalRepository(Repository):
                 if inserted:
                     proc = self.get_process(handler.process)
                     if proc and proc.status == ProcessStatus.WAITING:
-                        self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
-                        self._nudge_ingress(process_id=handler.process)
+                        wc = self.get_pending_wait_condition_for_process(handler.process)
+                        if wc is None:
+                            self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
+                            self._nudge_ingress(process_id=handler.process)
+                        else:
+                            payload = msg.payload if isinstance(msg.payload, dict) else {}
+                            if payload.get("type") == "child:exited":
+                                sender_pid = str(msg.sender_process)
+                                remaining = self.remove_from_pending(wc.id, sender_pid)
+                                should_wake = (
+                                    wc.type.value in ("wait", "wait_any")
+                                    or (wc.type.value == "wait_all" and len(remaining) == 0)
+                                )
+                                if should_wake:
+                                    self.resolve_wait_condition(wc.id)
+                                    self.update_process_status(handler.process, ProcessStatus.RUNNABLE)
+                                    self._nudge_ingress(process_id=handler.process)
 
             return msg.id
 
@@ -1399,6 +1423,47 @@ class LocalRepository(Repository):
     def match_handlers_by_channel(self, channel_id: UUID) -> list[Handler]:
         self._maybe_reload()
         return [h for h in self._handlers.values() if h.channel == channel_id and h.enabled]
+
+    # ── Wait Conditions ─────────────────────────────────────
+
+    def create_wait_condition(self, wc: WaitCondition) -> UUID:
+        with self._writing():
+            if wc.created_at is None:
+                wc.created_at = datetime.now(UTC)
+            self._wait_conditions[wc.id] = wc
+            return wc.id
+
+    def get_pending_wait_condition_for_process(self, process_id: UUID) -> WaitCondition | None:
+        for wc in self._wait_conditions.values():
+            if wc.status != WaitConditionStatus.PENDING:
+                continue
+            run = self._runs.get(wc.run)
+            if run and run.process == process_id:
+                return wc
+        return None
+
+    def remove_from_pending(self, wc_id: UUID, child_pid: str) -> list[str]:
+        with self._writing():
+            wc = self._wait_conditions.get(wc_id)
+            if not wc:
+                return []
+            wc.pending = [p for p in wc.pending if p != child_pid]
+            return list(wc.pending)
+
+    def resolve_wait_condition(self, wc_id: UUID) -> None:
+        with self._writing():
+            wc = self._wait_conditions.get(wc_id)
+            if wc:
+                wc.status = WaitConditionStatus.RESOLVED
+
+    def resolve_wait_conditions_for_process(self, process_id: UUID) -> None:
+        with self._writing():
+            for wc in self._wait_conditions.values():
+                if wc.status != WaitConditionStatus.PENDING:
+                    continue
+                run = self._runs.get(wc.run)
+                if run and run.process == process_id:
+                    wc.status = WaitConditionStatus.RESOLVED
 
     # ── Discord Metadata ────────────────────────────────────
 

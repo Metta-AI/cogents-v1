@@ -18,7 +18,7 @@ from cogos.db.models import Process, ProcessStatus, Run, RunStatus
 from cogos.db.models.channel_message import ChannelMessage
 from cogos.db.repository import Repository
 from cogos.executor.session_store import SessionStore, build_prompt_fingerprint
-from cogos.sandbox.executor import SandboxExecutor, VariableTable
+from cogos.sandbox.executor import SandboxExecutor, VariableTable, WaitSuspend
 
 logger = logging.getLogger(__name__)
 
@@ -309,6 +309,8 @@ def handler(event: dict, context: Any = None) -> dict:
 
     logger.info(f"Starting run {run_id} for process {process.name}")
 
+    _enrich_wait_results(repo, process, event)
+
     start_time = time.time()
     try:
         with trace_ctx.start_span(f"process:{process.name}", coglet=process.name):
@@ -378,6 +380,23 @@ def handler(event: dict, context: Any = None) -> dict:
             result["web_response"] = event.get("_web_response") or {"status": 204, "headers": {}, "body": ""}
 
         return result
+
+    except WaitSuspend:
+        duration_ms = int((time.time() - start_time) * 1000)
+        repo.complete_run(
+            run.id,
+            status=RunStatus.SUSPENDED,
+            tokens_in=run.tokens_in,
+            tokens_out=run.tokens_out,
+            cost_usd=run.cost_usd or _estimate_cost(run.model_version or "", run.tokens_in, run.tokens_out),
+            duration_ms=duration_ms,
+            model_version=run.model_version,
+            snapshot=run.snapshot,
+            scope_log=run.scope_log,
+        )
+        repo.update_process_status(process.id, ProcessStatus.WAITING)
+        logger.info("Run %s suspended (wait condition) for process %s", run_id, process.name)
+        return {"statusCode": 200, "run_id": str(run_id), "suspended": True}
 
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
@@ -560,7 +579,13 @@ def _execute_python_process(
     vt.set("event", event_data)
 
     sandbox = SandboxExecutor(vt)
-    result = sandbox.execute(code)
+    try:
+        result = sandbox.execute(code)
+    except WaitSuspend:
+        run.tokens_in = 0
+        run.tokens_out = 0
+        run.scope_log = sandbox.scope_log
+        raise
 
     run.result = {"output": result}
     run.tokens_in = 0
@@ -1146,6 +1171,25 @@ def _notify_parent_on_exit(
             "Failed to notify parent of child %s exit",
             process.name, exc_info=True,
         )
+
+
+def _enrich_wait_results(repo: Repository, process: Process, event: dict) -> None:
+    children_procs = [p for p in repo.list_processes() if p.parent_process == process.id]
+    if not children_procs:
+        return
+    wait_results: dict[str, Any] = {}
+    for child in children_procs:
+        ch_name = f"spawn:{child.id}\u2192{process.id}"
+        ch = repo.get_channel_by_name(ch_name)
+        if not ch:
+            continue
+        msgs = repo.list_channel_messages(ch.id, limit=50)
+        for m in msgs:
+            if isinstance(m.payload, dict) and m.payload.get("type") == "child:exited":
+                wait_results[str(child.id)] = m.payload
+                break
+    if wait_results:
+        event["wait_results"] = {"children": wait_results}
 
 
 def _emit_lifecycle_message(repo: Repository, process: Process, payload: dict) -> None:

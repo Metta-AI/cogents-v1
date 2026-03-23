@@ -126,7 +126,19 @@ class SchedulerCapability(Capability):
 
                 proc = self.repo.get_process(handler.process)
                 if proc and proc.status == ProcessStatus.WAITING:
-                    self.repo.update_process_status(handler.process, ProcessStatus.RUNNABLE)
+                    wc = self.repo.get_pending_wait_condition_for_process(handler.process)
+                    if wc is None:
+                        self.repo.update_process_status(handler.process, ProcessStatus.RUNNABLE)
+                    else:
+                        sender_pid = str(msg.sender_process)
+                        remaining = self.repo.remove_from_pending(wc.id, sender_pid)
+                        should_wake = (
+                            wc.type.value in ("wait", "wait_any")
+                            or (wc.type.value == "wait_all" and len(remaining) == 0)
+                        )
+                        if should_wake:
+                            self.repo.resolve_wait_condition(wc.id)
+                            self.repo.update_process_status(handler.process, ProcessStatus.RUNNABLE)
 
                 created.append(DeliveryInfo(
                     delivery_id=str(delivery_id),

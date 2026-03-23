@@ -91,32 +91,67 @@ class TestKillAndStatus:
 
 
 class TestWait:
-    def test_wait_returns_spec(self, repo, parent_id, child_process):
+    def test_wait_suspends(self, repo, parent_id, child_process):
+        from cogos.sandbox.executor import WaitSuspend
+        run_id = uuid4()
+        repo.get_channel_by_name.return_value = None
+        handle = ProcessHandle(
+            repo=repo, caller_process_id=parent_id, process=child_process,
+            send_channel=None, recv_channel=None, run_id=run_id,
+        )
+        with pytest.raises(WaitSuspend):
+            handle.wait()
+        repo.create_wait_condition.assert_called_once()
+
+    def test_wait_returns_if_child_already_exited(self, repo, parent_id, child_process):
+        run_id = uuid4()
+        ch = Channel(name="spawn", owner_process=child_process.id, channel_type=ChannelType.SPAWN)
+        repo.get_channel_by_name.return_value = ch
+        repo.list_channel_messages.return_value = [
+            ChannelMessage(channel=ch.id, sender_process=child_process.id,
+                           payload={"type": "child:exited", "exit_code": 0}),
+        ]
+        handle = ProcessHandle(
+            repo=repo, caller_process_id=parent_id, process=child_process,
+            send_channel=None, recv_channel=None, run_id=run_id,
+        )
+        handle.wait()  # should NOT raise
+        repo.create_wait_condition.assert_not_called()
+
+    def test_wait_any_suspends(self, repo, parent_id):
+        from cogos.sandbox.executor import WaitSuspend
+        run_id = uuid4()
+        p1 = Process(name="a", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
+        p2 = Process(name="b", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
+        repo.get_channel_by_name.return_value = None
+        h1 = ProcessHandle(repo=repo, caller_process_id=parent_id, process=p1,
+                           send_channel=None, recv_channel=None, run_id=run_id)
+        h2 = ProcessHandle(repo=repo, caller_process_id=parent_id, process=p2,
+                           send_channel=None, recv_channel=None, run_id=run_id)
+        with pytest.raises(WaitSuspend):
+            ProcessHandle.wait_any([h1, h2])
+
+    def test_wait_all_suspends(self, repo, parent_id):
+        from cogos.sandbox.executor import WaitSuspend
+        run_id = uuid4()
+        p1 = Process(name="a", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
+        p2 = Process(name="b", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
+        repo.get_channel_by_name.return_value = None
+        h1 = ProcessHandle(repo=repo, caller_process_id=parent_id, process=p1,
+                           send_channel=None, recv_channel=None, run_id=run_id)
+        h2 = ProcessHandle(repo=repo, caller_process_id=parent_id, process=p2,
+                           send_channel=None, recv_channel=None, run_id=run_id)
+        with pytest.raises(WaitSuspend):
+            ProcessHandle.wait_all([h1, h2])
+
+    def test_wait_without_run_id_raises(self, repo, parent_id, child_process):
+        repo.get_channel_by_name.return_value = None
         handle = ProcessHandle(
             repo=repo, caller_process_id=parent_id, process=child_process,
             send_channel=None, recv_channel=None,
         )
-        spec = handle.wait()
-        assert spec["type"] == "wait"
-        assert spec["process_ids"] == [str(child_process.id)]
-
-    def test_wait_any(self, repo, parent_id):
-        p1 = Process(name="a", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
-        p2 = Process(name="b", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
-        h1 = ProcessHandle(repo=repo, caller_process_id=parent_id, process=p1, send_channel=None, recv_channel=None)
-        h2 = ProcessHandle(repo=repo, caller_process_id=parent_id, process=p2, send_channel=None, recv_channel=None)
-        spec = ProcessHandle.wait_any([h1, h2])
-        assert spec["type"] == "wait_any"
-        assert len(spec["process_ids"]) == 2
-
-    def test_wait_all(self, repo, parent_id):
-        p1 = Process(name="a", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
-        p2 = Process(name="b", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
-        h1 = ProcessHandle(repo=repo, caller_process_id=parent_id, process=p1, send_channel=None, recv_channel=None)
-        h2 = ProcessHandle(repo=repo, caller_process_id=parent_id, process=p2, send_channel=None, recv_channel=None)
-        spec = ProcessHandle.wait_all([h1, h2])
-        assert spec["type"] == "wait_all"
-        assert len(spec["process_ids"]) == 2
+        with pytest.raises(RuntimeError, match="requires run_id"):
+            handle.wait()
 
 
 class TestRuns:

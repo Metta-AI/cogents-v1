@@ -118,6 +118,7 @@ class ProcsCapability(Capability):
             process=proc,
             send_channel=send_ch,
             recv_channel=recv_ch,
+            run_id=self.run_id,
         )
 
     def _init_process_id(self) -> UUID | None:
@@ -355,6 +356,7 @@ class ProcsCapability(Capability):
             process=child,
             send_channel=send_ch,
             recv_channel=recv_ch,
+            run_id=self.run_id,
         )
 
     def detach(self, process_id: str) -> ProcessDetail | ProcessError:

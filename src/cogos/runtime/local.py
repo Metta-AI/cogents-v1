@@ -19,6 +19,7 @@ from cogos.db.models import (
 )
 from cogos.runtime.dispatch import build_dispatch_event
 from cogos.runtime.schedule import apply_scheduled_messages
+from cogos.sandbox.executor import WaitSuspend
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,9 @@ def run_and_complete(
 
     repo.mark_run_deliveries_delivered(run.id)
 
+    from cogos.executor.handler import _enrich_wait_results
+    _enrich_wait_results(repo, process, event_data)
+
     start = time.time()
     try:
         run = execute_fn(process, event_data, run, config, repo)
@@ -108,6 +112,20 @@ def run_and_complete(
                 repo.update_process_status(process.id, next_status)
             else:
                 repo.update_process_status(process.id, ProcessStatus.COMPLETED)
+
+    except WaitSuspend:
+        duration_ms = int((time.time() - start) * 1000)
+        repo.complete_run(
+            run.id,
+            status=RunStatus.SUSPENDED,
+            tokens_in=run.tokens_in,
+            tokens_out=run.tokens_out,
+            cost_usd=run.cost_usd,
+            duration_ms=duration_ms,
+            snapshot=run.snapshot,
+        )
+        repo.update_process_status(process.id, ProcessStatus.WAITING)
+        logger.info("Run %s suspended (wait condition) for process %s", run.id, process.name)
 
     except Exception as e:
         duration_ms = int((time.time() - start) * 1000)

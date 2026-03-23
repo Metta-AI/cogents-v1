@@ -22,6 +22,11 @@ class _SandboxExit(Exception):
     pass
 
 
+class WaitSuspend(Exception):
+    """Raised by wait()/wait_any()/wait_all() to suspend and resume later."""
+    pass
+
+
 def _sandbox_exit():
     """Stop sandbox execution. Used by processes to exit early."""
     raise _SandboxExit()
@@ -237,6 +242,8 @@ class SandboxExecutor:
                 exec(code, namespace)  # noqa: S102
         except _SandboxExit:
             pass  # Clean exit requested by sandbox code
+        except WaitSuspend:
+            raise
         except Exception:
             error = traceback.format_exc()
             stderr_buf.write(error)
