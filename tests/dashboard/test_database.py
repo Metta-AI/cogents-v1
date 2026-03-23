@@ -8,10 +8,12 @@ import cogos.api.db as db_mod
 
 
 @pytest.fixture(autouse=True)
-def _reset_repo_singleton(monkeypatch):
-    """Ensure the singleton is reset before and after each test."""
-    monkeypatch.setattr(db_mod, "_repo", None)
+def _reset_repo_cache(monkeypatch):
+    """Clear the lru_cache before and after each test."""
+    db_mod.get_repo.cache_clear()
     monkeypatch.delenv("USE_LOCAL_DB", raising=False)
+    yield
+    db_mod.get_repo.cache_clear()
 
 
 def test_get_repo_returns_repository():

@@ -1,6 +1,6 @@
-Create a Graphite PR with auto-merge, wait for it to land, and announce to Discord #cogents.
+Lint, test, create a Graphite PR, merge, and announce to Discord #cogents.
 
-**Announce at start:** "Submitting via Graphite: sync → branch → test → submit → await merge → announce"
+**Announce at start:** "Submitting via Graphite: sync, test, submit, merge, announce"
 
 ## Steps
 
@@ -11,24 +11,25 @@ Create a Graphite PR with auto-merge, wait for it to land, and announce to Disco
    - Run `gt create -a -m "<short description of changes>"` to create a new Graphite branch with all changes
    - If already on a non-main branch, just ensure changes are committed
 4. Run `uv run pytest tests/ -q` to execute unit tests
-   - If tests fail, stop and show the failures. Do NOT submit broken code. Ask the user how to proceed.
-5. **Write a PR title and description** following the format in AGENTS.md:
-   - **Problem**: Explain the prior behavior or source of churn — what was ambiguous, brittle, inconsistent, or wrong. Phrase in operational terms.
-   - **Summary**: Concrete behavioral changes the diff makes. Be specific about user-visible or operator-visible semantics, not file-by-file edits.
-   - **Testing**: List the exact verification commands that were run.
-6. Run `gt submit -m` to push the branch and create a PR with auto-merge enabled
-   - After submit, update the PR body with the description: `gh pr edit <number> --body "..."`
-   - If submit fails, check `gt status` and resolve issues
-7. **Wait for the PR to merge.** Poll with `gh pr view <number> --json state,mergeStateStatus,mergeable,statusCheckRollup` every 30 seconds.
-   - If CI checks fail: read the failing check logs with `gh run view`, diagnose the issue, fix it, commit, and `gt submit -m` again
-   - If there are merge conflicts: rebase onto main (`gt sync -f`, resolve conflicts, `gt submit -m`)
-   - If the PR is stuck (not progressing after 5 minutes), investigate and report to the user
-   - Once `state` is `MERGED`, continue to the next step
-8. Run `gt sync -f` to pull the merged changes back to local main
-9. Build a short summary of what was merged:
-   - Write a 1-3 sentence human-readable summary of the changes
-10. Post the summary to Discord #cogents using `/announce`:
-   - Keep the message under 2000 characters
-   - Include the PR as a markdown hyperlink: `[PR #123](<https://github.com/...>)` — angle brackets suppress Discord's embed preview
-   - If the work is tied to an Asana task, include it as a hyperlink too: `[Task name](<https://app.asana.com/0/1213428766379931/TASK_GID>)`
+   - **If tests fail AND the same tests fail on main:** The failures are pre-existing. Fix them first in a separate branch, merge that fix via this same `/submit.gt` process (recursive), then rebase your original branch on top of the now-fixed main and continue.
+   - If tests fail and they're from your changes: stop and show the failures. Do NOT submit broken code. Ask the user how to proceed.
+5. Run `gt submit --no-interactive --publish` to push the branch and create a PR (not draft)
+   - After submit, get the PR number from `gh pr list --head $(git branch --show-current) --json number --jq '.[0].number'`
+   - Update the PR body with a description following the format in AGENTS.md:
+     - **Problem**: What was wrong or ambiguous
+     - **Summary**: Concrete behavioral changes
+     - **Testing**: Verification commands run
+   - Run `gh pr edit <number> --body "..."`
+6. Merge the PR:
+   - Run `gh pr merge <number> --squash --auto`
+   - Poll with `gh pr view <number> --json state --jq .state` every 15 seconds
+   - If CI checks fail: read logs with `gh run view`, fix, commit, `gt submit --no-interactive --publish`
+   - If stuck after 3 minutes, try `gh pr merge <number> --squash --admin`
+   - Once `state` is `MERGED`, continue
+7. Run `gt sync -f` to pull merged changes back to local main
+8. Build a 1-3 sentence summary of what was merged
+9. Post to Discord #cogents using `/announce`:
+   - Keep under 2000 characters
+   - Include PR as `[PR #N](<https://github.com/...>)` (angle brackets suppress embed)
+   - If tied to an Asana task, include it as `[Task name](<https://app.asana.com/0/1213428766379931/TASK_GID>)`
    - Run: `/announce <summary>`
