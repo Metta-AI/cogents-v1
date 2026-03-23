@@ -133,6 +133,44 @@ def diag_child_exit():
 
     return checks
 
+def diag_wait_conditions():
+    """Test wait/wait_any/wait_all process synchronization."""
+    checks = []
+
+    def test_wait_early_exit():
+        h = procs.spawn("_diag/wait/a", content='print("done")', executor="python", mode="one_shot", capabilities={})
+        if hasattr(h, "error"):
+            raise Exception(str(h.error))
+        # Give the one-shot a moment to complete and post child:exited
+        time.sleep(1)
+        # wait() should return immediately since child already exited
+        h.wait()
+    checks.append(check("wait_early_exit", test_wait_early_exit))
+
+    def test_wait_all_early_exit():
+        h1 = procs.spawn("_diag/wait/b", content='print("b")', executor="python", mode="one_shot", capabilities={})
+        h2 = procs.spawn("_diag/wait/c", content='print("c")', executor="python", mode="one_shot", capabilities={})
+        if hasattr(h1, "error"):
+            raise Exception(str(h1.error))
+        if hasattr(h2, "error"):
+            raise Exception(str(h2.error))
+        time.sleep(1)
+        h1.wait_all([h1, h2])
+    checks.append(check("wait_all_early_exit", test_wait_all_early_exit))
+
+    def test_wait_any_early_exit():
+        h1 = procs.spawn("_diag/wait/d", content='print("d")', executor="python", mode="one_shot", capabilities={})
+        if hasattr(h1, "error"):
+            raise Exception(str(h1.error))
+        time.sleep(1)
+        h2 = procs.get(name="_diag/wait/d")
+        if hasattr(h2, "error"):
+            raise Exception(str(h2.error))
+        h1.wait_any([h1, h2])
+    checks.append(check("wait_any_early_exit", test_wait_any_early_exit))
+
+    return checks
+
 def diag_me():
     """Test me process scope scratch/log/tmp."""
     checks = []
@@ -486,6 +524,7 @@ ALL_DIAGNOSTICS = {
     "channels": diag_channels,
     "procs": diag_procs,
     "child_exit": diag_child_exit,
+    "wait_conditions": diag_wait_conditions,
     "me": diag_me,
     "builtins": diag_stdlib,
     "discord": diag_discord,
