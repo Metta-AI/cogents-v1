@@ -20,6 +20,7 @@ from cogos.db.models.run import Run, RunStatus
 from cogos.db.models.schema import Schema
 from cogos.db.models.span import Span, SpanEvent, SpanStatus
 from cogos.db.models.trace import RequestTrace, Trace
+from cogos.db.models.wait_condition import WaitCondition, WaitConditionStatus, WaitConditionType
 
 __all__ = [
     "Alert",
@@ -60,4 +61,7 @@ __all__ = [
     "SpanEvent",
     "SpanStatus",
     "Trace",
+    "WaitCondition",
+    "WaitConditionStatus",
+    "WaitConditionType",
 ]
