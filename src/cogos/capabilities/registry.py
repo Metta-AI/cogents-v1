@@ -1144,6 +1144,405 @@ BUILTIN_CAPABILITIES: list[dict] = [
             },
         },
     },
+    # ── Google ──────────────────────────────────────────────
+    {
+        "name": "google.drive",
+        "description": "Search, read, upload, and share Google Drive files.",
+        "handler": "cogos.io.google.drive.DriveCapability",
+        "instructions": (
+            "Use google.drive to access Google Drive files.\n"
+            "- google.drive.search(query, limit=20) — search for files matching a Drive query\n"
+            "- google.drive.list(folder_id?, limit=50) — list files in a folder\n"
+            "- google.drive.get(file_id) — get metadata for a single file\n"
+            "- google.drive.download(file_id) — download file content (Workspace files exported as text)\n"
+            "- google.drive.upload(name, content, folder_id?, mime_type='text/plain') — upload a new file\n"
+            "- google.drive.share(file_id, email, role='reader') — share a file with a user"
+        ),
+        "schema": {
+            "scope": {
+                "properties": {
+                    "ops": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["search", "list", "get", "download", "upload", "share"],
+                        },
+                    },
+                },
+            },
+            "search": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Drive query string"},
+                        "limit": {"type": "integer", "default": 20},
+                    },
+                    "required": ["query"],
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"}, "name": {"type": "string"},
+                            "mime_type": {"type": "string"}, "size": {"type": "integer"},
+                            "modified_time": {"type": "string"}, "web_view_link": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            "list": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "folder_id": {"type": "string", "description": "Folder ID (root if omitted)"},
+                        "limit": {"type": "integer", "default": 50},
+                    },
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"}, "name": {"type": "string"},
+                            "mime_type": {"type": "string"}, "size": {"type": "integer"},
+                            "modified_time": {"type": "string"}, "web_view_link": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            "get": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "file_id": {"type": "string", "description": "Drive file ID"},
+                    },
+                    "required": ["file_id"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "name": {"type": "string"},
+                        "mime_type": {"type": "string"}, "size": {"type": "integer"},
+                        "modified_time": {"type": "string"}, "web_view_link": {"type": "string"},
+                    },
+                },
+            },
+            "download": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "file_id": {"type": "string", "description": "Drive file ID"},
+                    },
+                    "required": ["file_id"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "file_id": {"type": "string"}, "name": {"type": "string"},
+                        "content": {"type": "string"},
+                    },
+                },
+            },
+            "upload": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "File name"},
+                        "content": {"type": "string", "description": "File content"},
+                        "folder_id": {"type": "string", "description": "Parent folder ID"},
+                        "mime_type": {"type": "string", "default": "text/plain"},
+                    },
+                    "required": ["name", "content"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "name": {"type": "string"},
+                        "web_view_link": {"type": "string"},
+                    },
+                },
+            },
+            "share": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "file_id": {"type": "string", "description": "Drive file ID"},
+                        "email": {"type": "string", "description": "Email to share with"},
+                        "role": {"type": "string", "default": "reader", "enum": ["reader", "writer", "commenter"]},
+                    },
+                    "required": ["file_id", "email"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "file_id": {"type": "string"}, "email": {"type": "string"},
+                        "role": {"type": "string"},
+                    },
+                },
+            },
+        },
+    },
+    {
+        "name": "google.docs",
+        "description": "Create, read, and update Google Docs.",
+        "handler": "cogos.io.google.docs.DocsCapability",
+        "instructions": (
+            "Use google.docs to work with Google Docs.\n"
+            "- google.docs.create(title, content='') — create a new document\n"
+            "- google.docs.read(doc_id) — read the plain-text content of a document\n"
+            "- google.docs.update(doc_id, content) — replace the entire document content"
+        ),
+        "schema": {
+            "scope": {
+                "properties": {
+                    "ops": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["create", "read", "update"],
+                        },
+                    },
+                },
+            },
+            "create": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "Document title"},
+                        "content": {"type": "string", "default": "", "description": "Initial text content"},
+                    },
+                    "required": ["title"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "title": {"type": "string"},
+                        "url": {"type": "string"},
+                    },
+                },
+            },
+            "read": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "doc_id": {"type": "string", "description": "Google Doc document ID"},
+                    },
+                    "required": ["doc_id"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "title": {"type": "string"},
+                        "content": {"type": "string"},
+                    },
+                },
+            },
+            "update": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "doc_id": {"type": "string", "description": "Google Doc document ID"},
+                        "content": {"type": "string", "description": "New text content"},
+                    },
+                    "required": ["doc_id", "content"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "title": {"type": "string"},
+                        "url": {"type": "string"},
+                    },
+                },
+            },
+        },
+    },
+    {
+        "name": "google.sheets",
+        "description": "Create, read, and write Google Sheets.",
+        "handler": "cogos.io.google.sheets.SheetsCapability",
+        "instructions": (
+            "Use google.sheets to work with Google Sheets spreadsheets.\n"
+            "- google.sheets.create(title) — create a new spreadsheet\n"
+            "- google.sheets.read(spreadsheet_id, range='Sheet1') — read values from a range\n"
+            "- google.sheets.write(spreadsheet_id, range, values) — write values to a range"
+        ),
+        "schema": {
+            "scope": {
+                "properties": {
+                    "ops": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["create", "read", "write"],
+                        },
+                    },
+                },
+            },
+            "create": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "Spreadsheet title"},
+                    },
+                    "required": ["title"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "title": {"type": "string"},
+                        "url": {"type": "string"},
+                    },
+                },
+            },
+            "read": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "spreadsheet_id": {"type": "string", "description": "Spreadsheet ID"},
+                        "range": {"type": "string", "default": "Sheet1", "description": "A1 notation range"},
+                    },
+                    "required": ["spreadsheet_id"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "spreadsheet_id": {"type": "string"}, "range": {"type": "string"},
+                        "values": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+                    },
+                },
+            },
+            "write": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "spreadsheet_id": {"type": "string", "description": "Spreadsheet ID"},
+                        "range": {"type": "string", "description": "A1 notation range"},
+                        "values": {
+                            "type": "array",
+                            "items": {"type": "array", "items": {"type": "string"}},
+                            "description": "2D array of cell values",
+                        },
+                    },
+                    "required": ["spreadsheet_id", "range", "values"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "spreadsheet_id": {"type": "string"}, "updated_range": {"type": "string"},
+                        "updated_rows": {"type": "integer"}, "updated_columns": {"type": "integer"},
+                    },
+                },
+            },
+        },
+    },
+    {
+        "name": "google.calendar",
+        "description": "Manage Google Calendar events.",
+        "handler": "cogos.io.google.calendar.CalendarCapability",
+        "instructions": (
+            "Use google.calendar to manage Google Calendar events.\n"
+            "- google.calendar.list_events(start, end, calendar_id='primary', limit=50) — list events in a time range\n"
+            "- google.calendar.create_event(title, start, end, attendees?, description='', calendar_id='primary') — create an event\n"
+            "- google.calendar.update_event(event_id, calendar_id='primary', **fields) — update an event (title, start, end, description, attendees)\n"
+            "- google.calendar.delete_event(event_id, calendar_id='primary') — delete an event"
+        ),
+        "schema": {
+            "scope": {
+                "properties": {
+                    "ops": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["list_events", "create_event", "update_event", "delete_event"],
+                        },
+                    },
+                },
+            },
+            "list_events": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "start": {"type": "string", "description": "ISO 8601 start datetime"},
+                        "end": {"type": "string", "description": "ISO 8601 end datetime"},
+                        "calendar_id": {"type": "string", "default": "primary"},
+                        "limit": {"type": "integer", "default": 50},
+                    },
+                    "required": ["start", "end"],
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"}, "title": {"type": "string"},
+                            "start": {"type": "string"}, "end": {"type": "string"},
+                            "description": {"type": "string"},
+                            "attendees": {"type": "array", "items": {"type": "string"}},
+                            "calendar_id": {"type": "string"}, "url": {"type": "string"},
+                        },
+                    },
+                },
+            },
+            "create_event": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "description": "Event title"},
+                        "start": {"type": "string", "description": "ISO 8601 start datetime"},
+                        "end": {"type": "string", "description": "ISO 8601 end datetime"},
+                        "attendees": {"type": "array", "items": {"type": "string"}, "description": "Attendee emails"},
+                        "description": {"type": "string", "default": ""},
+                        "calendar_id": {"type": "string", "default": "primary"},
+                    },
+                    "required": ["title", "start", "end"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "title": {"type": "string"},
+                        "url": {"type": "string"},
+                    },
+                },
+            },
+            "update_event": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "event_id": {"type": "string", "description": "Event ID to update"},
+                        "calendar_id": {"type": "string", "default": "primary"},
+                        "title": {"type": "string"}, "start": {"type": "string"},
+                        "end": {"type": "string"}, "description": {"type": "string"},
+                        "attendees": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["event_id"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"}, "title": {"type": "string"},
+                        "url": {"type": "string"},
+                    },
+                },
+            },
+            "delete_event": {
+                "input": {
+                    "type": "object",
+                    "properties": {
+                        "event_id": {"type": "string", "description": "Event ID to delete"},
+                        "calendar_id": {"type": "string", "default": "primary"},
+                    },
+                    "required": ["event_id"],
+                },
+                "output": {
+                    "type": "object",
+                    "properties": {
+                        "event_id": {"type": "string"}, "deleted": {"type": "boolean"},
+                    },
+                },
+            },
+        },
+    },
     # ── Cog Registry ───────────────────────────────────────────
     # cog_registry
     {
