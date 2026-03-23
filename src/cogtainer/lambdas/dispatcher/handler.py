@@ -95,6 +95,12 @@ def handler(event: dict, context) -> dict:
     # 1. Generate virtual system tick events (not written to event log)
     _apply_system_ticks(repo)
 
+    # 1b. Unblock processes that were blocked due to executor unavailability
+    try:
+        scheduler.unblock_processes()
+    except Exception:
+        logger.warning("Unblock processes failed", exc_info=True)
+
     # 2. Match channel messages to handlers
     dispatched = 0
     match_result = scheduler.match_messages()

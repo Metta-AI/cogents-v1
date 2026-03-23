@@ -121,6 +121,12 @@ def run_tick(repo: RepositoryProtocol, runtime: CogtainerRuntime, cogent_name: s
     except Exception:
         logger.warning("Heartbeat failed", exc_info=True)
 
+    # 2. Unblock processes that were blocked due to executor unavailability
+    try:
+        scheduler.unblock_processes()
+    except Exception:
+        logger.warning("Unblock processes failed", exc_info=True)
+
     # 2a. Reap dead executor subprocesses
     try:
         dead = runtime.reap_dead_executors(repo)
@@ -239,6 +245,36 @@ def _dispatch_nudged_processes(repo: RepositoryProtocol, runtime: CogtainerRunti
     return dispatched
 
 
+def _try_dispatch_blocked(
+    repo: RepositoryProtocol, runtime: CogtainerRuntime, cogent_name: str,
+) -> int:
+    """Unblock processes and try to dispatch them. Runs between ticks."""
+    from cogos.capabilities.scheduler import SchedulerCapability
+    from cogos.db.models import ExecutorStatus
+
+    repo.reload()
+
+    runtime.reap_dead_executors(repo)
+    repo.heartbeat_executor("local-daemon", status=ExecutorStatus.IDLE)
+
+    scheduler = SchedulerCapability(repo, _NULL_UUID)
+    result = scheduler.unblock_processes()
+    if not result.unblocked:
+        return 0
+
+    dispatched = 0
+    select_result = scheduler.select_processes(slots=5)
+    for proc_info in select_result.selected:
+        try:
+            if _dispatch_to_matched_executor(repo, scheduler, runtime, cogent_name, proc_info.id, proc_info.name):
+                dispatched += 1
+        except Exception:
+            logger.debug("Dispatch failed for unblocked %s", proc_info.name, exc_info=True)
+    if dispatched:
+        logger.info("Unblocked and dispatched %d process(es)", dispatched)
+    return dispatched
+
+
 def run_loop(
     repo: RepositoryProtocol, runtime: CogtainerRuntime, cogent_name: str,
     *, tick_interval: int = _DEFAULT_TICK_INTERVAL,
@@ -288,7 +324,8 @@ def run_loop(
 
         # Between ticks, sleep in 1-second increments but check the ingress
         # queue each iteration for near-instant event-driven dispatch.
-        for _ in range(tick_interval):
+        # Also periodically unblock processes and attempt dispatch.
+        for i in range(tick_interval):
             if shutdown:
                 break
             if ingress_queue is not None:
@@ -296,6 +333,11 @@ def run_loop(
                     _dispatch_nudged_processes(repo, runtime, cogent_name)
                 except Exception:
                     logger.debug("Ingress drain failed", exc_info=True)
+            if i % 5 == 4:
+                try:
+                    _try_dispatch_blocked(repo, runtime, cogent_name)
+                except Exception:
+                    logger.debug("Blocked dispatch failed", exc_info=True)
             time.sleep(1)
 
     logger.info("Local dispatcher stopped")
