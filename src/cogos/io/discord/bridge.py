@@ -779,6 +779,42 @@ class DiscordBridge:
             return None
 
     # ------------------------------------------------------------------
+    # SQS reply failure alerting
+    # ------------------------------------------------------------------
+
+    def _alert_reply_failure(self, msg: dict, exc: Exception, *, permanent: bool) -> None:
+        """Create an alert for a failed SQS reply send attempt."""
+        try:
+            body = json.loads(msg.get("Body", "{}"))
+            meta = body.get("_meta") if isinstance(body.get("_meta"), dict) else {}
+            cogent_name = meta.get("cogent_name", "unknown")
+            status = getattr(exc, "status", None)
+            exc_label = f"{type(exc).__name__}(status={status})" if status else type(exc).__name__
+            msg_type = body.get("type", "message")
+            self._create_alert(
+                cogent_name if cogent_name in self._configs else next(iter(self._configs), "unknown"),
+                "warning" if permanent else "critical",
+                "discord:send_permanent_failure" if permanent else "discord:send_failed",
+                (
+                    f"Cannot send {msg_type} — {exc_label}: {exc} (message discarded)"
+                    if permanent
+                    else f"Failed to send {msg_type} reply — {exc_label}: {exc} — SQS will retry"
+                ),
+                {
+                    "sqs_message_id": msg.get("MessageId"),
+                    "msg_type": msg_type,
+                    "target": body.get("channel") or body.get("user_id"),
+                    "process_id": meta.get("process_id"),
+                    "trace_id": meta.get("trace_id"),
+                    "cogent_name": cogent_name,
+                    "error": str(exc)[:500],
+                    "status": status,
+                },
+            )
+        except Exception:
+            logger.debug("Failed to create reply-failure alert", exc_info=True)
+
+    # ------------------------------------------------------------------
     # SQS reply poller (shared queue, multi-tenant dispatch)
     # ------------------------------------------------------------------
 
@@ -803,54 +839,24 @@ class DiscordBridge:
                 for msg in response.get("Messages", []):
                     try:
                         await self._send_reply(msg)
-                    except discord.errors.NotFound:
-                        logger.error("Channel not found for reply %s, discarding", msg.get("MessageId"))
-                    except (discord.errors.Forbidden, ValueError) as exc:
+                    except discord.errors.HTTPException as exc:
+                        is_permanent = (
+                            isinstance(exc, (discord.errors.NotFound, discord.errors.Forbidden))
+                            or (hasattr(exc, "status") and 400 <= exc.status < 500 and exc.status != 429)
+                        )
+                        if is_permanent:
+                            logger.error("Permanent Discord failure for reply %s (discarding): %s", msg.get("MessageId"), exc)
+                        else:
+                            logger.exception("Transient Discord failure for reply %s: %s", msg.get("MessageId"), exc)
+                        self._alert_reply_failure(msg, exc, permanent=is_permanent)
+                        if not is_permanent:
+                            continue
+                    except (ValueError, discord.errors.InvalidData) as exc:
                         logger.error("Permanent failure sending reply %s (discarding): %s", msg.get("MessageId"), exc)
-                        try:
-                            body = json.loads(msg.get("Body", "{}"))
-                            meta = body.get("_meta") if isinstance(body.get("_meta"), dict) else {}
-                            cogent_name = meta.get("cogent_name", "unknown")
-                            self._create_alert(
-                                cogent_name if cogent_name in self._configs else next(iter(self._configs), "unknown"),
-                                "warning",
-                                "discord:send_permanent_failure",
-                                f"Cannot send {body.get('type', 'message')}"
-                                f" — {type(exc).__name__}: {exc} (message discarded)",
-                                {
-                                    "sqs_message_id": msg.get("MessageId"),
-                                    "msg_type": body.get("type", "message"),
-                                    "target": body.get("channel") or body.get("user_id"),
-                                    "process_id": meta.get("process_id"),
-                                    "trace_id": meta.get("trace_id"),
-                                    "cogent_name": cogent_name,
-                                    "error": str(exc)[:500],
-                                },
-                            )
-                        except Exception:
-                            logger.debug("Failed to create permanent-failure alert", exc_info=True)
-                    except Exception:
+                        self._alert_reply_failure(msg, exc, permanent=True)
+                    except Exception as exc:
                         logger.exception("Failed to send reply: %s", msg.get("MessageId"))
-                        try:
-                            body = json.loads(msg.get("Body", "{}"))
-                            meta = body.get("_meta") if isinstance(body.get("_meta"), dict) else {}
-                            cogent_name = meta.get("cogent_name", "unknown")
-                            self._create_alert(
-                                cogent_name if cogent_name in self._configs else next(iter(self._configs), "unknown"),
-                                "critical",
-                                "discord:send_failed",
-                                f"Failed to send {body.get('type', 'message')} reply — SQS will retry",
-                                {
-                                    "sqs_message_id": msg.get("MessageId"),
-                                    "msg_type": body.get("type", "message"),
-                                    "target": body.get("channel") or body.get("user_id"),
-                                    "process_id": meta.get("process_id"),
-                                    "trace_id": meta.get("trace_id"),
-                                    "cogent_name": cogent_name,
-                                },
-                            )
-                        except Exception:
-                            logger.debug("Failed to create send-failure alert", exc_info=True)
+                        self._alert_reply_failure(msg, exc, permanent=False)
                         continue
                     try:
                         self._sqs_client.delete_message(
