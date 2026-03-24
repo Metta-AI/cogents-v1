@@ -579,78 +579,6 @@ def _get_admin_session(profile: str | None = None):
     return _assume_role(org_session, ACCOUNT_ID, "OrganizationAccountAccessRole")
 
 
-def _dashboard_project_root() -> str:
-    """Return the repository root for dashboard build operations."""
-    return os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-
-
-def _dashboard_frontend_dir(project_root: str | None = None) -> str:
-    """Return the Next.js frontend directory."""
-    root = project_root or _dashboard_project_root()
-    return os.path.join(root, "dashboard", "frontend")
-
-
-def _sessions_bucket_name(safe_name: str) -> str:
-    """Return the shared cogtainer sessions bucket name."""
-    cogtainer = CogtainerConfig().name
-    if cogtainer:
-        return f"cogtainer-{cogtainer}-sessions"
-    return f"cogent-{safe_name}-cogtainer-sessions"
-
-
-def _build_dashboard_tarball(project_root: str | None = None) -> tuple[str, float]:
-    """Build and package the dashboard frontend into a tarball."""
-    import subprocess
-    import tarfile
-    import tempfile
-
-    frontend_dir = _dashboard_frontend_dir(project_root)
-
-    click.echo("  Building Next.js...")
-    t1 = time.monotonic()
-    result = subprocess.run(
-        ["npx", "next", "build"],
-        cwd=frontend_dir,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        click.echo(result.stderr[-500:] if result.stderr else result.stdout[-500:])
-        raise click.ClickException("Next.js build failed")
-    click.echo(f"  Build: {click.style('ok', fg='green')} ({time.monotonic() - t1:.1f}s)")
-
-    click.echo("  Packaging assets...")
-    t1 = time.monotonic()
-    standalone_dir = os.path.join(frontend_dir, ".next", "standalone")
-    static_dir = os.path.join(frontend_dir, ".next", "static")
-    public_dir = os.path.join(frontend_dir, "public")
-
-    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-        tarball_path = tmp.name
-        with tarfile.open(tarball_path, "w:gz") as tar:
-            for entry in os.listdir(standalone_dir):
-                tar.add(os.path.join(standalone_dir, entry), arcname=entry)
-            if os.path.isdir(static_dir):
-                tar.add(static_dir, arcname=".next/static")
-            if os.path.isdir(public_dir):
-                tar.add(public_dir, arcname="public")
-
-    size_mb = os.path.getsize(tarball_path) / (1024 * 1024)
-    click.echo(f"  Package: {size_mb:.1f} MB ({time.monotonic() - t1:.1f}s)")
-    return tarball_path, size_mb
-
-
-def _upload_dashboard_tarball(
-    session: boto3.Session,
-    bucket: str,
-    tarball_path: str,
-    s3_key: str = "dashboard/frontend.tar.gz",
-) -> str:
-    """Upload dashboard assets to the cogent sessions bucket."""
-    s3_client = session.client("s3", region_name=DEFAULT_REGION)
-    s3_client.upload_file(tarball_path, bucket, s3_key)
-    return f"s3://{bucket}/{s3_key}"
-
 
 def _ci_artifacts_bucket() -> str:
     from cogtainer.ci_config import load_ci_config
@@ -675,59 +603,6 @@ def _download_ci_artifact(session: boto3.Session, s3_key: str, dest_path: str) -
     s3_client.download_file(_ci_artifacts_bucket(), s3_key, dest_path)
 
 
-def _check_ci_artifact_exists(session: boto3.Session, s3_key: str) -> bool:
-    """Check if a CI artifact exists in the shared bucket."""
-    s3_client = session.client("s3", region_name=DEFAULT_REGION)
-    try:
-        s3_client.head_object(Bucket=_ci_artifacts_bucket(), Key=s3_key)
-        return True
-    except Exception:
-        return False
-
-
-def _wait_for_bucket(
-    session: boto3.Session,
-    bucket: str,
-    *,
-    timeout_s: int = 900,
-    poll_s: int = 5,
-) -> bool:
-    """Poll until the sessions bucket exists and is accessible."""
-    s3_client = session.client("s3", region_name=DEFAULT_REGION)
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        try:
-            s3_client.head_bucket(Bucket=bucket)
-            return True
-        except Exception:
-            time.sleep(poll_s)
-    return False
-
-
-def _get_sessions_bucket(session, safe_name: str) -> str:
-    """Look up the shared sessions bucket from the cogtainer CloudFormation stack."""
-    cf = session.client("cloudformation", region_name=DEFAULT_REGION)
-    cogtainer = CogtainerConfig().name
-    if cogtainer:
-        stack_name = f"cogtainer-{cogtainer}"
-        try:
-            resp = cf.describe_stacks(StackName=stack_name)
-            outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
-            bucket = outputs.get("SessionsBucketName")
-            if bucket:
-                return bucket
-        except Exception:
-            pass
-    # Fallback: try per-cogent stack (legacy)
-    stack_name = f"cogent-{safe_name}-cogtainer"
-    resp = cf.describe_stacks(StackName=stack_name)
-    outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
-    bucket = outputs.get("SessionsBucket") or outputs.get("SessionsBucketName")
-    if not bucket:
-        raise click.ClickException(f"SessionsBucket not found in stack {stack_name} outputs")
-    return bucket
-
-
 def _is_dashboard_service_name(service_name: str, safe_name: str) -> bool:
     """Return True when the ECS service name belongs to the dashboard."""
     return safe_name in service_name and ("DashService" in service_name or "dashboard" in service_name)
@@ -743,315 +618,111 @@ def _find_dashboard_service(ecs_client, safe_name: str) -> str:
     return dash_services[0]
 
 
-def _restart_ecs_service(ecs_client, service_arn: str, skip_health: bool, t0: float):
-    """Force a new ECS deployment and optionally wait for stability."""
-    click.echo("  Restarting ECS service...")
-    ecs_client.update_service(
-        cluster=naming.cluster_name(),
-        service=service_arn,
-        forceNewDeployment=True,
-    )
-
-    if not skip_health:
-        click.echo("  Waiting for service to stabilize...")
-        try:
-            waiter = ecs_client.get_waiter("services_stable")
-            waiter.wait(
-                cluster=naming.cluster_name(),
-                services=[service_arn],
-                WaiterConfig={"Delay": 10, "MaxAttempts": 60},
-            )
-            click.echo(f"  Dashboard: {click.style('deployed', fg='green')} ({time.monotonic() - t0:.1f}s)")
-        except Exception as e:
-            click.echo(f"  Service did not stabilize: {e}", err=True)
-            click.echo("  The deployment is still in progress. Check ECS console.")
-    else:
-        click.echo(f"  Dashboard deployment initiated. ({time.monotonic() - t0:.1f}s)")
-
-
-def _read_docker_version(project_root: str) -> str:
-    """Read the dashboard Docker version from DOCKER_VERSION file."""
-    version_file = os.path.join(project_root, "dashboard", "DOCKER_VERSION")
-    if os.path.exists(version_file):
-        return open(version_file).read().strip()
-    return "0"
-
-
-def _get_deployed_docker_version(ecs_client, service_arn: str) -> str:
-    """Read the DOCKER_VERSION label from the currently deployed container."""
-    services = ecs_client.describe_services(cluster=naming.cluster_name(), services=[service_arn])["services"]
+def _deploy_dashboard_image(ecs_client, service_arn: str, image_uri: str):
+    """Update the ECS service's task def to use a new image and force deploy."""
+    cluster = naming.cluster_name()
+    services = ecs_client.describe_services(cluster=cluster, services=[service_arn])["services"]
     if not services:
-        return ""
-    svc_desc = services[0]
-    task_def_arn = svc_desc["taskDefinition"]
-    task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)["taskDefinition"]
-    for c in task_def.get("containerDefinitions", []):
-        for env in c.get("environment", []):
-            if env["name"] == "DASHBOARD_DOCKER_VERSION":
-                return env["value"]
-    return "0"
+        raise click.ClickException(f"Service not found: {service_arn}")
 
+    task_def = ecs_client.describe_task_definition(
+        taskDefinition=services[0]["taskDefinition"]
+    )["taskDefinition"]
 
-@update.command("dashboard")
-@click.option("--docker", is_flag=True, help="Force rebuild and push Docker image")
-@click.option("--skip-health", is_flag=True, help="Skip waiting for service stability")
-@click.option("--sha", default=None, help="Use pre-built frontend from CI (git SHA)")
-@click.pass_context
-def update_dashboard(ctx: click.Context, docker: bool, skip_health: bool, sha: str | None):
-    """Build frontend, upload to S3, and restart the dashboard.
-
-    \b
-    Default: build Next.js → tar.gz → S3 → restart ECS (~30s).
-    Auto-detects when DOCKER_VERSION changes and rebuilds image.
-    --docker: force rebuild Docker image + push ECR + update task def.
-    """
-    t0 = time.monotonic()
-    name = get_cogent_name(ctx)
-    safe_name = name.replace(".", "-")
-    project_root = _dashboard_project_root()
-
-    click.echo(f"Updating dashboard for cogent-{name}...")
-    session = _get_admin_session()
-
-    # Auto-detect if Docker rebuild is needed
-    if not docker:
-        local_version = _read_docker_version(project_root)
-        ecs_client = session.client("ecs", region_name=DEFAULT_REGION)
-        service_arn = _find_dashboard_service(ecs_client, safe_name)
-        deployed_version = _get_deployed_docker_version(ecs_client, service_arn)
-        if local_version != deployed_version:
-            click.echo(f"  Docker version changed: {deployed_version} → {local_version}")
-            docker = True
-
-    if docker:
-        _docker_build_push_deploy(ctx, session, name, safe_name, project_root, skip_health, t0)
-        return
-
-    # --- Fast path: build frontend → S3 → restart ---
-    _build_and_upload_frontend(session, safe_name, project_root, sha=sha)
-
-    # 4. Signal running container to reload frontend (no ECS restart needed)
-    click.echo("  Reloading frontend...")
-    t1 = time.monotonic()
-    reload_url = f"https://{safe_name}.{CogtainerConfig().domain}/admin/reload-frontend"
-    try:
-        import json
-        import urllib.request
-
-        # Load Cloudflare Access service token + dashboard API key
-        sm = session.client("secretsmanager", region_name=DEFAULT_REGION)
-        from cogtainer.secrets import cogtainer_key
-        cf_token = json.loads(sm.get_secret_value(SecretId=cogtainer_key("cloudflare-service-token"))["SecretString"])
-        from cogtainer.secrets import cogent_key
-        api_key = json.loads(sm.get_secret_value(SecretId=cogent_key(name, "dashboard-api-key"))["SecretString"])[
-            "api_key"
-        ]
-
-        req = urllib.request.Request(reload_url, method="POST")
-        req.add_header("CF-Access-Client-Id", cf_token["client_id"])
-        req.add_header("CF-Access-Client-Secret", cf_token["client_secret"])
-        req.add_header("X-Api-Key", api_key)
-        req.add_header("User-Agent", "cogent-cli/1.0")
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            _body = resp.read().decode()
-        click.echo(f"  Reload: {click.style('ok', fg='green')} ({time.monotonic() - t1:.1f}s)")
-    except Exception as e:
-        raise click.ClickException(f"Frontend reload failed: {e}") from e
-
-    # 5. Purge Cloudflare cache so browsers get the new build
-    click.echo("  Purging CDN cache...")
-    t1 = time.monotonic()
-    try:
-        from cogtainer.cloudflare import purge_cache
-        from cogtainer.secret_store import SecretStore
-
-        store = SecretStore(session=session)
-        purge_cache(store)
-        click.echo(f"  Cache: {click.style('purged', fg='green')} ({time.monotonic() - t1:.1f}s)")
-    except Exception as e:
-        click.echo(f"  Cache purge failed: {e}")
-
-    click.echo(f"  Dashboard: {click.style('deployed', fg='green')} ({time.monotonic() - t0:.1f}s)")
-
-
-def _build_and_upload_frontend(session, safe_name, project_root, sha: str | None = None):
-    """Build Next.js frontend and upload tarball to S3."""
-    # 1. Build Next.js and package standalone output
-    if sha:
-        full_sha = _resolve_commit_sha(sha)
-        s3_key = f"dashboard/{full_sha}/frontend.tar.gz"
-        click.echo(f"  Downloading pre-built frontend from CI ({sha[:8]})...")
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-            tarball_path = tmp.name
-        try:
-            _download_ci_artifact(session, s3_key, tarball_path)
-        except Exception as e:
-            raise click.ClickException(
-                f"CI artifact not found: s3://{_ci_artifacts_bucket()}/{s3_key}\n"
-                f"Check CI: gh run list --repo Metta-AI/cogos --workflow docker-build-dashboard.yml"
-            ) from e
-    else:
-        tarball_path, _size_mb = _build_dashboard_tarball(project_root)
-
-    # 2. Upload to S3
-    click.echo("  Uploading to S3...")
-    t1 = time.monotonic()
-    bucket = _get_sessions_bucket(session, safe_name)
-    try:
-        s3_uri = _upload_dashboard_tarball(session, bucket, tarball_path)
-    finally:
-        os.unlink(tarball_path)
-    click.echo(f"  Upload: {s3_uri} ({time.monotonic() - t1:.1f}s)")
-
-
-def _docker_build_push_deploy(ctx, session, name, safe_name, project_root, skip_health, t0):
-    """Full Docker rebuild: build image → push ECR → update task def → deploy."""
-    import base64
-    import subprocess
-
-    from cogtainer.aws import ACCOUNT_ID
-
-    # Build and upload frontend assets to S3 first
-    _build_and_upload_frontend(session, safe_name, project_root)
-
-    image_tag = f"{safe_name}-dashboard"
-
-    # 1. Build Docker image
-    click.echo("  Building Docker image...")
-    t1 = time.monotonic()
-    result = subprocess.run(
-        [
-            "docker",
-            "build",
-            "-f",
-            "dashboard/Dockerfile",
-            "-t",
-            f"cogent:{image_tag}",
-            "--platform",
-            "linux/amd64",
-            ".",
-        ],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        click.echo(result.stderr[-500:] if result.stderr else "")
-        raise click.ClickException("Docker build failed")
-    click.echo(f"  Build: {click.style('ok', fg='green')} ({time.monotonic() - t1:.1f}s)")
-
-    # 2. ECR login
-    ecr = session.client("ecr", region_name=DEFAULT_REGION)
-    ecr_repo = naming.ecr_repo_name(CogtainerConfig().name or None)
-    repo_uri = f"{ACCOUNT_ID}.dkr.ecr.{DEFAULT_REGION}.amazonaws.com/{ecr_repo}"
-    click.echo("  Logging into ECR...")
-    token_resp = ecr.get_authorization_token()
-    auth_data = token_resp.get("authorizationData", [])
-    if not auth_data:
-        raise click.ClickException("ECR authorization failed — no authorizationData returned")
-    auth = auth_data[0]
-    user_pass = base64.b64decode(auth["authorizationToken"]).decode()
-    parts = user_pass.split(":", 1)
-    if len(parts) != 2:
-        raise click.ClickException("Unexpected ECR auth token format")
-    password = parts[1]
-    login_result = subprocess.run(
-        ["docker", "login", "--username", "AWS", "--password-stdin", auth["proxyEndpoint"]],
-        input=password,
-        capture_output=True,
-        text=True,
-    )
-    if login_result.returncode != 0:
-        raise click.ClickException(f"ECR login failed: {login_result.stderr}")
-
-    # 3. Tag and push
-    click.echo("  Pushing image...")
-    t1 = time.monotonic()
-    remote_tag = f"{repo_uri}:{image_tag}"
-    subprocess.run(["docker", "tag", f"cogent:{image_tag}", remote_tag], check=True)
-    result = subprocess.run(["docker", "push", remote_tag], capture_output=True, text=True)
-    if result.returncode != 0:
-        raise click.ClickException(f"Docker push failed: {result.stderr[-300:]}")
-    click.echo(f"  Push: {click.style('ok', fg='green')} ({time.monotonic() - t1:.1f}s)")
-
-    # 4. Update task definition with new image
-    ecs_client = session.client("ecs", region_name=DEFAULT_REGION)
-    service_arn = _find_dashboard_service(ecs_client, safe_name)
-
-    click.echo("  Updating task definition...")
-    services = ecs_client.describe_services(cluster=naming.cluster_name(), services=[service_arn])["services"]
-    if not services:
-        raise click.ClickException(f"Dashboard ECS service not found: {service_arn}")
-    svc_desc = services[0]
-    task_def_arn = svc_desc["taskDefinition"]
-    task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)["taskDefinition"]
-
-    local_version = _read_docker_version(project_root)
-    containers = task_def["containerDefinitions"]
-    for c in containers:
+    # Update image in container definitions
+    for c in task_def["containerDefinitions"]:
         if c.get("name") == "web":
-            c["image"] = remote_tag
-            # Inject/update env vars needed for S3-based frontend and version detection
-            env_list = c.setdefault("environment", [])
-            bucket = next((e["value"] for e in env_list if e["name"] == "SESSIONS_BUCKET"), None)
-            inject = {
-                "DASHBOARD_DOCKER_VERSION": local_version,
-            }
-            if bucket:
-                inject["DASHBOARD_ASSETS_S3"] = f"s3://{bucket}/dashboard/frontend.tar.gz"
-            for key, val in inject.items():
-                for env in env_list:
-                    if env["name"] == key:
-                        env["value"] = val
-                        break
-                else:
-                    env_list.append({"name": key, "value": val})
-            break
-    else:
-        containers[0]["image"] = remote_tag
+            c["image"] = image_uri
+            # Remove stale env vars from previous deploys
+            c["environment"] = [
+                e for e in c.get("environment", [])
+                if e["name"] not in ("DASHBOARD_ASSETS_S3", "DASHBOARD_DOCKER_VERSION")
+            ]
 
-    register_kwargs = {
-        "family": task_def["family"],
-        "containerDefinitions": containers,
-        "taskRoleArn": task_def.get("taskRoleArn", ""),
-        "executionRoleArn": task_def.get("executionRoleArn", ""),
-        "networkMode": task_def.get("networkMode", "awsvpc"),
-        "requiresCompatibilities": task_def.get("requiresCompatibilities", ["FARGATE"]),
-        "cpu": task_def.get("cpu", "256"),
-        "memory": task_def.get("memory", "512"),
-    }
-    if "runtimePlatform" in task_def:
-        register_kwargs["runtimePlatform"] = task_def["runtimePlatform"]
-
-    new_td = ecs_client.register_task_definition(**register_kwargs)
+    # Register new task def revision
+    reg_fields = [
+        "family", "containerDefinitions", "taskRoleArn", "executionRoleArn",
+        "networkMode", "requiresCompatibilities", "cpu", "memory",
+    ]
+    reg_kwargs = {k: task_def[k] for k in reg_fields if k in task_def}
+    new_td = ecs_client.register_task_definition(**reg_kwargs)
     new_td_arn = new_td["taskDefinition"]["taskDefinitionArn"]
-    click.echo(f"  Task definition: {new_td_arn.split('/')[-1]}")
+    click.echo(f"  Task def: {new_td_arn.split('/')[-1]}")
 
-    # 5. Deploy
-    click.echo("  Deploying...")
+    # Force new deployment
     ecs_client.update_service(
-        cluster=naming.cluster_name(),
+        cluster=cluster,
         service=service_arn,
         taskDefinition=new_td_arn,
         forceNewDeployment=True,
     )
+    click.echo(f"  Image: {image_uri}")
+
+
+def _wait_for_service_stable(ecs_client, safe_name: str, timeout: int = 120):
+    """Wait for ECS service to stabilize after deployment."""
+    cluster = naming.cluster_name()
+    service_arn = _find_dashboard_service(ecs_client, safe_name)
+    click.echo("  Waiting for service to stabilize...")
+    t0 = time.monotonic()
+    waiter = ecs_client.get_waiter("services_stable")
+    try:
+        waiter.wait(
+            cluster=cluster,
+            services=[service_arn],
+            WaiterConfig={"Delay": 6, "MaxAttempts": timeout // 6},
+        )
+        click.echo(f"  Service: {click.style('stable', fg='green')} ({time.monotonic() - t0:.1f}s)")
+    except Exception as e:
+        click.echo(click.style(f"  Service did not stabilize within {timeout}s: {e}", fg="yellow"))
+
+
+@update.command("dashboard")
+@click.option("--sha", default=None, help="Git SHA to deploy (default: latest from versions.defaults.json)")
+@click.option("--skip-health", is_flag=True, help="Skip waiting for service stability")
+@click.pass_context
+def update_dashboard(ctx: click.Context, sha: str | None, skip_health: bool):
+    """Deploy a dashboard version by updating the ECS image tag.
+
+    \b
+    Resolves the SHA, updates the ECS task definition to point to
+    cogent-dashboard:{sha} in shared ECR, and forces a new deployment.
+    ~60-90s for the new task to be healthy.
+    """
+    t0 = time.monotonic()
+    name = get_cogent_name(ctx)
+    safe_name = name.replace(".", "-")
+    session = _get_admin_session()
+
+    # Resolve SHA: explicit > versions.defaults.json > "latest"
+    if not sha:
+        versions = _read_boot_versions(name)
+        sha = (versions or {}).get("dashboard", "latest")
+    click.echo(f"Deploying dashboard {sha} for cogent-{name}...")
+
+    # Update ECS task def image tag and force new deployment
+    from cogtainer.aws import ACCOUNT_ID
+    image_uri = f"{ACCOUNT_ID}.dkr.ecr.{DEFAULT_REGION}.amazonaws.com/cogent-dashboard:{sha}"
+
+    ecs_client = session.client("ecs", region_name=DEFAULT_REGION)
+    service_arn = _find_dashboard_service(ecs_client, safe_name)
+    _deploy_dashboard_image(ecs_client, service_arn, image_uri)
+
+    # Purge CDN cache
+    click.echo("  Purging CDN cache...")
+    try:
+        from cogtainer.cloudflare import purge_cache
+        from cogtainer.secret_store import SecretStore
+        store = SecretStore(session=session)
+        purge_cache(store)
+        click.echo(f"  Cache: {click.style('purged', fg='green')}")
+    except Exception as e:
+        click.echo(f"  Cache purge failed (non-fatal): {e}")
 
     if not skip_health:
-        click.echo("  Waiting for service to stabilize...")
-        try:
-            waiter = ecs_client.get_waiter("services_stable")
-            waiter.wait(
-                cluster=naming.cluster_name(),
-                services=[service_arn],
-                WaiterConfig={"Delay": 10, "MaxAttempts": 60},
-            )
-            click.echo(f"  Dashboard: {click.style('deployed', fg='green')} ({time.monotonic() - t0:.1f}s)")
-        except Exception as e:
-            click.echo(f"  Service did not stabilize: {e}", err=True)
-            click.echo("  The deployment is still in progress. Check ECS console.")
-    else:
-        click.echo(f"  Dashboard deployment initiated. ({time.monotonic() - t0:.1f}s)")
+        _wait_for_service_stable(ecs_client, safe_name)
+
+    click.echo(f"  Dashboard: {click.style('deployed', fg='green')} ({time.monotonic() - t0:.1f}s)")
 
 
 @update.command("stack")

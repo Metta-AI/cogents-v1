@@ -911,105 +911,50 @@ def dns_status(profile: str | None, region: str) -> None:
 
 @cli.command("deploy-dashboard")
 @click.argument("name")
-@click.option("--docker", is_flag=True, help="Rebuild Docker image (needed for backend changes)")
+@click.option("--sha", default=None, help="Git SHA of dashboard image to deploy (default: latest)")
 @click.option("--profile", default=None, help="AWS profile name")
 @click.option("--region", default="us-east-1", help="AWS region")
 def deploy_dashboard_cmd(
     name: str,
-    docker: bool,
+    sha: str | None,
     profile: str | None,
     region: str,
 ) -> None:
-    """Build and deploy dashboard for a cogtainer.
+    """Deploy dashboard for a cogtainer by updating ECS image tag.
 
     \b
-    Frontend-only (default): build Next.js → tar.gz → S3 → restart ECS.
-    --docker: rebuild Docker image → push ECR → restart ECS (for backend changes).
+    Updates all dashboard ECS services in the cogtainer to use
+    cogent-dashboard:{sha} from the shared ECR repo.
     """
-    import json
-    import os
-    import subprocess
-    import tarfile
-    import tempfile
-
-    session, _account_id = _get_aws_session(region=region, profile=profile)
+    session, account_id = _get_aws_session(region=region, profile=profile)
     cogent_names = _get_cogent_names(session, name, region)
     if not cogent_names:
         click.echo(f"No cogents found for cogtainer '{name}'.")
         return
 
+    image_tag = sha or "latest"
+    image_uri = f"{account_id}.dkr.ecr.{region}.amazonaws.com/cogent-dashboard:{image_tag}"
+    click.echo(f"Deploying dashboard image {image_uri}")
+
     ecs_client = session.client("ecs", region_name=region)
-    ecr_repo = f"cogtainer-{name}"
-
-    # Get the sessions bucket from the cogtainer stack
-    cf = session.client("cloudformation", region_name=region)
-    try:
-        resp = cf.describe_stacks(StackName=f"cogtainer-{name}")
-        outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
-        bucket = outputs.get("SessionsBucketName", "")
-    except Exception:
-        bucket = ""
-
-    if not bucket:
-        raise click.ClickException(f"Could not find sessions bucket for cogtainer '{name}'")
-
-    click.echo(f"Deploying dashboard for cogtainer '{name}' (bucket: {bucket})")
-
-    if docker:
-        # Full Docker path
-        click.echo("Building Docker image...")
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        tag = f"{_account_id}.dkr.ecr.{region}.amazonaws.com/{ecr_repo}:dashboard-latest"
-
-        subprocess.run(
-            ["docker", "build", "-f", "dashboard/Dockerfile", "-t", tag, "--platform", "linux/amd64", "."],
-            cwd=project_root,
-            check=True,
-        )
-
-        click.echo("Pushing to ECR...")
-        # Login to ECR
-        ecr = session.client("ecr", region_name=region)
-        import base64
-        auth = ecr.get_authorization_token()
-        token = auth["authorizationData"][0]["authorizationToken"]
-        endpoint = auth["authorizationData"][0]["proxyEndpoint"]
-        user, password = base64.b64decode(token).decode().split(":", 1)
-        subprocess.run(["docker", "login", "--username", user, "--password-stdin", endpoint], input=password.encode(), check=True, capture_output=True)
-        subprocess.run(["docker", "push", tag], check=True)
-        click.echo("  Pushed.")
-    else:
-        # Fast path: build frontend and upload to S3
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        frontend_dir = os.path.join(project_root, "dashboard", "frontend")
-
-        click.echo("Building frontend...")
-        # Use production ports (8100/5174), not local dev ports from .env
-        build_env = {**os.environ, "DASHBOARD_BE_PORT": "8100", "DASHBOARD_FE_PORT": "5174"}
-        subprocess.run(["npm", "run", "build"], cwd=frontend_dir, check=True, capture_output=True, env=build_env)
-
-        click.echo("Packaging...")
-        next_dir = os.path.join(frontend_dir, ".next")
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-            tarball_path = tmp.name
-        with tarfile.open(tarball_path, "w:gz") as tar:
-            tar.add(next_dir, arcname=".")
-
-        click.echo(f"Uploading to s3://{bucket}/dashboard/frontend.tar.gz ...")
-        s3 = session.client("s3", region_name=region)
-        s3.upload_file(tarball_path, bucket, "dashboard/frontend.tar.gz")
-        os.unlink(tarball_path)
-        click.echo("  Uploaded.")
-
-    # Restart dashboard ECS services for all cogents
-    click.echo("Restarting dashboard services...")
     cluster = f"cogtainer-{name}"
     services = ecs_client.list_services(cluster=cluster)["serviceArns"]
     for svc_arn in services:
         svc_name = svc_arn.rsplit("/", 1)[-1]
         if "DashService" in svc_name or "dashboard" in svc_name:
-            ecs_client.update_service(cluster=cluster, service=svc_arn, forceNewDeployment=True)
-            click.echo(f"  {svc_name}: restarted")
+            # Get current task def, update image, register new revision
+            svc_desc = ecs_client.describe_services(cluster=cluster, services=[svc_arn])["services"][0]
+            task_def = ecs_client.describe_task_definition(taskDefinition=svc_desc["taskDefinition"])["taskDefinition"]
+            for c in task_def["containerDefinitions"]:
+                if c.get("name") == "web":
+                    c["image"] = image_uri
+                    c["environment"] = [e for e in c.get("environment", []) if e["name"] not in ("DASHBOARD_ASSETS_S3", "DASHBOARD_DOCKER_VERSION")]
+            reg_fields = ["family", "containerDefinitions", "taskRoleArn", "executionRoleArn", "networkMode", "requiresCompatibilities", "cpu", "memory"]
+            reg_kwargs = {k: task_def[k] for k in reg_fields if k in task_def}
+            new_td = ecs_client.register_task_definition(**reg_kwargs)
+            new_td_arn = new_td["taskDefinition"]["taskDefinitionArn"]
+            ecs_client.update_service(cluster=cluster, service=svc_arn, taskDefinition=new_td_arn, forceNewDeployment=True)
+            click.echo(f"  {svc_name}: updated to {image_tag}")
 
     click.echo(click.style("Dashboard deployed.", fg="green"))
 
