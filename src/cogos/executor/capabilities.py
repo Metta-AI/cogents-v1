@@ -8,6 +8,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from cogos.capabilities.base import ScopedCapability
 from cogos.db.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -78,8 +79,8 @@ def build_process_capabilities(
                 kwargs["secrets_provider"] = runtime.get_secrets_provider()
 
             instance = handler_cls(repo, process_id, **kwargs)
-            if pc.config and hasattr(instance, "scope"):
-                instance = instance.scope(**pc.config)  # type: ignore[union-attr]
+            if pc.config and isinstance(instance, ScopedCapability):
+                instance = instance.scope(**pc.config)
 
             result[ns] = instance
         except (ImportError, AttributeError) as exc:

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from cogos.capabilities.base import Capability
 from cogos.cog.cog import Cog, CogConfig
 from cogos.cog.runtime import CogManifest, CogletManifest, CogletRuntime
 
@@ -46,7 +47,7 @@ def _make_runtime(cog, cap_objects=None):
 
 
 def _mock_cap(name="cap"):
-    cap = MagicMock(name=name)
+    cap = MagicMock(name=name, spec=Capability)
     scoped = MagicMock(name=f"{name}_scoped")
     cap.scope.return_value = scoped
     return cap

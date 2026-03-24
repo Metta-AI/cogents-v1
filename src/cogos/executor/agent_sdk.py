@@ -7,7 +7,8 @@ import json
 import logging
 from typing import Any, get_type_hints
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from claude_agent_sdk import create_sdk_mcp_server, tool
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def build_tool_functions(capabilities: dict[str, Any]) -> list[_CallableTool]:
                     return {"content": [{"type": "text", "text": f"Error: {e}"}]}
                 try:
                     result = _method(**args)
-                    if hasattr(result, "model_dump"):
+                    if isinstance(result, BaseModel):
                         text = json.dumps(result.model_dump(), default=str)
                     elif isinstance(result, (dict, list)):
                         text = json.dumps(result, default=str)
@@ -131,7 +132,7 @@ import asyncio
 from decimal import Decimal
 from uuid import UUID
 
-from claude_agent_sdk import query, ClaudeAgentOptions, ResultMessage
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
 from cogos.db.models import Process, Run
 from cogos.db.repository import Repository

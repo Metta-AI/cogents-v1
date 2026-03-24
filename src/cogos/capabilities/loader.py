@@ -11,6 +11,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from cogos.capabilities.base import ScopedCapability
 from cogos.db.repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ def build_capability_proxies(
                 instance = handler(repo, process_id, **kwargs)
 
             # Apply scope config if present
-            if pc.config and hasattr(instance, "scope"):
+            if pc.config and isinstance(instance, ScopedCapability):
                 instance = instance.scope(**pc.config)
             proxies[ns] = instance
         else:

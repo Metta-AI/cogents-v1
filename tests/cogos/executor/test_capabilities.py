@@ -5,6 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+from cogos.capabilities.base import Capability
+
 import pytest
 
 
@@ -42,7 +44,7 @@ class TestBuildProcessCapabilities:
 
         with patch("cogos.executor.capabilities.importlib") as mock_importlib:
             mock_cls = MagicMock()
-            mock_instance = MagicMock()
+            mock_instance = MagicMock(spec=Capability)
             mock_cls.return_value = mock_instance
             mock_scoped = MagicMock()
             mock_instance.scope.return_value = mock_scoped

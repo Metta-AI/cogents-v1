@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from cogos.capabilities.base import ScopedCapability
 from cogos.cog.cog import Cog, CogConfig
 
 logger = logging.getLogger(__name__)
@@ -239,7 +240,7 @@ class CogletRuntime:
                 cap_type = entry.get("type", name)
                 cap_config = entry.get("config")
                 cap_obj = self.cap_objects.get(cap_type)
-                if cap_obj is not None and cap_config and hasattr(cap_obj, "scope"):
+                if isinstance(cap_obj, ScopedCapability) and cap_config:
                     caps[name] = cap_obj.scope(**cap_config)
                 elif cap_obj is not None:
                     caps[name] = cap_obj
@@ -248,7 +249,7 @@ class CogletRuntime:
     def _add_scoped_dir_and_data(self, caps: dict[str, Any], cog_name: str) -> None:
         """Add mount-based filesystem capabilities."""
         dir_cap = self.cap_objects.get("fs_dir")
-        if dir_cap is not None and hasattr(dir_cap, "scope"):
+        if isinstance(dir_cap, ScopedCapability):
             caps["boot"] = dir_cap.scope(prefix="mnt/boot/", read_only=True)
             caps["src"] = dir_cap.scope(prefix=f"mnt/boot/{cog_name}/", read_only=True)
             caps["disk"] = dir_cap.scope(prefix=f"mnt/disk/{cog_name}/")
