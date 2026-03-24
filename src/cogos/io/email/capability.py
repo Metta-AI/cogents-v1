@@ -158,13 +158,17 @@ class EmailCapability(Capability):
 
         self._check("send", to=to)
 
-        sender = _get_sender(self._from_address, runtime=self._runtime)
-        response = sender.send(to=to, subject=subject, body=body, reply_to=reply_to)
-        return SendResult(
-            message_id=response.get("MessageId", ""),
-            to=to,
-            subject=subject,
-        )
+        try:
+            sender = _get_sender(self._from_address, runtime=self._runtime)
+            response = sender.send(to=to, subject=subject, body=body, reply_to=reply_to)
+            return SendResult(
+                message_id=response.get("MessageId", ""),
+                to=to,
+                subject=subject,
+            )
+        except Exception as exc:
+            logger.exception("email.send failed from=%s to=%s", self._from_address, to)
+            return EmailError(error=str(exc))
 
     def receive(self, limit: int = 10) -> list[EmailMessage]:
         self._check("receive")
