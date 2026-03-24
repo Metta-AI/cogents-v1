@@ -17,7 +17,7 @@ def _setup(tmp_path):
     fs.create("prompts/scheduler.md", "x")
     fs.create("config/system.yaml", "x")
     repo.upsert_process(Process(name="init", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING, required_tags=[]))
-    repo.upsert_process(Process(name="scheduler", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNING, required_tags=[]))
+    repo.upsert_process(Process(name="scheduler", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE, required_tags=[]))
     repo.upsert_capability(Capability(name="files", description="File store", enabled=True))
     ch = Channel(name="events", channel_type=ChannelType.NAMED)
     repo.upsert_channel(ch)

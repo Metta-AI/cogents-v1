@@ -17,7 +17,7 @@ def test_implicit_channel_created():
     proc = Process(
         name="test-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
     )
     vt = VariableTable()
 
@@ -47,7 +47,7 @@ def test_implicit_channel_not_duplicated():
     proc = Process(
         name="test-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
     )
     vt = VariableTable()
 

@@ -8,13 +8,11 @@ from cogos.db.models import Process, ProcessMode, ProcessStatus
 from cogos.shell.commands import CommandRegistry, ShellState
 
 _STATUS_COLORS = {
-    "running": "\033[32m",
     "runnable": "\033[33m",
     "waiting": "\033[33m",
     "blocked": "\033[31m",
     "suspended": "\033[31m",
-    "disabled": "\033[31m",
-    "completed": "\033[90m",
+    "disabled": "\033[90m",
 }
 _RESET = "\033[0m"
 
@@ -36,13 +34,13 @@ def _format_process_table(procs: list[Process]) -> str:
 
 def register(reg: CommandRegistry) -> None:
 
-    @reg.register("ps", help="List processes (--all to include completed)")
+    @reg.register("ps", help="List processes (--all to include disabled)")
     def ps(state: ShellState, args: list[str]) -> str:
         show_all = "--all" in args or "-a" in args
         procs = state.repo.list_processes()
         if not show_all:
-            procs = [p for p in procs if p.status != ProcessStatus.COMPLETED]
-        procs.sort(key=lambda p: (p.status != ProcessStatus.RUNNING, p.name))
+            procs = [p for p in procs if p.status != ProcessStatus.DISABLED]
+        procs.sort(key=lambda p: (p.status != ProcessStatus.RUNNABLE, p.name))
         return _format_process_table(procs)
 
     @reg.register("kill", help="Kill a process (-9=force, -HUP=restart)")
@@ -126,8 +124,8 @@ def register(reg: CommandRegistry) -> None:
         try:
             while True:
                 procs = state.repo.list_processes()
-                procs = [p for p in procs if p.status != ProcessStatus.COMPLETED]
-                procs.sort(key=lambda p: (p.status != ProcessStatus.RUNNING, p.name))
+                procs = [p for p in procs if p.status != ProcessStatus.DISABLED]
+                procs.sort(key=lambda p: (p.status != ProcessStatus.RUNNABLE, p.name))
                 print("\033[2J\033[H", end="")
                 print(f"cogent: {state.cogent_name}  (ctrl+c to exit)\n")
                 print(_format_process_table(procs))

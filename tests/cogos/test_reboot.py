@@ -7,7 +7,7 @@ from cogos.runtime.reboot import reboot
 
 def test_reboot_clears_processes_and_creates_init(tmp_path):
     repo = LocalRepository(str(tmp_path))
-    init_proc = Process(name="init", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.COMPLETED)
+    init_proc = Process(name="init", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED)
     repo.upsert_process(init_proc)
     child = Process(
         name="scheduler", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING, parent_process=init_proc.id
@@ -29,7 +29,7 @@ def test_reboot_preserves_old_processes_in_previous_epoch(tmp_path):
     from cogos.db.models import ALL_EPOCHS, Run, RunStatus
 
     repo = LocalRepository(str(tmp_path))
-    old = Process(name="scheduler", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNING)
+    old = Process(name="scheduler", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE)
     repo.upsert_process(old)
     run = Run(process=old.id, status=RunStatus.RUNNING)
     repo.create_run(run)
@@ -62,7 +62,7 @@ def test_reboot_preserves_old_processes_in_previous_epoch(tmp_path):
 
 def test_reboot_logs_operation(tmp_path):
     repo = LocalRepository(str(tmp_path))
-    repo.upsert_process(Process(name="init", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.COMPLETED))
+    repo.upsert_process(Process(name="init", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED))
 
     reboot(repo)
 

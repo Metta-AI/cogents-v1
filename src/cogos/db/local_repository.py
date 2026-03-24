@@ -359,8 +359,13 @@ class LocalRepository(Repository):
             wc = WaitCondition(**wc_data)
             self._wait_conditions[wc.id] = wc
 
+    _LEGACY_PROCESS_STATUS = {"running": "waiting", "completed": "disabled"}
+
     def _migrate_legacy_process_prompt(self, raw: dict[str, Any]) -> dict[str, Any]:
         migrated = dict(raw)
+
+        if migrated.get("status") in self._LEGACY_PROCESS_STATUS:
+            migrated["status"] = self._LEGACY_PROCESS_STATUS[migrated["status"]]
 
         # Migrate runner → required_tags
         if "runner" in migrated and "required_tags" not in migrated:
@@ -664,7 +669,7 @@ class LocalRepository(Repository):
         """
         children = [p for p in self._processes.values() if p.parent_process == parent_id]
         for child in children:
-            if child.status not in (ProcessStatus.DISABLED, ProcessStatus.COMPLETED):
+            if child.status != ProcessStatus.DISABLED:
                 child.status = ProcessStatus.DISABLED
                 child.runnable_since = None
                 child.updated_at = datetime.now(UTC)

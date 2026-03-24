@@ -68,9 +68,9 @@ class TestDispatchToExecutor:
         assert result.process_name == "test-proc"
         assert result.executor_id == "exec-1"
 
-        # Process should be RUNNING
+        # Process should be WAITING (dispatched, run in progress)
         updated = repo.get_process(proc.id)
-        assert updated.status == ProcessStatus.RUNNING
+        assert updated.status == ProcessStatus.WAITING
 
         # Executor should be BUSY
         executor = repo.get_executor("exec-1")

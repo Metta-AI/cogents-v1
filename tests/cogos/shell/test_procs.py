@@ -10,10 +10,10 @@ def _setup(tmp_path):
     repo = LocalRepository(str(tmp_path))
     repo.upsert_process(Process(name="init", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING, required_tags=[]))
     repo.upsert_process(
-        Process(name="scheduler", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNING, required_tags=[])
+        Process(name="scheduler", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE, required_tags=[])
     )
     repo.upsert_process(
-        Process(name="done-job", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.COMPLETED, required_tags=[])
+        Process(name="done-job", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED, required_tags=[])
     )
     state = ShellState(cogent_name="test", repo=repo, cwd="")
     reg = CommandRegistry()

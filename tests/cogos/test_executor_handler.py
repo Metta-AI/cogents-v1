@@ -84,7 +84,7 @@ def test_executor_recreates_missing_dispatch_run(monkeypatch, tmp_path):
     process = Process(
         name="discord-daemon",
         mode=ProcessMode.DAEMON,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
     )
     repo.upsert_process(process)
@@ -116,7 +116,7 @@ def test_daemon_returns_to_runnable_when_more_deliveries_wait(monkeypatch, tmp_p
     process = Process(
         name="discord-daemon",
         mode=ProcessMode.DAEMON,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
     )
     repo.upsert_process(process)
@@ -168,7 +168,7 @@ def test_daemon_failure_returns_to_waiting_without_pending_deliveries(monkeypatc
     process = Process(
         name="discord-daemon",
         mode=ProcessMode.DAEMON,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
     )
     repo.upsert_process(process)
@@ -200,7 +200,7 @@ def test_daemon_failure_returns_to_runnable_when_more_deliveries_wait(monkeypatc
     process = Process(
         name="discord-daemon",
         mode=ProcessMode.DAEMON,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
     )
     repo.upsert_process(process)
@@ -254,7 +254,7 @@ def test_daemon_suspended_after_consecutive_failures(monkeypatch, tmp_path):
     process = Process(
         name="flaky-daemon",
         mode=ProcessMode.DAEMON,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
     )
     repo.upsert_process(process)
@@ -291,7 +291,7 @@ def test_daemon_not_suspended_with_fewer_than_threshold_failures(monkeypatch, tm
     process = Process(
         name="recovering-daemon",
         mode=ProcessMode.DAEMON,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
     )
     repo.upsert_process(process)
@@ -321,7 +321,7 @@ def test_daemon_not_suspended_if_success_breaks_streak(monkeypatch, tmp_path):
     process = Process(
         name="mixed-daemon",
         mode=ProcessMode.DAEMON,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
     )
     repo.upsert_process(process)
@@ -356,7 +356,7 @@ def test_execute_process_rewrites_invalid_tool_names(monkeypatch, tmp_path):
     process = Process(
         name="discord-daemon",
         mode=ProcessMode.DAEMON,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
         content="Handle the incoming Discord message.",
     )
@@ -443,7 +443,7 @@ def test_execute_process_expands_prompt_refs_into_system_prompt(monkeypatch, tmp
     process = Process(
         name="worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
         content="Intro\n@{prompt.md}",
     )
@@ -496,7 +496,7 @@ def test_stateless_process_writes_session_artifacts_and_snapshot(monkeypatch, tm
     process = Process(
         name="stateless-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=["local"],
         content="Handle a single event.",
     )
@@ -543,7 +543,7 @@ def test_process_session_loads_previous_checkpoint(monkeypatch, tmp_path):
     process = Process(
         name="reentrant-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=["local"],
         content="Continue the conversation.",
         metadata={"session": {"resume": True, "scope": "process"}},
@@ -596,7 +596,7 @@ def test_legacy_session_mode_process_still_resumes(monkeypatch, tmp_path):
     process = Process(
         name="legacy-reentrant-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=["local"],
         content="Continue the conversation.",
         metadata={"session": {"mode": "process"}},
@@ -642,7 +642,7 @@ def test_checkpoint_survives_failure_after_assistant_step(monkeypatch, tmp_path)
     process = Process(
         name="tool-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=["local"],
         content="Use tools when needed.",
         max_retries=1,
@@ -728,7 +728,7 @@ def test_prompt_change_skips_resume(monkeypatch, tmp_path):
     process = Process(
         name="drift-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=["local"],
         content="Original instructions.",
         metadata={"session": {"resume": True, "scope": "process"}},
@@ -780,7 +780,7 @@ def test_python_executor_runs_code_directly(monkeypatch, tmp_path):
         mode=ProcessMode.ONE_SHOT,
         executor="python",
         content="print('hello from python')",
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
     )
     repo.upsert_process(process)
 
@@ -808,7 +808,7 @@ def test_python_executor_receives_event_payload(monkeypatch, tmp_path):
         mode=ProcessMode.ONE_SHOT,
         executor="python",
         content="print(event.get('payload', {}).get('msg', 'none'))",
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
     )
     repo.upsert_process(process)
     run = _make_run(repo, process)
@@ -836,7 +836,7 @@ def test_python_executor_resolves_file_refs(monkeypatch, tmp_path):
         mode=ProcessMode.ONE_SHOT,
         executor="python",
         content='data = """\n@{apps/greet/config.txt}\n"""\nprint(data.splitlines()[-1])',
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
     )
     repo.upsert_process(process)
     dir_cap = Capability(name="dir")
@@ -871,7 +871,7 @@ def test_python_executor_error_captured_in_run(monkeypatch, tmp_path):
         mode=ProcessMode.ONE_SHOT,
         executor="python",
         content="raise ValueError('boom')",
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
     )
     repo.upsert_process(process)
     run = _make_run(repo, process)
@@ -915,7 +915,7 @@ def test_per_process_io_channels_created_on_execute(monkeypatch, tmp_path):
     process = Process(
         name="io-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
         content="Do work.",
     )
@@ -940,7 +940,7 @@ def test_run_code_output_published_to_process_stdout(monkeypatch, tmp_path):
     process = Process(
         name="code-runner",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
         content="Run code.",
     )
@@ -974,7 +974,7 @@ def test_final_assistant_text_published_to_process_stderr(monkeypatch, tmp_path)
     process = Process(
         name="chat-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
         content="Chat.",
     )
@@ -1002,7 +1002,7 @@ def test_intermediate_assistant_text_published_to_stdout(monkeypatch, tmp_path):
     process = Process(
         name="think-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
         content="Think and act.",
     )
@@ -1041,7 +1041,7 @@ def test_tty_forwards_to_global_io_channels(monkeypatch, tmp_path):
     process = Process(
         name="tty-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
         content="Run with tty.",
         tty=True,
@@ -1090,7 +1090,7 @@ def test_no_tty_does_not_forward_to_global_io(monkeypatch, tmp_path):
     process = Process(
         name="no-tty-worker",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
         content="Run without tty.",
         tty=False,
@@ -1152,7 +1152,7 @@ if route == "status":
 else:
     web.respond(request_id, status=404, headers={"content-type": "application/json"}, body=json.dumps({"error": "not found"}))
 """,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
     )
     repo.upsert_process(process)
 
@@ -1220,7 +1220,7 @@ def test_spill_tool_result_large_text(tmp_path):
 def test_large_tool_output_spilled_to_file_store(monkeypatch, tmp_path):
     """Large run_code output is spilled to the file store, not inlined in messages."""
     repo = _repo(tmp_path)
-    process = Process(name="big-output", content="make stuff", status=ProcessStatus.RUNNING)
+    process = Process(name="big-output", content="make stuff", status=ProcessStatus.RUNNABLE)
     repo.upsert_process(process)
     run = _make_run(repo, process)
     config = executor_handler.ExecutorConfig()
@@ -1276,7 +1276,7 @@ def test_context_overflow_creates_critical_alert(monkeypatch, tmp_path):
     from botocore.exceptions import ClientError
 
     repo = _repo(tmp_path)
-    process = Process(name="overflower", content="do stuff", status=ProcessStatus.RUNNING)
+    process = Process(name="overflower", content="do stuff", status=ProcessStatus.RUNNABLE)
     repo.upsert_process(process)
     run = _make_run(repo, process)
     config = executor_handler.ExecutorConfig()

@@ -523,7 +523,7 @@ class Repository:
         extra = ""
         if to_status == ProcessStatus.RUNNABLE:
             extra = ", runnable_since = COALESCE(runnable_since, now())"
-        elif to_status in (ProcessStatus.RUNNING, ProcessStatus.WAITING, ProcessStatus.COMPLETED):
+        elif to_status == ProcessStatus.WAITING:
             extra = ", runnable_since = NULL"
         response = self._execute(
             f"UPDATE cogos_process SET status = :to_status{extra}, updated_at = now() "
@@ -540,7 +540,7 @@ class Repository:
         extra = ""
         if status == ProcessStatus.RUNNABLE:
             extra = ", runnable_since = COALESCE(runnable_since, now())"
-        elif status in (ProcessStatus.RUNNING, ProcessStatus.WAITING, ProcessStatus.COMPLETED):
+        elif status == ProcessStatus.WAITING:
             extra = ", runnable_since = NULL"
         response = self._execute(
             f"UPDATE cogos_process SET status = :status{extra}, updated_at = now() WHERE id = :id",
@@ -646,7 +646,7 @@ class Repository:
             resources=resources,
             required_tags=self._json_field(row, "required_tags", []),
             executor=row.get("executor", "llm"),
-            status=ProcessStatus(row["status"]),
+            status=ProcessStatus({"running": "waiting", "completed": "disabled"}.get(row["status"], row["status"])),
             runnable_since=self._ts(row, "runnable_since"),
             parent_process=UUID(row["parent_process"]) if row.get("parent_process") else None,
             preemptible=row.get("preemptible", False),

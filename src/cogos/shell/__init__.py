@@ -68,12 +68,12 @@ class CogentShell:
         def _bottom_toolbar():
             try:
                 procs = repo.list_processes()
-                running = sum(1 for p in procs if p.status.value == "running")
-                waiting = sum(1 for p in procs if p.status.value in ("waiting", "runnable"))
+                runnable = sum(1 for p in procs if p.status.value == "runnable")
+                waiting = sum(1 for p in procs if p.status.value == "waiting")
                 files = repo.list_files(limit=1000)
                 caps = repo.list_capabilities(enabled_only=True)
                 return HTML(
-                    f" procs: <b>{running}</b> running, <b>{waiting}</b> waiting"
+                    f" procs: <b>{runnable}</b> runnable, <b>{waiting}</b> waiting"
                     f" | files: <b>{len(files)}</b>"
                     f" | caps: <b>{len(caps)}</b> enabled"
                 )

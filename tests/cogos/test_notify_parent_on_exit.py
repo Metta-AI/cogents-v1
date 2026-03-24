@@ -15,7 +15,7 @@ def test_sends_exit_message_on_success():
 
     process = Process(
         id=child_id, name="child", mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.COMPLETED, parent_process=parent_id,
+        status=ProcessStatus.DISABLED, parent_process=parent_id,
     )
     run = Run(id=run_id, process=child_id, status=RunStatus.COMPLETED, result={"answer": 42})
 
@@ -44,7 +44,7 @@ def test_sends_exit_message_on_failure():
 
     process = Process(
         id=child_id, name="child", mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.COMPLETED, parent_process=parent_id,
+        status=ProcessStatus.DISABLED, parent_process=parent_id,
     )
     run = Run(id=run_id, process=child_id, status=RunStatus.FAILED)
 
@@ -67,7 +67,7 @@ def test_sends_exit_message_on_throttle():
 
     process = Process(
         id=child_id, name="child", mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.COMPLETED, parent_process=parent_id,
+        status=ProcessStatus.DISABLED, parent_process=parent_id,
     )
     run = Run(process=child_id, status=RunStatus.THROTTLED)
 
@@ -84,7 +84,7 @@ def test_sends_exit_message_on_throttle():
 def test_no_parent_is_noop():
     process = Process(
         name="orphan", mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.COMPLETED, parent_process=None,
+        status=ProcessStatus.DISABLED, parent_process=None,
     )
     run = Run(process=process.id, status=RunStatus.COMPLETED)
     repo = MagicMock()
@@ -98,7 +98,7 @@ def test_no_channel_found_is_noop():
     parent_id = uuid4()
     process = Process(
         name="child", mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.COMPLETED, parent_process=parent_id,
+        status=ProcessStatus.DISABLED, parent_process=parent_id,
     )
     run = Run(process=process.id, status=RunStatus.COMPLETED)
     repo = MagicMock()
@@ -114,7 +114,7 @@ def test_error_truncated_to_1000_chars():
     child_id = uuid4()
     process = Process(
         id=child_id, name="child", mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.COMPLETED, parent_process=parent_id,
+        status=ProcessStatus.DISABLED, parent_process=parent_id,
     )
     run = Run(process=child_id, status=RunStatus.FAILED)
     ch = Channel(name=f"spawn:{child_id}\u2192{parent_id}", channel_type=ChannelType.SPAWN)

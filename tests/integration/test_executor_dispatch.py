@@ -81,10 +81,10 @@ def test_local_daemon_dispatch(tmp_path):
     assert executor.status == ExecutorStatus.BUSY
     assert executor.current_run_id == UUID(result.run_id)
 
-    # Process should be running
+    # Process should be waiting (dispatched, run in progress)
     updated = repo.get_process(proc.id)
     assert updated is not None
-    assert updated.status == ProcessStatus.RUNNING
+    assert updated.status == ProcessStatus.WAITING
 
     # Run should exist
     runs = repo.list_runs(process_id=proc.id, limit=1)

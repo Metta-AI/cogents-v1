@@ -127,7 +127,7 @@ def test_per_channel_dm_routing_full_flow(tmp_path):
 
         child_name = f"discord-dm:{author_id}"
         existing = repo.get_process_by_name(child_name)
-        if existing and existing.status not in (ProcessStatus.COMPLETED, ProcessStatus.DISABLED):
+        if existing and existing.status != ProcessStatus.DISABLED:
             # Child already exists, skip
             return run
 

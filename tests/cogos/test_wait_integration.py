@@ -29,7 +29,7 @@ def _setup_parent_child(repo, *, num_children=1, with_handlers=False):
     children = []
     for i in range(num_children):
         child = Process(name=f"child-{i}", mode=ProcessMode.ONE_SHOT,
-                        status=ProcessStatus.RUNNING, parent_process=parent.id)
+                        status=ProcessStatus.RUNNABLE, parent_process=parent.id)
         repo.upsert_process(child)
 
         recv_ch = Channel(
@@ -161,14 +161,14 @@ def test_orphan_cleanup_on_disable():
 
 def _setup_spawn_wait(repo, *, num_targets=2):
     """Set up a parent that spawns targets + a collector with spawn-time wait."""
-    parent = Process(name="parent", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
+    parent = Process(name="parent", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE)
     repo.upsert_process(parent)
 
     targets = []
     for i in range(num_targets):
         target = Process(
             name=f"target-{i}", mode=ProcessMode.ONE_SHOT,
-            status=ProcessStatus.RUNNING, parent_process=parent.id,
+            status=ProcessStatus.RUNNABLE, parent_process=parent.id,
         )
         repo.upsert_process(target)
         recv_ch = Channel(
