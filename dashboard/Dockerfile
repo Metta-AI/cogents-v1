@@ -1,35 +1,38 @@
 # Build context: project root (.)
 # Usage: docker build -f dashboard/Dockerfile .
-#
-# The frontend is NOT baked into the image. On startup the entrypoint
-# downloads a pre-built Next.js bundle from S3 (set DASHBOARD_ASSETS_S3).
-# This lets us redeploy frontend changes in seconds without rebuilding
-# the Docker image.
 
+# Stage 1: Build Next.js frontend
+FROM node:20-slim AS frontend
+WORKDIR /build
+COPY dashboard/frontend/package.json dashboard/frontend/package-lock.json ./
+RUN npm ci
+COPY dashboard/frontend/ ./
+RUN npx next build
+
+# Stage 2: Runtime
 FROM python:3.12-slim
 WORKDIR /app
 
-# Install Node.js (needed to run standalone Next.js server) + AWS CLI (for S3 sync)
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates unzip \
+# Install Node.js (to run standalone Next.js server)
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip \
-    && unzip -q /tmp/awscli.zip -d /tmp \
-    && /tmp/aws/install \
-    && rm -rf /tmp/aws /tmp/awscli.zip /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
-# Install the cogent package (provides dashboard backend + all deps)
+# Install Python package
 COPY pyproject.toml README.md /app/
 COPY src/ /app/src/
 COPY images/ /app/images/
 RUN pip install --no-cache-dir .
 
-# Copy entrypoint
-COPY dashboard/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+# Copy built frontend from stage 1
+COPY --from=frontend /build/.next/standalone /app/frontend/
+COPY --from=frontend /build/.next/static /app/frontend/.next/static
+COPY --from=frontend /build/public /app/frontend/public
 
-# Bake the version into the image for auto-rebuild detection
-COPY dashboard/DOCKER_VERSION /app/DOCKER_VERSION
+# Simple start script
+COPY dashboard/start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
 RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
 USER appuser
@@ -38,4 +41,4 @@ ENV PORT=5174
 ENV HOSTNAME=0.0.0.0
 
 EXPOSE 5174 8100
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/app/start.sh"]
