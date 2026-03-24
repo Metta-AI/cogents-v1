@@ -11,6 +11,7 @@ from cogos.capabilities.history import (
     HistoryCapability,
     HistoryError,
     ProcessHistory,
+    _resolve_since,
 )
 from cogos.db.models import Process, ProcessMode, ProcessStatus
 from cogos.db.models.run import Run, RunStatus
@@ -168,6 +169,54 @@ class TestHistoryQuery:
         scoped = cap.scope(ops=["query"])
         with pytest.raises(PermissionError):
             scoped.process(name="worker")
+
+
+class TestResolveSince:
+    def test_relative_minutes(self):
+        result = _resolve_since("5m")
+        # Should be a valid ISO timestamp
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(result)
+        assert dt.tzinfo is not None
+        # Should be roughly 5 minutes ago
+        diff = (datetime.now(timezone.utc) - dt).total_seconds()
+        assert 290 < diff < 310  # 5 min +/- 10s
+
+    def test_relative_seconds(self):
+        result = _resolve_since("30s")
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(result)
+        diff = (datetime.now(timezone.utc) - dt).total_seconds()
+        assert 25 < diff < 35
+
+    def test_relative_hours(self):
+        result = _resolve_since("1h")
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(result)
+        diff = (datetime.now(timezone.utc) - dt).total_seconds()
+        assert 3590 < diff < 3610
+
+    def test_relative_days(self):
+        result = _resolve_since("2d")
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(result)
+        diff = (datetime.now(timezone.utc) - dt).total_seconds()
+        assert 172790 < diff < 172810
+
+    def test_iso_passthrough(self):
+        ts = "2026-03-17T12:00:00+00:00"
+        assert _resolve_since(ts) == ts
+
+    def test_query_resolves_relative_since(self, repo, pid):
+        """query() converts relative since values before passing to repo."""
+        repo.list_runs.return_value = []
+        cap = HistoryCapability(repo, pid)
+        cap.query(status="failed", since="5m")
+        call_kwargs = repo.list_runs.call_args[1]
+        # Should be an ISO timestamp, not "5m"
+        assert call_kwargs["since"] != "5m"
+        from datetime import datetime
+        datetime.fromisoformat(call_kwargs["since"])  # should not raise
 
 
 class TestNarrowing:

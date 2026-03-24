@@ -42,6 +42,7 @@ from cogos.db.models import (
     SpanStatus,
     Trace,
 )
+from cogos.db.models.alert import Alert, AlertSeverity
 from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
 from cogos.db.models.wait_condition import WaitCondition, WaitConditionStatus, WaitConditionType
 
@@ -2038,14 +2039,32 @@ class Repository:
             ],
         )
 
-    def list_alerts(self, *, resolved: bool = False, limit: int = 50) -> list[dict]:
+    def list_alerts(self, *, resolved: bool = False, limit: int = 50) -> list[Alert]:
         """Return recent alerts, unresolved by default."""
         where = "" if resolved else "WHERE resolved_at IS NULL"
         response = self._execute(
             f"SELECT * FROM alerts {where} ORDER BY created_at DESC LIMIT :limit",
             [self._param("limit", limit)],
         )
-        return self._rows_to_dicts(response)
+        rows = self._rows_to_dicts(response)
+        return [self._alert_from_row(r) for r in rows]
+
+    def _alert_from_row(self, row: dict) -> Alert:
+        metadata = row.get("metadata") or {}
+        if isinstance(metadata, str):
+            import json as _json
+            metadata = _json.loads(metadata)
+        return Alert(
+            id=UUID(row["id"]) if isinstance(row.get("id"), str) else row.get("id"),
+            severity=AlertSeverity(row["severity"]),
+            alert_type=row["alert_type"],
+            source=row["source"],
+            message=row.get("message", ""),
+            metadata=metadata,
+            acknowledged_at=self._ts(row, "acknowledged_at"),
+            resolved_at=self._ts(row, "resolved_at"),
+            created_at=self._ts(row, "created_at"),
+        )
 
     def resolve_alert(self, alert_id: UUID) -> None:
         self._execute(

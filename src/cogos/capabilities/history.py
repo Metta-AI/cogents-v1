@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -10,6 +12,24 @@ from pydantic import BaseModel
 from cogos.capabilities.base import Capability
 
 logger = logging.getLogger(__name__)
+
+_RELATIVE_RE = re.compile(r"^(\d+)\s*(s|m|h|d)$")
+_UNIT_MAP = {"s": "seconds", "m": "minutes", "h": "hours", "d": "days"}
+
+
+def _resolve_since(since: str) -> str:
+    """Convert a relative time string like '5m' to an ISO timestamp.
+
+    Passes through values that don't match the relative pattern (e.g. ISO
+    timestamps) unchanged.
+    """
+    m = _RELATIVE_RE.match(since.strip())
+    if m:
+        amount = int(m.group(1))
+        unit = _UNIT_MAP[m.group(2)]
+        cutoff = datetime.now(timezone.utc) - timedelta(**{unit: amount})
+        return cutoff.isoformat()
+    return since
 
 
 # ── IO Models ────────────────────────────────────────────────
@@ -170,8 +190,14 @@ class HistoryCapability(Capability):
         since: str | None = None,
         limit: int = 50,
     ) -> list[RunSummary]:
-        """Cross-process run query."""
+        """Cross-process run query.
+
+        ``since`` accepts relative durations like ``"5m"``, ``"1h"``, ``"30s"``
+        as well as ISO-8601 timestamps.
+        """
         self._check("query")
+        if since:
+            since = _resolve_since(since)
 
         if process_name:
             raw = self.repo.list_runs_by_process_glob(

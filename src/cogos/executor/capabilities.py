@@ -83,7 +83,7 @@ def build_process_capabilities(
                 instance = instance.scope(**pc.config)
 
             result[ns] = instance
-        except (ImportError, AttributeError) as exc:
-            logger.warning("Could not load capability %s (%s): %s", cap_model.name, handler_path, exc)
+        except Exception as exc:
+            logger.error("Could not load capability %s (%s): %s", cap_model.name, handler_path, exc, exc_info=True)
 
     return result

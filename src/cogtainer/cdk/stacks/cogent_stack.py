@@ -151,6 +151,7 @@ class CogentStack(Stack):
                     actions=["ses:SendEmail", "ses:SendRawEmail"],
                     resources=[
                         f"arn:aws:ses:*:*:identity/{domain}",
+                        "arn:aws:ses:*:*:identity/*",
                     ],
                 )
             )
