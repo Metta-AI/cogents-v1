@@ -6,7 +6,7 @@ Human-readable reference: [docs/deploy.md](../../docs/deploy.md)
 
 1. Ensure no uncommitted changes: `git status --porcelain` must be empty. If dirty, stop and ask.
 2. Pull latest: `git pull --ff-only`. If it fails (diverged), stop and ask.
-3. Ensure the right cogent is selected: check `.env` for COGTAINER/COGENT, or run `cogent select <name>` to set them.
+3. Identify the cogtainer name from context (default: `agora`).
 
 ## Decide what to deploy
 
@@ -14,23 +14,28 @@ Run `git diff HEAD~1 --name-only` (or broader if multiple commits since last dep
 
 | Changed paths | What's needed |
 |---|---|
-| `dashboard/frontend/**` only | Deploy new dashboard image (CI builds on push to main) |
-| `src/dashboard/**` only (backend API) | Deploy new dashboard image (CI builds on push to main) |
-| Both frontend + backend | Deploy new dashboard image (CI builds on push to main) |
+| `dashboard/frontend/**` only | **S3 bundle** — fast path, ~30s. Run: `cogtainer deploy-dashboard <cogtainer>` |
+| `src/dashboard/**` only (backend API) | **Docker image** — needs container rebuild. Run: `cogtainer deploy-dashboard <cogtainer> --docker` |
+| Both frontend + backend | **Docker image** — covers both. Run: `cogtainer deploy-dashboard <cogtainer> --docker` |
+| `DOCKER_VERSION` changed | **Docker image** — use `--docker` |
 | No dashboard changes | Nothing to deploy. Tell the user. |
 
 ## Deploy
 
-CI (GitHub Actions) builds a new dashboard image on push to main. Once the image is available in ECR, deploy it:
-
 ```bash
-# Deploy a specific build (use the commit SHA from the merged PR)
-cogtainer update <cogtainer-name> --services --image-tag dashboard-<sha>
+# Fast path: build Next.js -> tar.gz -> S3 -> restart ECS (~30s)
+uv run cogtainer deploy-dashboard agora
 
-# Deploy the latest image
-cogtainer update <cogtainer-name> --services --image-tag dashboard-latest
+# Full path: rebuild Docker image + push ECR + restart ECS
+uv run cogtainer deploy-dashboard agora --docker
+
+# With explicit AWS profile
+uv run cogtainer deploy-dashboard agora --profile softmax-org
 ```
+
+IMPORTANT: Do NOT manually construct S3 bucket names. The `deploy-dashboard` command
+reads the correct bucket from the CloudFormation stack outputs automatically.
 
 ## Post-deploy
 
-After deploy completes, verify by opening `https://<safe-name>.softmax-cogents.com` in the browser and confirm the change is visible.
+After deploy completes, verify by opening `https://<safe-cogent-name>.softmax-cogents.com` in the browser and confirm the change is visible.

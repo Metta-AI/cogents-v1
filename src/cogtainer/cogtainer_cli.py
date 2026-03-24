@@ -909,5 +909,108 @@ def dns_status(profile: str | None, region: str) -> None:
         click.echo("  Run: cogtainer dns init --api-token TOKEN --account-id ID --zone-id ZID")
 
 
+@cli.command("deploy-dashboard")
+@click.argument("name")
+@click.option("--docker", is_flag=True, help="Rebuild Docker image (needed for backend changes)")
+@click.option("--profile", default=None, help="AWS profile name")
+@click.option("--region", default="us-east-1", help="AWS region")
+def deploy_dashboard_cmd(
+    name: str,
+    docker: bool,
+    profile: str | None,
+    region: str,
+) -> None:
+    """Build and deploy dashboard for a cogtainer.
+
+    \b
+    Frontend-only (default): build Next.js → tar.gz → S3 → restart ECS.
+    --docker: rebuild Docker image → push ECR → restart ECS (for backend changes).
+    """
+    import json
+    import os
+    import subprocess
+    import tarfile
+    import tempfile
+
+    session, _account_id = _get_aws_session(region=region, profile=profile)
+    cogent_names = _get_cogent_names(session, name, region)
+    if not cogent_names:
+        click.echo(f"No cogents found for cogtainer '{name}'.")
+        return
+
+    ecs_client = session.client("ecs", region_name=region)
+    ecr_repo = f"cogtainer-{name}"
+
+    # Get the sessions bucket from the cogtainer stack
+    cf = session.client("cloudformation", region_name=region)
+    try:
+        resp = cf.describe_stacks(StackName=f"cogtainer-{name}")
+        outputs = {o["OutputKey"]: o["OutputValue"] for o in resp["Stacks"][0].get("Outputs", [])}
+        bucket = outputs.get("SessionsBucketName", "")
+    except Exception:
+        bucket = ""
+
+    if not bucket:
+        raise click.ClickException(f"Could not find sessions bucket for cogtainer '{name}'")
+
+    click.echo(f"Deploying dashboard for cogtainer '{name}' (bucket: {bucket})")
+
+    if docker:
+        # Full Docker path
+        click.echo("Building Docker image...")
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        tag = f"{_account_id}.dkr.ecr.{region}.amazonaws.com/{ecr_repo}:dashboard-latest"
+
+        subprocess.run(
+            ["docker", "build", "-f", "dashboard/Dockerfile", "-t", tag, "--platform", "linux/amd64", "."],
+            cwd=project_root,
+            check=True,
+        )
+
+        click.echo("Pushing to ECR...")
+        # Login to ECR
+        ecr = session.client("ecr", region_name=region)
+        import base64
+        auth = ecr.get_authorization_token()
+        token = auth["authorizationData"][0]["authorizationToken"]
+        endpoint = auth["authorizationData"][0]["proxyEndpoint"]
+        user, password = base64.b64decode(token).decode().split(":", 1)
+        subprocess.run(["docker", "login", "--username", user, "--password-stdin", endpoint], input=password.encode(), check=True, capture_output=True)
+        subprocess.run(["docker", "push", tag], check=True)
+        click.echo("  Pushed.")
+    else:
+        # Fast path: build frontend and upload to S3
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        frontend_dir = os.path.join(project_root, "dashboard", "frontend")
+
+        click.echo("Building frontend...")
+        subprocess.run(["npm", "run", "build"], cwd=frontend_dir, check=True, capture_output=True)
+
+        click.echo("Packaging...")
+        next_dir = os.path.join(frontend_dir, ".next")
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+            tarball_path = tmp.name
+        with tarfile.open(tarball_path, "w:gz") as tar:
+            tar.add(next_dir, arcname=".")
+
+        click.echo(f"Uploading to s3://{bucket}/dashboard/frontend.tar.gz ...")
+        s3 = session.client("s3", region_name=region)
+        s3.upload_file(tarball_path, bucket, "dashboard/frontend.tar.gz")
+        os.unlink(tarball_path)
+        click.echo("  Uploaded.")
+
+    # Restart dashboard ECS services for all cogents
+    click.echo("Restarting dashboard services...")
+    cluster = f"cogtainer-{name}"
+    services = ecs_client.list_services(cluster=cluster)["serviceArns"]
+    for svc_arn in services:
+        svc_name = svc_arn.rsplit("/", 1)[-1]
+        if "DashService" in svc_name or "dashboard" in svc_name:
+            ecs_client.update_service(cluster=cluster, service=svc_arn, forceNewDeployment=True)
+            click.echo(f"  {svc_name}: restarted")
+
+    click.echo(click.style("Dashboard deployed.", fg="green"))
+
+
 if __name__ == "__main__":
     cli()
