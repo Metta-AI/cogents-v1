@@ -61,7 +61,7 @@ def create_service_account(cogent_name: str, secrets_provider: object) -> str:
     # Store in Secrets Manager with the SA email for easy lookup
     config = json.loads(key_json)
     config["service_account_email"] = sa_email
-    secrets_provider.set_secret(f"cogent/{cogent_name}/google", json.dumps(config))
+    secrets_provider.set_secret(f"cogent/{cogent_name}/google", json.dumps(config))  # type: ignore[union-attr]
 
     return sa_email
 
@@ -84,6 +84,6 @@ def delete_service_account(cogent_name: str, secrets_provider: object) -> None:
         pass  # best-effort cleanup
 
     try:
-        secrets_provider.delete_secret(f"cogent/{cogent_name}/google")
+        secrets_provider.delete_secret(f"cogent/{cogent_name}/google")  # type: ignore[union-attr]
     except Exception:
         pass
