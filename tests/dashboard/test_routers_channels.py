@@ -75,7 +75,7 @@ class _ChannelsRepoStub:
         self.appended_messages.append(message.model_dump())
         return uuid4()
 
-    def list_channels(self, owner_process=None):
+    def list_channels(self, owner_process=None, limit=0):
         channels = [self.channel, self.schema_channel, self.spawn_channel]
         if owner_process is None:
             return channels
