@@ -981,6 +981,14 @@ def run_show(run_id: str, use_json: bool):
 @cogos.command()
 def status():
     """Show CogOS status."""
+    ctx = click.get_current_context()
+    entry = ctx.obj.get("cogtainer_entry")
+    cogent_name = ctx.obj.get("cogent_name")
+    if entry and cogent_name:
+        data_dir = entry.data_dir or str(Path.home() / ".cogos" / "local")
+        log_dir = Path(data_dir) / cogent_name / "logs"
+        click.echo(f"Log dir: {log_dir}")
+
     repo = _repo()
     procs = repo.list_processes()
     click.echo(f"Processes: {len(procs)}")
