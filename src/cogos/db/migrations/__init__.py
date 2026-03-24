@@ -125,7 +125,13 @@ def apply_cogos_sql_migrations(
     """Apply raw CogOS SQL migrations using the repository's execute method.
 
     Returns the number of SQL statements successfully applied (not migration files).
+    Skips for SqliteRepository which manages its own schema.
     """
+    from cogos.db.sqlite_repository import SqliteRepository
+
+    if isinstance(repo, SqliteRepository):
+        return 0
+
     if not COGOS_MIGRATIONS_DIR.is_dir():
         return 0
 
