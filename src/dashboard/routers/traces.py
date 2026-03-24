@@ -269,16 +269,16 @@ def list_message_traces(
     category_filters = _normalize_type_filters(category)
     request_id_filters = _normalize_type_filters(request_id)
     has_filters = source_type_filters or emitted_type_filters or category_filters or request_id_filters
-    fetch_limit = max(limit * 20, 1000) if has_filters else max(limit * 10, 500)
+    fetch_limit = max(limit * 10, 500) if has_filters else max(limit * 5, 250)
     if request_id_filters:
-        fetch_limit = max(fetch_limit, 5000)
+        fetch_limit = max(fetch_limit, 2000)
 
     processes = repo.list_processes(limit=1000)
     channels = repo.list_channels()
     handlers = repo.list_handlers()
     messages = repo.list_channel_messages(limit=fetch_limit, since=cutoff)
-    deliveries = repo.list_deliveries(limit=max(fetch_limit * 2, 1000))
-    runs = repo.list_runs(limit=max(fetch_limit * 2, 1000), slim=True)
+    deliveries = repo.list_deliveries(limit=min(fetch_limit * 2, 500))
+    runs = repo.list_runs(limit=min(fetch_limit * 2, 500), slim=True, since=cutoff.isoformat())
 
     process_names = {process.id: process.name for process in processes}
     process_runners = {process.id: process.required_tags for process in processes}
