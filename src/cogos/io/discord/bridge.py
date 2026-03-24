@@ -16,6 +16,7 @@ import time
 
 import aiohttp
 import discord
+from discord.utils import MISSING
 
 from cogos.io.discord.chunking import chunk_message
 from cogos.io.discord.lifecycle import CogentPersona, LifecycleManager
@@ -964,7 +965,7 @@ class DiscordBridge:
         _reply_to = body.get("reply_to")
 
         # Determine the thread to send in (if any)
-        thread = discord.MISSING
+        thread = MISSING
         if isinstance(channel, discord.Thread):
             thread = channel
         elif thread_id:
@@ -981,10 +982,10 @@ class DiscordBridge:
 
         send_kwargs: dict = {
             "username": persona.display_name,
-            "avatar_url": persona.avatar_url or discord.MISSING,
+            "avatar_url": persona.avatar_url or MISSING,
             "wait": True,
         }
-        if thread is not discord.MISSING:
+        if thread is not MISSING:
             send_kwargs["thread"] = thread
 
         sent_message = None
@@ -1012,7 +1013,7 @@ class DiscordBridge:
                     del self._sent_message_owners[k]
 
         # Set thread ownership if replying in a thread
-        actual_thread = thread if thread is not discord.MISSING else None
+        actual_thread = thread if thread is not MISSING else None
         if actual_thread and isinstance(actual_thread, discord.Thread):
             self._router.set_thread_owner(actual_thread.id, persona.cogent_name)
 
@@ -1116,7 +1117,7 @@ class DiscordBridge:
                         content=c,
                         thread=thread,
                         username=persona.display_name,
-                        avatar_url=persona.avatar_url or discord.MISSING,
+                        avatar_url=persona.avatar_url or MISSING,
                     )
             else:
                 for c in chunk_message(content):
