@@ -251,7 +251,21 @@ class ProcsCapability(Capability):
 
             validated_caps.append((grant_name, cap.id, child_scope))
 
-        # Validation passed — now create the process and bind capabilities
+        # Validation passed — now create the process and bind capabilities.
+        # Batch all writes to avoid per-write JSON serialization overhead.
+        with self.repo.batch():
+            return self._create_child(child, validated_caps, schema, subscribe, wait_for)
+
+    def _create_child(
+        self,
+        child: Process,
+        validated_caps: list[tuple[str, UUID, dict | None]],
+        schema: dict | None,
+        subscribe: str | list[str] | None,
+        wait_for: list[ProcessHandle] | None = None,
+    ) -> ProcessHandle | ProcessError:
+        name = child.name
+        child_epoch = child.epoch
         child_id = self.repo.upsert_process(child)
 
         for grant_name, cap_id, child_scope in validated_caps:

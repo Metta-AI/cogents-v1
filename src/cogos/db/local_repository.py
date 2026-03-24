@@ -456,7 +456,7 @@ class LocalRepository(Repository):
                 latest_data = self._read_persisted_data()
                 merged = self._merge_serialized_data(latest_data, current_data)
                 tmp_file = self._data_dir / f".{self._file.name}.{os.getpid()}.tmp"
-                tmp_file.write_text(json.dumps(merged, indent=2, default=_json_serial))
+                tmp_file.write_text(json.dumps(merged, default=_json_serial))
                 tmp_file.replace(self._file)
                 self._file_mtime = self._file.stat().st_mtime
                 self._populate_from_data(merged)
@@ -471,7 +471,7 @@ class LocalRepository(Repository):
             fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
             try:
                 tmp_file = self._data_dir / f".{self._file.name}.{os.getpid()}.tmp"
-                tmp_file.write_text(json.dumps(current_data, indent=2, default=_json_serial))
+                tmp_file.write_text(json.dumps(current_data, default=_json_serial))
                 tmp_file.replace(self._file)
                 self._file_mtime = self._file.stat().st_mtime
             finally:

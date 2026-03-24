@@ -77,113 +77,116 @@ def run_and_complete(
         run = execute_fn(process, event_data, run, config, repo)
         duration_ms = int((time.time() - start) * 1000)
 
-        repo.complete_run(
-            run.id,
-            status=RunStatus.COMPLETED,
-            tokens_in=run.tokens_in,
-            tokens_out=run.tokens_out,
-            cost_usd=run.cost_usd,
-            duration_ms=duration_ms,
-            result=run.result,
-            snapshot=run.snapshot,
-            scope_log=run.scope_log,
-        )
+        with repo.batch():
+            repo.complete_run(
+                run.id,
+                status=RunStatus.COMPLETED,
+                tokens_in=run.tokens_in,
+                tokens_out=run.tokens_out,
+                cost_usd=run.cost_usd,
+                duration_ms=duration_ms,
+                result=run.result,
+                snapshot=run.snapshot,
+                scope_log=run.scope_log,
+            )
 
-        _emit_lifecycle(repo, process, {
-            "type": "process:run:success",
-            "run_id": str(run.id),
-            "process_id": str(process.id),
-            "process_name": process.name,
-            "duration_ms": duration_ms,
-        })
+            _emit_lifecycle(repo, process, {
+                "type": "process:run:success",
+                "run_id": str(run.id),
+                "process_id": str(process.id),
+                "process_name": process.name,
+                "duration_ms": duration_ms,
+            })
 
-        from cogos.executor.handler import _notify_parent_on_exit
-        _notify_parent_on_exit(repo, process, run, exit_code=0, duration_ms=duration_ms)
+            from cogos.executor.handler import _notify_parent_on_exit
+            _notify_parent_on_exit(repo, process, run, exit_code=0, duration_ms=duration_ms)
 
-        # Transition process state — respect out-of-band status changes
-        current = repo.get_process(process.id)
-        if current and current.status not in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
-            if process.mode.value == "daemon":
+            # Transition process state — respect out-of-band status changes
+            current = repo.get_process(process.id)
+            if current and current.status not in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
+                if process.mode.value == "daemon":
+                    next_status = (
+                        ProcessStatus.RUNNABLE
+                        if repo.has_pending_deliveries(process.id)
+                        else ProcessStatus.WAITING
+                    )
+                    repo.update_process_status(process.id, next_status)
+                else:
+                    repo.update_process_status(process.id, ProcessStatus.COMPLETED)
+
+    except WaitSuspend:
+        duration_ms = int((time.time() - start) * 1000)
+        with repo.batch():
+            repo.complete_run(
+                run.id,
+                status=RunStatus.SUSPENDED,
+                tokens_in=run.tokens_in,
+                tokens_out=run.tokens_out,
+                cost_usd=run.cost_usd,
+                duration_ms=duration_ms,
+                snapshot=run.snapshot,
+            )
+            repo.update_process_status(process.id, ProcessStatus.WAITING)
+        logger.info("Run %s suspended (wait condition) for process %s", run.id, process.name)
+
+    except Exception as e:
+        duration_ms = int((time.time() - start) * 1000)
+
+        with repo.batch():
+            repo.complete_run(
+                run.id,
+                status=RunStatus.FAILED,
+                tokens_in=run.tokens_in,
+                tokens_out=run.tokens_out,
+                cost_usd=run.cost_usd,
+                duration_ms=duration_ms,
+                error=str(e)[:4000],
+                snapshot=run.snapshot,
+            )
+
+            _emit_lifecycle(repo, process, {
+                "type": "process:run:failed",
+                "run_id": str(run.id),
+                "process_id": str(process.id),
+                "process_name": process.name,
+                "error": str(e)[:1000],
+            })
+
+            try:
+                repo.create_alert(
+                    severity="warning",
+                    alert_type="process:run:failed",
+                    source="local_executor",
+                    message=f"Run failed for '{process.name}': {str(e)[:500]}",
+                    metadata={
+                        "process_id": str(process.id),
+                        "process_name": process.name,
+                        "run_id": str(run.id),
+                        "duration_ms": duration_ms,
+                    },
+                )
+            except Exception:
+                logger.debug("Could not create alert for failed run %s", run.id)
+
+            from cogos.executor.handler import _notify_parent_on_exit
+            _notify_parent_on_exit(repo, process, run, exit_code=1, duration_ms=duration_ms, error=str(e))
+
+            # Retry logic — respect out-of-band status changes
+            current = repo.get_process(process.id)
+            if current and current.status in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
+                pass
+            elif process.mode.value == "daemon":
                 next_status = (
                     ProcessStatus.RUNNABLE
                     if repo.has_pending_deliveries(process.id)
                     else ProcessStatus.WAITING
                 )
                 repo.update_process_status(process.id, next_status)
+            elif process.retry_count < process.max_retries:
+                repo.increment_retry(process.id)
+                repo.update_process_status(process.id, ProcessStatus.RUNNABLE)
             else:
-                repo.update_process_status(process.id, ProcessStatus.COMPLETED)
-
-    except WaitSuspend:
-        duration_ms = int((time.time() - start) * 1000)
-        repo.complete_run(
-            run.id,
-            status=RunStatus.SUSPENDED,
-            tokens_in=run.tokens_in,
-            tokens_out=run.tokens_out,
-            cost_usd=run.cost_usd,
-            duration_ms=duration_ms,
-            snapshot=run.snapshot,
-        )
-        repo.update_process_status(process.id, ProcessStatus.WAITING)
-        logger.info("Run %s suspended (wait condition) for process %s", run.id, process.name)
-
-    except Exception as e:
-        duration_ms = int((time.time() - start) * 1000)
-
-        repo.complete_run(
-            run.id,
-            status=RunStatus.FAILED,
-            tokens_in=run.tokens_in,
-            tokens_out=run.tokens_out,
-            cost_usd=run.cost_usd,
-            duration_ms=duration_ms,
-            error=str(e)[:4000],
-            snapshot=run.snapshot,
-        )
-
-        _emit_lifecycle(repo, process, {
-            "type": "process:run:failed",
-            "run_id": str(run.id),
-            "process_id": str(process.id),
-            "process_name": process.name,
-            "error": str(e)[:1000],
-        })
-
-        try:
-            repo.create_alert(
-                severity="warning",
-                alert_type="process:run:failed",
-                source="local_executor",
-                message=f"Run failed for '{process.name}': {str(e)[:500]}",
-                metadata={
-                    "process_id": str(process.id),
-                    "process_name": process.name,
-                    "run_id": str(run.id),
-                    "duration_ms": duration_ms,
-                },
-            )
-        except Exception:
-            logger.debug("Could not create alert for failed run %s", run.id)
-
-        from cogos.executor.handler import _notify_parent_on_exit
-        _notify_parent_on_exit(repo, process, run, exit_code=1, duration_ms=duration_ms, error=str(e))
-
-        # Retry logic — respect out-of-band status changes
-        current = repo.get_process(process.id)
-        if current and current.status in (ProcessStatus.DISABLED, ProcessStatus.SUSPENDED):
-            pass
-        elif process.mode.value == "daemon":
-            next_status = (
-                ProcessStatus.RUNNABLE
-                if repo.has_pending_deliveries(process.id)
-                else ProcessStatus.WAITING
-            )
-            repo.update_process_status(process.id, next_status)
-        elif process.retry_count < process.max_retries:
-            repo.increment_retry(process.id)
-            repo.update_process_status(process.id, ProcessStatus.RUNNABLE)
-        else:
-            repo.update_process_status(process.id, ProcessStatus.DISABLED)
+                repo.update_process_status(process.id, ProcessStatus.DISABLED)
 
     return run
 
