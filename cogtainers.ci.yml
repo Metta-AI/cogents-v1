@@ -10,4 +10,4 @@ cogtainers:
     ecr_repo: cogtainer-agora
     aws_role: "arn:aws:iam::815935788409:role/cogtainer-agora-ci"
     components: all
-    cogents: [alpha]
+    cogents: [alpha, dr.gamma]

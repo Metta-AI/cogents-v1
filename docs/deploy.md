@@ -86,6 +86,15 @@ cogtainer update <name>
 cogos restart
 ```
 
+## Adding a New Cogent
+
+When deploying a new cogent to AWS:
+
+1. Create the cogent: `COGTAINER=<name> uv run cogent create <cogent-name>`
+2. Deploy its CDK stack: `PYTHONPATH=src npx cdk deploy --app "python -m cogtainer.cdk.app" -c cogtainer_name=<name> -c cogent_name=<cogent-name>`
+3. **Add the cogent to `cogtainers.ci.yml`** in the `cogents` array for its cogtainer — CI uses this list to push Lambda code updates to each cogent's functions. Without this, the cogent's Lambdas will stop receiving updates and drift out of sync.
+4. Boot CogOS: `COGTAINER=<name> COGENT=<cogent-name> uv run cogos start`
+
 ## Post-Deploy Verification
 
 ```bash
