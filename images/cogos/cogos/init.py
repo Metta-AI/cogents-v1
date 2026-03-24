@@ -140,6 +140,8 @@ _boot_channels = [
     "system:alerts",
     "supervisor:alerts",
     "triage:proposals",
+    "io:email:inbound",
+    "email-cog:review",
 ]
 if _cogent_handle:
     _boot_channels += [
@@ -202,6 +204,7 @@ for m in manifests:
 
 # Kick cog orchestrators so they can set up child processes.
 channels.send("discord-cog:review", {"reason": "boot"})
+channels.send("email-cog:review", {"reason": "boot"})
 channels.send("system:tick:hour", {"reason": "boot"})
 
 # Run diagnostics on boot
