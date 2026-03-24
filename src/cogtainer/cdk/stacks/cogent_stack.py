@@ -633,6 +633,16 @@ class CogentStack(Stack):
             )
         )
 
+        # DynamoDB — read cogent status table (for cogent switcher)
+        task_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["dynamodb:Scan", "dynamodb:GetItem"],
+                resources=[
+                    f"arn:aws:dynamodb:{self.region}:{self.account}:table/cogtainer-{cogtainer_name}-status",
+                ],
+            )
+        )
+
         # S3 — scoped to this cogent's prefix
         task_role.add_to_policy(
             iam.PolicyStatement(
