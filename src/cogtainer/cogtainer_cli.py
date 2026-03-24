@@ -984,7 +984,9 @@ def deploy_dashboard_cmd(
         frontend_dir = os.path.join(project_root, "dashboard", "frontend")
 
         click.echo("Building frontend...")
-        subprocess.run(["npm", "run", "build"], cwd=frontend_dir, check=True, capture_output=True)
+        # Use production ports (8100/5174), not local dev ports from .env
+        build_env = {**os.environ, "DASHBOARD_BE_PORT": "8100", "DASHBOARD_FE_PORT": "5174"}
+        subprocess.run(["npm", "run", "build"], cwd=frontend_dir, check=True, capture_output=True, env=build_env)
 
         click.echo("Packaging...")
         next_dir = os.path.join(frontend_dir, ".next")
