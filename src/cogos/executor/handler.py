@@ -1332,14 +1332,15 @@ def _setup_capability_proxies(
     try:
         from cogos.db.models import Channel, ChannelType
 
-        for suffix in ("", ":stdout", ":stderr", ":stdin"):
-            ch_name = f"process:{process.name}{suffix}"
-            if repo.get_channel_by_name(ch_name) is None:
-                ch = Channel(
-                    name=ch_name,
-                    owner_process=process.id,
-                    channel_type=ChannelType.IMPLICIT,
-                )
-                repo.upsert_channel(ch)
+        with repo.batch():
+            for suffix in ("", ":stdout", ":stderr", ":stdin"):
+                ch_name = f"process:{process.name}{suffix}"
+                if repo.get_channel_by_name(ch_name) is None:
+                    ch = Channel(
+                        name=ch_name,
+                        owner_process=process.id,
+                        channel_type=ChannelType.IMPLICIT,
+                    )
+                    repo.upsert_channel(ch)
     except Exception as exc:
         logger.warning("Could not create implicit channels for process %s: %s", process.name, exc)
