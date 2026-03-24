@@ -401,7 +401,7 @@ class GoogleIntegration(Integration):
     """Provide Google Drive, Docs, Sheets, and Calendar access via a per-cogent
     GCP service account whose JSON key is stored in Secrets Manager."""
 
-    GCP_PROJECT = "cogents-project"
+    GCP_PROJECT = "cogents-488906"
 
     @property
     def name(self) -> str:

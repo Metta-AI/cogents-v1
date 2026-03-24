@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-GCP_PROJECT = "cogents-project"  # GCP project ID
+GCP_PROJECT = "cogents-488906"  # GCP project ID
 
 
 def create_service_account(cogent_name: str, secrets_provider: object) -> str:
