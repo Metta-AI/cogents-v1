@@ -203,8 +203,8 @@ class DiscordIntegration(Integration):
             raw = secrets_provider.cogtainer_secret("discord")  # type: ignore[union-attr]
             data = json.loads(raw)
             bot_configured = bool(data.get("access_token") or data.get("bot_token"))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Discord bot token check failed: %s: %s", type(exc).__name__, exc)
         has_persona = bool(persona.get("display_name"))
         configured = bot_configured and has_persona
         missing: list[str] = []
