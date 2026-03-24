@@ -1,6 +1,6 @@
 # SqliteRepository Design
 
-Replace `LocalRepository` (JSON file) with `SqliteRepository` (SQLite) as the default local dev backend.
+Replace `LocalRepository` (JSON file) with `SqliteRepository` (SQLite) as the default local dev backend. Delete `LocalRepository`. Rename `Repository` to `RdsDataApiRepository`.
 
 ## Problem
 
@@ -13,13 +13,53 @@ SQLite makes each write microseconds, projecting ~0.4s diagnostics and ~0.2s ini
 
 ## Architecture
 
-### New File
+### Class Hierarchy
 
-`src/cogos/db/sqlite_repository.py` — standalone implementation of `CogosRepositoryInterface` (130 methods). Mechanical port of `repository.py` SQL patterns translated from Postgres to SQLite dialect, using Python's `sqlite3` module.
+```
+CogosRepositoryInterface (protocol.py)
+    │   - all 130 public methods (unchanged)
+    │   - _nudge_ingress() (NEW — added to protocol)
+    │
+    ├── RdsDataApiRepository (repository.py — renamed from Repository)
+    │       - RDS Data API transport
+    │       - Postgres SQL dialect
+    │
+    ├── SqliteRepository (sqlite_repository.py — new)
+    │       - sqlite3 transport
+    │       - SQLite SQL dialect
+    │
+    └── LocalRepository (local_repository.py — DELETED)
+```
+
+No base class. No inheritance between implementations. Both `RdsDataApiRepository` and `SqliteRepository` independently implement `CogosRepositoryInterface`.
+
+### Protocol Change
+
+Add `_nudge_ingress` to `CogosRepositoryInterface` in `protocol.py`:
+
+```python
+def _nudge_ingress(self, *, process_id: UUID | None = None) -> None: ...
+```
+
+Both implementations provide their own `_nudge_ingress`:
+- `RdsDataApiRepository`: existing SQS-based implementation (moved from current `Repository`)
+- `SqliteRepository`: same pattern — checks `_ingress_queue_url` and `_nudge_callback`, sends if configured
+
+### Rename: Repository → RdsDataApiRepository
+
+`src/cogos/db/repository.py` — class renamed from `Repository` to `RdsDataApiRepository`. No longer a base class for anything. All existing imports updated directly (no alias).
+
+### New File: SqliteRepository
+
+`src/cogos/db/sqlite_repository.py` — implementation of `CogosRepositoryInterface` (130 methods + `_nudge_ingress`) using Python's `sqlite3` module.
+
+### Delete: LocalRepository
+
+`src/cogos/db/local_repository.py` — deleted entirely. All references updated to `SqliteRepository`.
 
 ### Schema
 
-Single consolidated migration derived from the 27 Aurora migration files, translated to SQLite syntax:
+Single consolidated schema derived from the 27 Aurora migration files, translated to SQLite syntax:
 
 - `gen_random_uuid()` → Python-side `uuid4()`, stored as TEXT
 - `TIMESTAMPTZ` → TEXT (ISO 8601 strings)
@@ -34,17 +74,16 @@ Single consolidated migration derived from the 27 Aurora migration files, transl
 - Foreign keys enforced via `PRAGMA foreign_keys = ON`
 - `ON CONFLICT ... DO UPDATE SET` works in SQLite 3.24+ (ships with Python 3.8+)
 
-Schema lives as a string constant `_SCHEMA_SQL` in `sqlite_repository.py`. No separate migration files — SQLite DB is disposable (can always regenerate from JSON or fresh).
+Schema lives as a string constant `_SCHEMA_SQL` in `sqlite_repository.py`. No separate migration files — SQLite DB is disposable (can always regenerate fresh).
 
 ### Storage Location
 
-Same directory structure as today: `~/.cogos/cogtainers/{name}/{cogent}/cogos.db` (or `~/.cogos/local/cogos.db` for default). Replaces `cogos_data.json` in the same directory.
+`{data_dir}/cogos.db` where `data_dir` is required (no default). Callers must provide it — typically the cogtainer runtime passes the per-cogent directory. The two fallback callsites (`cogos/cli/__main__.py:1677`, `cogos/api/db.py:38`) must be fixed to resolve a proper `data_dir` through the cogtainer runtime.
 
 ### Concurrency
 
 - SQLite WAL mode (`PRAGMA journal_mode=WAL`) for concurrent readers + single writer
 - No file locking, no mtime checking, no merge logic
-- The entire `_writing()` / `_maybe_reload()` / `_merge_serialized_data()` machinery (~150 lines) is not needed
 - `batch()` maps to a SQLite transaction (BEGIN/COMMIT)
 - `reload()` is a no-op
 
@@ -74,8 +113,6 @@ Side-effect methods stay in Python, calling SQL primitives:
 - `update_process_status()` — updates status, cascades DISABLE to children via Python-level recursion (loop + multiple UPDATEs in a transaction, same pattern as LocalRepository)
 - `rollback_dispatch()` — resets delivery + process state atomically
 
-These follow the same logic as `LocalRepository` but call SQL methods instead of mutating dicts.
-
 ### Factory Wiring
 
 ```python
@@ -84,16 +121,13 @@ def create_repository(..., nudge_callback=None) -> Any:
     if os.environ.get("USE_LOCAL_DB") == "1":
         from cogos.db.sqlite_repository import SqliteRepository
         return SqliteRepository(nudge_callback=nudge_callback)
-    if os.environ.get("USE_LOCAL_DB") == "json":
-        from cogos.db.local_repository import LocalRepository
-        return LocalRepository()
-    from cogos.db.repository import Repository
-    return Repository.create(..., nudge_callback=nudge_callback)
+    from cogos.db.repository import RdsDataApiRepository
+    return RdsDataApiRepository.create(..., nudge_callback=nudge_callback)
 ```
 
-- `USE_LOCAL_DB=1` (default local) → SqliteRepository (was LocalRepository)
-- `USE_LOCAL_DB=json` → LocalRepository (escape hatch)
-- No env var → Aurora Repository (unchanged)
+- `USE_LOCAL_DB=1` → SqliteRepository
+- No env var → RdsDataApiRepository
+- No JSON escape hatch
 
 ### JSON Migration Tool
 
@@ -106,39 +140,39 @@ One-time converter: `cogos_data.json` → `cogos.db`:
 
 ### Raw SQL Support
 
-`query()` and `execute()` pass through directly to sqlite3. LocalRepository stubs these (returns `[]` / `0`), but SqliteRepository supports them natively.
+`query()` and `execute()` pass through directly to sqlite3, same as `RdsDataApiRepository` passes through to RDS Data API.
+
+## What Changes
+
+- `CogosRepositoryInterface` — add `_nudge_ingress()` to protocol
+- `Repository` → `RdsDataApiRepository` (rename, no longer a base class)
+- `LocalRepository` → deleted
+- New `SqliteRepository`
+- `factory.py` updated
+- All imports of `Repository` and `LocalRepository` updated throughout codebase
 
 ## What Doesn't Change
 
-- `CogosRepositoryInterface` protocol — no changes
-- Aurora `Repository` — no changes
-- `LocalRepository` — kept as escape hatch, no changes
-- All existing tests — should pass against SqliteRepository
 - Data models (`Process`, `Run`, etc.) — no changes
-- `_nudge_ingress()` — inherited from `Repository` base class (SqliteRepository extends Repository)
-
-## Inheritance
-
-`SqliteRepository` extends `Repository` (same as `LocalRepository` does today). This gives it `_nudge_ingress()` and the base class structure. It overrides all data methods with SQLite implementations.
-
-Constructor takes `data_dir` (same as LocalRepository) and optional `ingress_queue_url` / `nudge_callback`. **Does NOT call `super().__init__()`** — manually sets `self._ingress_queue_url` and `self._nudge_callback` (same pattern as `LocalRepository`).
+- `RdsDataApiRepository` behavior — identical, just renamed
 
 ## Testing Strategy
 
-- Existing db tests in `tests/cogos/db/` run against `LocalRepository` directly
+- Existing db tests updated: replace `LocalRepository` fixtures with `SqliteRepository`
 - Add a conftest fixture that creates a `SqliteRepository` with a temp directory
-- Parameterize existing tests to run against both backends where feasible
-- Add specific tests for: migration from JSON, WAL mode, concurrent access, batch transactions
+- Add specific tests for: migration from JSON, WAL mode, batch transactions
+- All 1552 existing tests should pass against SQLite backend
 
 ## Scope
 
-~2500-3000 lines for `sqlite_repository.py`:
-- ~100 lines: schema, init, connection management
-- ~300 lines: helpers (_execute, _query, _row_to_X converters for ~24 model types)
-- ~1800 lines: 130 method implementations (avg ~14 lines each)
-- ~100 lines: migration tool
-- ~50 lines: regexp function registration, pragma setup
+New files:
+- `src/cogos/db/sqlite_repository.py` (~2500-3000 lines)
 
-Plus:
-- ~20 lines: factory.py changes
-- ~100 lines: new tests / test parameterization
+Modified files:
+- `src/cogos/db/protocol.py` — add `_nudge_ingress` to protocol
+- `src/cogos/db/repository.py` — rename class to `RdsDataApiRepository`
+- `src/cogos/db/factory.py` — update to new class names
+- All files importing `Repository` or `LocalRepository` — update imports
+
+Deleted files:
+- `src/cogos/db/local_repository.py`
