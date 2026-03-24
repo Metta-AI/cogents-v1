@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import sqlite3
 from contextlib import contextmanager
@@ -42,7 +41,7 @@ from cogos.db.models import (
     SpanStatus,
     Trace,
 )
-from cogos.db.models.alert import Alert, AlertSeverity
+from cogos.db.models.alert import Alert
 from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
 from cogos.db.models.trace import RequestTrace
 from cogos.db.models.wait_condition import WaitCondition, WaitConditionStatus, WaitConditionType
@@ -399,7 +398,7 @@ class SqliteRepository:
     def _query(self, sql: str, params: dict[str, Any] | tuple | None = None) -> list[dict]:
         cur = self._conn.execute(sql, params or {})
         cols = [d[0] for d in cur.description] if cur.description else []
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
 
     def _query_one(self, sql: str, params: dict[str, Any] | tuple | None = None) -> dict | None:
         rows = self._query(sql, params)
@@ -2070,8 +2069,10 @@ class SqliteRepository:
         now = self._now()
         self._execute(
             """INSERT OR REPLACE INTO cogos_channel
-               (id, name, channel_type, owner_process, schema_id, inline_schema, auto_close, closed_at, created_at)
-               VALUES (:id, :name, :channel_type, :owner_process, :schema_id, :inline_schema, :auto_close, :closed_at, :created_at)""",
+               (id, name, channel_type, owner_process, schema_id,
+                inline_schema, auto_close, closed_at, created_at)
+               VALUES (:id, :name, :channel_type, :owner_process, :schema_id,
+                :inline_schema, :auto_close, :closed_at, :created_at)""",
             {
                 "id": str(ch.id),
                 "name": ch.name,
@@ -2115,7 +2116,6 @@ class SqliteRepository:
     # ── Channel Messages ──────────────────────────────────────
 
     def append_channel_message(self, msg: ChannelMessage) -> UUID:
-        now = self._now()
         if msg.created_at is None:
             msg.created_at = datetime.now(UTC)
 
@@ -2130,8 +2130,10 @@ class SqliteRepository:
 
         self._execute(
             """INSERT INTO cogos_channel_message
-               (id, channel, sender_process, payload, idempotency_key, trace_id, trace_meta, created_at)
-               VALUES (:id, :channel, :sender_process, :payload, :idempotency_key, :trace_id, :trace_meta, :created_at)""",
+               (id, channel, sender_process, payload,
+                idempotency_key, trace_id, trace_meta, created_at)
+               VALUES (:id, :channel, :sender_process, :payload,
+                :idempotency_key, :trace_id, :trace_meta, :created_at)""",
             {
                 "id": str(msg.id),
                 "channel": str(msg.channel),
