@@ -1697,8 +1697,8 @@ class Repository:
 
     _RUN_SLIM_COLUMNS = (
         "id, epoch, process, message, conversation, status, tokens_in, tokens_out, "
-        "cost_usd, duration_ms, error, model_version, trace_id, parent_trace_id, "
-        "created_at, completed_at"
+        "cost_usd, duration_ms, error, model_version, result, trace_id, parent_trace_id, "
+        "metadata, created_at, completed_at"
     )
 
     def list_runs(
