@@ -319,7 +319,7 @@ def list_message_traces(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"list_channel_messages(limit={fetch_limit}, since={cutoff}) failed: {exc}") from exc
     try:
-        deliveries = repo.list_deliveries(limit=min(fetch_limit * 2, 250))
+        deliveries = repo.list_deliveries(limit=min(fetch_limit * 2, 250), since=cutoff)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"list_deliveries failed: {exc}") from exc
     try:

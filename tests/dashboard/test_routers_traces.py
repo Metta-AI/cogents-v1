@@ -97,19 +97,19 @@ class _TraceRepoStub:
     def list_processes(self, *, limit: int = 1000, status=None, epoch=None):
         return [self.process]
 
-    def list_channels(self):
+    def list_channels(self, *, limit: int = 500):
         return [self.inbound_channel, self.lifecycle_channel]
 
     def list_handlers(self):
         return [self.handler]
 
-    def list_channel_messages(self, channel_id=None, *, limit: int = 100):
+    def list_channel_messages(self, channel_id=None, *, limit: int = 100, since=None):
         messages = [self.lifecycle_message, self.message]
         if channel_id is not None:
             messages = [message for message in messages if message.channel == channel_id]
         return messages[:limit]
 
-    def list_deliveries(self, *, message_id=None, handler_id=None, run_id=None, limit: int = 500):
+    def list_deliveries(self, *, message_id=None, handler_id=None, run_id=None, limit: int = 500, epoch=None, since=None):
         deliveries = [self.delivery]
         if message_id is not None:
             deliveries = [delivery for delivery in deliveries if delivery.message == message_id]
@@ -119,7 +119,7 @@ class _TraceRepoStub:
             deliveries = [delivery for delivery in deliveries if delivery.run == run_id]
         return deliveries[:limit]
 
-    def list_runs(self, *, process_id=None, limit: int = 50, epoch=None, slim: bool = False):
+    def list_runs(self, *, process_id=None, limit: int = 50, epoch=None, slim: bool = False, since=None):
         runs = [self.run]
         if process_id is not None:
             runs = [run for run in runs if run.process == process_id]

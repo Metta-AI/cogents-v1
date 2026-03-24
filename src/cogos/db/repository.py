@@ -876,6 +876,7 @@ class Repository:
         run_id: UUID | None = None,
         limit: int = 500,
         epoch: int | None = None,
+        since: datetime | None = None,
     ) -> list[Delivery]:
         effective_epoch = self.reboot_epoch if epoch is None else epoch
         conditions = []
@@ -892,6 +893,9 @@ class Repository:
         if run_id is not None:
             conditions.append("run = :run")
             params.append(self._param("run", run_id))
+        if since is not None:
+            conditions.append("created_at > :since::timestamptz")
+            params.append(self._param("since", since.isoformat()))
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         response = self._execute(
