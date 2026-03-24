@@ -1,5 +1,6 @@
 """Tests for the diagnostics router."""
 
+from uuid import uuid4
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -112,3 +113,38 @@ def test_diagnostics_history_respects_limit():
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["runs"]) == 3
+
+
+def test_rerun_route_registered():
+    client = _client()
+    routes = [r.path for r in client.app.routes]  # type: ignore[attr-defined]
+    assert "/api/cogents/{name}/diagnostics/run" in routes
+
+
+def test_rerun_triggers_channel_message():
+    mock = _mock_repo()
+    channel = MagicMock()
+    channel.name = "system:diagnostics"
+    channel.id = uuid4()
+    mock.list_channels.return_value = [channel]
+    mock.append_channel_message.return_value = uuid4()
+
+    with patch("dashboard.routers.diagnostics.get_repo", return_value=mock):
+        client = _client()
+        resp = client.post("/api/cogents/test/diagnostics/run")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "triggered"
+    mock.append_channel_message.assert_called_once()
+
+
+def test_rerun_404_when_channel_missing():
+    mock = _mock_repo()
+    mock.list_channels.return_value = []
+
+    with patch("dashboard.routers.diagnostics.get_repo", return_value=mock):
+        client = _client()
+        resp = client.post("/api/cogents/test/diagnostics/run")
+
+    assert resp.status_code == 404

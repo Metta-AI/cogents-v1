@@ -617,6 +617,14 @@ export async function getDiagnosticsHistory(
   return r.runs;
 }
 
+export async function rerunDiagnostics(name: string): Promise<void> {
+  const resp = await fetch(`/api/cogents/${name}/diagnostics/run`, {
+    method: "POST",
+    headers: headers(),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+}
+
 // ── Chat ────────────────────────────────────────────────────────────────────
 
 export interface ChatMessage {

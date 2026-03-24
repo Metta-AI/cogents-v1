@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { getDiagnosticsHistory, type DiagnosticRun, type DiagnosticCheck } from "@/lib/api";
+import { getDiagnosticsHistory, rerunDiagnostics, type DiagnosticRun, type DiagnosticCheck } from "@/lib/api";
 import { fmtRelative } from "@/lib/format";
 import { ResizableBottomPanel } from "@/components/shared/ResizableBottomPanel";
 
@@ -14,6 +14,7 @@ export function DiagnosticsPanel({ cogentName }: DiagnosticsPanelProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedRunIdx, setSelectedRunIdx] = useState<number | null>(null);
+  const [running, setRunning] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -27,6 +28,18 @@ export function DiagnosticsPanel({ cogentName }: DiagnosticsPanelProps) {
       setLoading(false);
     }
   }, [cogentName]);
+
+  const handleRun = useCallback(async () => {
+    setRunning(true);
+    try {
+      await rerunDiagnostics(cogentName);
+    } catch {
+      // ignore — diagnostics will show up on next refresh
+    } finally {
+      setRunning(false);
+      setTimeout(() => fetchData(), 3000);
+    }
+  }, [cogentName, fetchData]);
 
   useEffect(() => {
     fetchData();
@@ -103,17 +116,31 @@ export function DiagnosticsPanel({ cogentName }: DiagnosticsPanelProps) {
             <> &middot; latest: {runs[0].summary.pass}/{runs[0].summary.total} pass</>
           )}
         </div>
-        <button
-          onClick={fetchData}
-          className="text-[11px] px-3 py-1 rounded border cursor-pointer transition-colors"
-          style={{
-            color: "var(--accent)",
-            borderColor: "var(--accent)",
-            background: "transparent",
-          }}
-        >
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRun}
+            disabled={running}
+            className="text-[11px] px-3 py-1 rounded border cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              color: "var(--success)",
+              borderColor: "var(--success)",
+              background: "transparent",
+            }}
+          >
+            {running ? "Triggering..." : "Run"}
+          </button>
+          <button
+            onClick={fetchData}
+            className="text-[11px] px-3 py-1 rounded border cursor-pointer transition-colors"
+            style={{
+              color: "var(--accent)",
+              borderColor: "var(--accent)",
+              background: "transparent",
+            }}
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div

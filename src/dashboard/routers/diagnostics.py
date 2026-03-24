@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
+from cogos.db.models import ChannelMessage
 from cogos.files.store import FileStore
 from dashboard.db import get_repo
 
@@ -64,3 +65,21 @@ def get_diagnostics_log(name: str) -> dict:
     """Return diagnostic run log."""
     content = _read_file("mnt/disk/diagnostics/log.md")
     return {"content": content or ""}
+
+
+@router.post("/diagnostics/run")
+def rerun_diagnostics(name: str) -> dict:
+    """Trigger a new diagnostic run by sending a message to system:diagnostics."""
+    repo = get_repo()
+    channels = repo.list_channels()
+    diag_channel = next((ch for ch in channels if ch.name == "system:diagnostics"), None)
+    if not diag_channel:
+        raise HTTPException(status_code=404, detail="system:diagnostics channel not found")
+
+    message = ChannelMessage(
+        channel=diag_channel.id,
+        sender_process=None,
+        payload={"trigger": "dashboard", "source": "dashboard-rerun"},
+    )
+    message_id = repo.append_channel_message(message)
+    return {"status": "triggered", "message_id": str(message_id)}
