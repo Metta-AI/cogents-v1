@@ -553,11 +553,12 @@ class Repository:
 
     def create_wait_condition(self, wc: WaitCondition) -> UUID:
         self._execute(
-            """INSERT INTO cogos_wait_condition (id, run, type, status, pending)
-               VALUES (:id, :run, :type, :status, :pending::jsonb)""",
+            """INSERT INTO cogos_wait_condition (id, run, process, type, status, pending)
+               VALUES (:id, :run, :process, :type, :status, :pending::jsonb)""",
             [
                 self._param("id", wc.id),
                 self._param("run", wc.run),
+                self._param("process", wc.process),
                 self._param("type", wc.type.value),
                 self._param("status", wc.status.value),
                 self._param("pending", wc.pending),
@@ -568,8 +569,9 @@ class Repository:
     def get_pending_wait_condition_for_process(self, process_id: UUID) -> WaitCondition | None:
         row = self._first_row(self._execute(
             """SELECT wc.* FROM cogos_wait_condition wc
-               JOIN cogos_run r ON wc.run = r.id
-               WHERE r.process = :process_id AND wc.status = 'pending'
+               LEFT JOIN cogos_run r ON wc.run = r.id
+               WHERE wc.status = 'pending'
+                 AND (r.process = :process_id OR wc.process = :process_id)
                LIMIT 1""",
             [self._param("process_id", process_id)],
         ))
@@ -577,7 +579,8 @@ class Repository:
             return None
         return WaitCondition(
             id=UUID(row["id"]),
-            run=UUID(row["run"]),
+            run=UUID(row["run"]) if row.get("run") else None,
+            process=UUID(row["process"]) if row.get("process") else None,
             type=WaitConditionType(row["type"]),
             status=WaitConditionStatus(row["status"]),
             pending=self._parse_json(row.get("pending", "[]")),
@@ -607,8 +610,9 @@ class Repository:
     def resolve_wait_conditions_for_process(self, process_id: UUID) -> None:
         self._execute(
             """UPDATE cogos_wait_condition SET status = 'resolved'
-               WHERE status = 'pending' AND run IN (
-                   SELECT id FROM cogos_run WHERE process = :process_id
+               WHERE status = 'pending' AND (
+                   process = :process_id
+                   OR run IN (SELECT id FROM cogos_run WHERE process = :process_id)
                )""",
             [self._param("process_id", process_id)],
         )

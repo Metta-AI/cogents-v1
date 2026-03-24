@@ -1450,9 +1450,12 @@ class LocalRepository(Repository):
         for wc in self._wait_conditions.values():
             if wc.status != WaitConditionStatus.PENDING:
                 continue
-            run = self._runs.get(wc.run)
-            if run and run.process == process_id:
+            if wc.process == process_id:
                 return wc
+            if wc.run:
+                run = self._runs.get(wc.run)
+                if run and run.process == process_id:
+                    return wc
         return None
 
     def remove_from_pending(self, wc_id: UUID, child_pid: str) -> list[str]:
@@ -1474,9 +1477,12 @@ class LocalRepository(Repository):
             for wc in self._wait_conditions.values():
                 if wc.status != WaitConditionStatus.PENDING:
                     continue
-                run = self._runs.get(wc.run)
-                if run and run.process == process_id:
+                if wc.process == process_id:
                     wc.status = WaitConditionStatus.RESOLVED
+                elif wc.run:
+                    run = self._runs.get(wc.run)
+                    if run and run.process == process_id:
+                        wc.status = WaitConditionStatus.RESOLVED
 
     # ── Discord Metadata ────────────────────────────────────
 

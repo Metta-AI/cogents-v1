@@ -20,7 +20,8 @@ class WaitConditionType(str, enum.Enum):
 
 class WaitCondition(BaseModel):
     id: UUID = Field(default_factory=uuid4)
-    run: UUID
+    run: UUID | None = None
+    process: UUID | None = None
     type: WaitConditionType
     status: WaitConditionStatus = WaitConditionStatus.PENDING
     pending: list[str] = Field(default_factory=list)
