@@ -854,35 +854,162 @@ class SqliteRepository:
     # ── Processes ─────────────────────────────────────────────
 
     def upsert_process(self, p: Process) -> UUID:
-        raise NotImplementedError
+        now = self._now()
+        epoch = self.reboot_epoch
+        self._execute(
+            """INSERT OR REPLACE INTO cogos_process
+               (id, name, mode, content, priority, resources, required_tags,
+                status, runnable_since, parent_process, preemptible, model,
+                model_constraints, return_schema, idle_timeout_ms, max_duration_ms,
+                max_retries, retry_count, retry_backoff_ms, clear_context,
+                metadata, output_events, epoch, tty, executor, schema_id,
+                created_at, updated_at)
+               VALUES
+               (:id, :name, :mode, :content, :priority, :resources, :required_tags,
+                :status, :runnable_since, :parent_process, :preemptible, :model,
+                :model_constraints, :return_schema, :idle_timeout_ms, :max_duration_ms,
+                :max_retries, :retry_count, :retry_backoff_ms, :clear_context,
+                :metadata, :output_events, :epoch, :tty, :executor, :schema_id,
+                :created_at, :updated_at)""",
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "mode": p.mode.value,
+                "content": p.content,
+                "priority": p.priority,
+                "resources": self._json_dumps(p.resources),
+                "required_tags": self._json_dumps(p.required_tags),
+                "status": p.status.value,
+                "runnable_since": p.runnable_since.isoformat() if p.runnable_since else None,
+                "parent_process": str(p.parent_process) if p.parent_process else None,
+                "preemptible": int(p.preemptible),
+                "model": p.model,
+                "model_constraints": self._json_dumps(p.model_constraints),
+                "return_schema": self._json_dumps(p.return_schema) if p.return_schema is not None else None,
+                "idle_timeout_ms": p.idle_timeout_ms,
+                "max_duration_ms": p.max_duration_ms,
+                "max_retries": p.max_retries,
+                "retry_count": p.retry_count,
+                "retry_backoff_ms": p.retry_backoff_ms,
+                "clear_context": int(p.clear_context),
+                "metadata": self._json_dumps(p.metadata),
+                "output_events": self._json_dumps(p.output_events),
+                "epoch": p.epoch or epoch,
+                "tty": int(p.tty),
+                "executor": p.executor,
+                "schema_id": str(p.schema_id) if p.schema_id else None,
+                "created_at": p.created_at.isoformat() if p.created_at else now,
+                "updated_at": now,
+            },
+        )
+        return p.id
 
     def get_process(self, process_id: UUID) -> Process | None:
-        raise NotImplementedError
+        row = self._query_one(
+            "SELECT * FROM cogos_process WHERE id = :id", {"id": str(process_id)}
+        )
+        return self._row_to_process(row) if row else None
 
     def get_process_by_name(self, name: str) -> Process | None:
-        raise NotImplementedError
+        row = self._query_one(
+            "SELECT * FROM cogos_process WHERE name = :name AND epoch = :epoch",
+            {"name": name, "epoch": self.reboot_epoch},
+        )
+        return self._row_to_process(row) if row else None
 
     def list_processes(
         self, *, status: ProcessStatus | None = None, limit: int = 200, epoch: int | None = None,
     ) -> list[Process]:
-        raise NotImplementedError
+        sql = "SELECT * FROM cogos_process WHERE 1=1"
+        params: dict[str, Any] = {}
+        if status is not None:
+            sql += " AND status = :status"
+            params["status"] = status.value
+        if epoch is not None and epoch != ALL_EPOCHS:
+            sql += " AND epoch = :epoch"
+            params["epoch"] = epoch
+        sql += " ORDER BY name LIMIT :limit"
+        params["limit"] = limit
+        return [self._row_to_process(r) for r in self._query(sql, params)]
 
     def try_transition_process(
         self, process_id: UUID, from_status: ProcessStatus, to_status: ProcessStatus,
     ) -> bool:
-        raise NotImplementedError
+        now = self._now()
+        count = self._execute(
+            """UPDATE cogos_process SET status = :to_status, updated_at = :now
+               WHERE id = :id AND status = :from_status""",
+            {
+                "to_status": to_status.value,
+                "now": now,
+                "id": str(process_id),
+                "from_status": from_status.value,
+            },
+        )
+        return count > 0
 
     def update_process_status(self, process_id: UUID, status: ProcessStatus) -> bool:
-        raise NotImplementedError
+        now = self._now()
+        runnable_since = None
+        if status == ProcessStatus.RUNNABLE:
+            existing = self.get_process(process_id)
+            if existing and existing.runnable_since:
+                runnable_since = existing.runnable_since.isoformat()
+            else:
+                runnable_since = now
+        count = self._execute(
+            """UPDATE cogos_process SET status = :status, runnable_since = :runnable_since, updated_at = :now
+               WHERE id = :id""",
+            {
+                "status": status.value,
+                "runnable_since": runnable_since,
+                "now": now,
+                "id": str(process_id),
+            },
+        )
+        if count == 0:
+            return False
+        if status == ProcessStatus.DISABLED:
+            self._cascade_disable(process_id)
+            self.resolve_wait_conditions_for_process(process_id)
+        return True
+
+    def _cascade_disable(self, parent_id: UUID) -> None:
+        now = self._now()
+        children = self._query(
+            "SELECT * FROM cogos_process WHERE parent_process = :pid",
+            {"pid": str(parent_id)},
+        )
+        for row in children:
+            if row["status"] != ProcessStatus.DISABLED.value:
+                self._execute(
+                    """UPDATE cogos_process SET status = :status, runnable_since = NULL, updated_at = :now
+                       WHERE id = :id""",
+                    {"status": ProcessStatus.DISABLED.value, "now": now, "id": row["id"]},
+                )
+                self._cascade_disable(UUID(row["id"]))
 
     def delete_process(self, process_id: UUID) -> bool:
-        raise NotImplementedError
+        return self._execute(
+            "DELETE FROM cogos_process WHERE id = :id", {"id": str(process_id)}
+        ) > 0
 
     def get_runnable_processes(self, limit: int = 50) -> list[Process]:
-        raise NotImplementedError
+        rows = self._query(
+            """SELECT * FROM cogos_process
+               WHERE status = 'runnable' AND epoch = :epoch
+               ORDER BY priority DESC, runnable_since ASC, name ASC
+               LIMIT :limit""",
+            {"epoch": self.reboot_epoch, "limit": limit},
+        )
+        return [self._row_to_process(r) for r in rows]
 
     def increment_retry(self, process_id: UUID) -> bool:
-        raise NotImplementedError
+        return self._execute(
+            """UPDATE cogos_process SET retry_count = retry_count + 1, updated_at = :now
+               WHERE id = :id""",
+            {"now": self._now(), "id": str(process_id)},
+        ) > 0
 
     # ── Wait Conditions ───────────────────────────────────────
 
@@ -899,7 +1026,21 @@ class SqliteRepository:
         raise NotImplementedError
 
     def resolve_wait_conditions_for_process(self, process_id: UUID) -> None:
-        raise NotImplementedError
+        now = self._now()
+        self._execute(
+            """UPDATE cogos_wait_condition SET status = 'resolved', resolved_at = :now
+               WHERE status = 'pending' AND process = :pid""",
+            {"now": now, "pid": str(process_id)},
+        )
+        run_ids = self._query(
+            "SELECT id FROM cogos_run WHERE process = :pid", {"pid": str(process_id)}
+        )
+        for r in run_ids:
+            self._execute(
+                """UPDATE cogos_wait_condition SET status = 'resolved', resolved_at = :now
+                   WHERE status = 'pending' AND run = :rid""",
+                {"now": now, "rid": r["id"]},
+            )
 
     # ── Process Capabilities ──────────────────────────────────
 
