@@ -2,6 +2,6 @@
   "executor": "d2810ed",
   "dashboard": "4806aa9",
   "discord_bridge": "local",
-  "lambda": "f70323a51370e895d0fa24f88f331eef4f815193",
+  "lambda": "d2810edd44c4d2237eddcd76bf8a832e59d68a00",
   "cogos": "f70323a51370e895d0fa24f88f331eef4f815193"
 }
