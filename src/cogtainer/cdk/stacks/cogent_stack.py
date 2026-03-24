@@ -99,13 +99,14 @@ class CogentStack(Stack):
             )
         )
 
-        # Secrets Manager — DB secret + cogent-specific + cogtainer-shared secrets
+        # Secrets Manager — DB secret + cogent-specific + shared (cogent/all/*) + cogtainer-shared secrets
         self.cogent_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue"],
                 resources=[
                     db_secret_arn,
                     f"arn:aws:secretsmanager:*:*:secret:cogent/{cogent_name}/*",
+                    "arn:aws:secretsmanager:*:*:secret:cogent/all/*",
                     f"arn:aws:secretsmanager:*:*:secret:cogtainer/{cogtainer_name}/*",
                 ],
             )
@@ -582,13 +583,14 @@ class CogentStack(Stack):
             )
         )
 
-        # Secrets — read cogent-specific + cogtainer-shared; write cogent-specific only
+        # Secrets — read cogent-specific + shared (cogent/all/*) + cogtainer-shared; write cogent-specific only
         task_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue"],
                 resources=[
                     db_secret_arn,
                     f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogent/{cogent_name}/*",
+                    f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogent/all/*",
                     f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogtainer/{cogtainer_name}/*",
                 ],
             )
@@ -794,13 +796,14 @@ class CogentStack(Stack):
             )
         )
 
-        # Secrets Manager — DB secret + cogent-specific + cogtainer-shared secrets
+        # Secrets Manager — DB secret + cogent-specific + shared (cogent/all/*) + cogtainer-shared secrets
         bridge_role.add_to_policy(
             iam.PolicyStatement(
                 actions=["secretsmanager:GetSecretValue"],
                 resources=[
                     db_secret_arn,
                     f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogent/{cogent_name}/*",
+                    f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogent/all/*",
                     f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:cogtainer/{cogtainer_name}/*",
                 ],
             )
