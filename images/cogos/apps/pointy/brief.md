@@ -21,18 +21,9 @@
 
 ## Team Mappings
 
-Asana name to GitHub login. Update this list as people join or leave.
+Team mappings (Asana name → GitHub login) are loaded at runtime from the secret
+`cogent/{cogent}/pointy_team_mappings`. The secret should be a JSON object:
 
-| Asana Name              | Email                   | GitHub           |
-|-------------------------|-------------------------|------------------|
-| Alex Smith              | sasmith@softmax.com     | sasmith          |
-| Subhojeet Pramanik      | subho@softmax.com       | subho406         |
-| Richard Higgins         | richard@softmax.com     | relh             |
-| Malcolm Ocean           | malcolm@softmax.com     | malcolmocean     |
-| Andre von Houck         | treeform@softmax.com    | treeform         |
-| Noah Farr               | noah@softmax.com        | noahfarr         |
-| Alexandros Vardakostas  | alexv@softmax.com       | Al-does          |
-| Martin Hess             | marty@softmax.com       | marty-spec       |
-| Nishad Singh            | nishad@stem.ai          | nishu-builder    |
-| David Bloomin           | daveey@softmax.com      | daveey           |
-| Yatharth Agarwal        | yatharth@softmax.com    | yatharth         |
+```json
+{"Asana Display Name": "github_login", ...}
+```

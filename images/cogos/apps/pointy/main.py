@@ -13,14 +13,14 @@ WORKSPACE_ID = "1209016784099267"
 FOLDER_ID = "1CDiEcCsr7M0vyzcYYBIidPBCU9kXymNq"
 DISCORD_CHANNEL = "1483962779336446114"
 REPOS = [("Metta-AI", "metta"), ("Metta-AI", "cogos"), ("Metta-AI", "cogents-v1")]
-TEAM = {
-    "Alex Smith": "sasmith", "Subhojeet Pramanik": "subho406",
-    "Richard Higgins": "relh", "Malcolm Ocean": "malcolmocean",
-    "Andre von Houck": "treeform", "Noah Farr": "noahfarr",
-    "Alexandros Vardakostas": "Al-does", "Martin Hess": "marty-spec",
-    "Nishad Singh": "nishu-builder", "David Bloomin": "daveey",
-    "Yatharth Agarwal": "yatharth",
-}
+
+# Load team mappings from secrets (Asana display name -> GitHub login)
+try:
+    _team_raw = secrets.get("cogent/{cogent}/pointy_team_mappings")
+    TEAM = json.loads(_team_raw.value if hasattr(_team_raw, "value") else _team_raw)
+except Exception as _e:
+    print("WARN: could not load team mappings from secrets: " + str(_e))
+    TEAM = {}
 
 
 # ── Helpers ─────────────────────────────────────────────────────
