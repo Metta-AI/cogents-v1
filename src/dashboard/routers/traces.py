@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 import json as _json
@@ -301,11 +301,27 @@ def list_message_traces(
         fetch_limit = max(fetch_limit, 2000)
 
     # Use lightweight queries to stay under RDS Data API 1MB result limit.
-    process_names, process_runners = _load_process_lookups(repo)
-    channels = repo.list_channels(limit=500)
-    handlers = repo.list_handlers()
-    messages = repo.list_channel_messages(limit=fetch_limit, since=cutoff)
-    deliveries = repo.list_deliveries(limit=min(fetch_limit * 2, 250))
+    # Wrap each query to identify which one fails if the limit is exceeded.
+    try:
+        process_names, process_runners = _load_process_lookups(repo)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"process lookup failed: {exc}") from exc
+    try:
+        channels = repo.list_channels(limit=500)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"list_channels failed: {exc}") from exc
+    try:
+        handlers = repo.list_handlers()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"list_handlers failed: {exc}") from exc
+    try:
+        messages = repo.list_channel_messages(limit=fetch_limit, since=cutoff)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"list_channel_messages(limit={fetch_limit}, since={cutoff}) failed: {exc}") from exc
+    try:
+        deliveries = repo.list_deliveries(limit=min(fetch_limit * 2, 250))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"list_deliveries failed: {exc}") from exc
     runs = repo.list_runs(limit=min(fetch_limit * 2, 250), slim=True, since=cutoff.isoformat())
 
     channel_names = {channel.id: channel.name for channel in channels}
