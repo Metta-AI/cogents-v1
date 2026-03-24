@@ -5,12 +5,20 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from cogos.db.models import ALL_EPOCHS, Process, ProcessMode, ProcessStatus
+from cogos.db.models import ALL_EPOCHS, Process, ProcessCapability, ProcessMode, ProcessStatus
 from cogos.db.models.operation import CogosOperation
 
 logger = logging.getLogger(__name__)
 
 INIT_PROCESS_CONTENT = "@{mnt/boot/cogos/init.py}"
+INIT_CAPABILITIES = [
+    "me", "procs", "fs_dir", "file", "discord", "channels",
+    "secrets", "alerts", "cogent", "history",
+    "blob", "image",
+    "asana", "email", "github", "web_search", "web_fetch", "web",
+    "cog_registry", "coglet_runtime",
+    "monitor",
+]
 
 # Standard image locations (cogtainer: /app/images/cogos, local dev: ./images/cogos)
 _IMAGE_SEARCH_PATHS = [
@@ -74,7 +82,15 @@ def reboot(repo) -> dict:
         status=ProcessStatus.RUNNABLE,
         epoch=new_epoch,
     )
-    repo.upsert_process(init_proc)
+    pid = repo.upsert_process(init_proc)
+
+    # 7. Bind capabilities — same set declared in init/processes.py
+    for cap_name in INIT_CAPABILITIES:
+        cap = repo.get_capability_by_name(cap_name)
+        if cap:
+            repo.create_process_capability(
+                ProcessCapability(process=pid, capability=cap.id, name=cap_name)
+            )
 
     logger.info("Reboot complete: epoch=%d, prev_processes=%d", new_epoch, prev_count)
     return {"cleared_processes": prev_count, "epoch": new_epoch}

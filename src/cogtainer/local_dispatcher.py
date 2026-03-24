@@ -49,7 +49,7 @@ def _dispatch_to_matched_executor(
         logger.warning("Dispatch failed for %s: %s", process_name, result.error)
         return False
 
-    if result.dispatch_type == "local" or result.executor_id == "local-daemon":
+    if result.dispatch_type in ("local", "lambda") or result.executor_id == "local-daemon":
         runtime.spawn_executor(cogent_name, process_id)
     else:
         # Channel dispatch: send work to executor's channel
