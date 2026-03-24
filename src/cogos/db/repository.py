@@ -2169,11 +2169,16 @@ class Repository:
         row = self._first_row(response)
         return self._channel_from_row(row) if row else None
 
-    def list_channels(self, *, owner_process: UUID | None = None) -> list[Channel]:
+    def list_channels(self, *, owner_process: UUID | None = None, limit: int = 0) -> list[Channel]:
         if owner_process is not None:
             response = self._execute(
                 "SELECT * FROM cogos_channel WHERE owner_process = :owner ORDER BY name",
                 [self._param("owner", owner_process)],
+            )
+        elif limit > 0:
+            response = self._execute(
+                "SELECT * FROM cogos_channel ORDER BY name LIMIT :limit",
+                [self._param("limit", limit)],
             )
         else:
             response = self._execute(

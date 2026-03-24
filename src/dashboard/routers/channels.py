@@ -105,10 +105,11 @@ def list_channels(
     name: str,
     channel_type: str | None = Query(None),
     owner: str | None = Query(None),
+    limit: int = Query(500, ge=1, le=2000),
 ) -> ChannelsResponse:
     repo = get_repo()
     owner_id = UUID(owner) if owner else None
-    channels = repo.list_channels(owner_process=owner_id)
+    channels = repo.list_channels(owner_process=owner_id, limit=limit)
     if channel_type:
         channels = [ch for ch in channels if ch.channel_type.value == channel_type]
 

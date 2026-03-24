@@ -1353,12 +1353,13 @@ class LocalRepository(Repository):
                 return ch
         return None
 
-    def list_channels(self, *, owner_process: UUID | None = None) -> list[Channel]:
+    def list_channels(self, *, owner_process: UUID | None = None, limit: int = 0) -> list[Channel]:
         self._maybe_reload()
         channels = list(self._channels.values())
         if owner_process is not None:
             channels = [ch for ch in channels if ch.owner_process == owner_process]
-        return sorted(channels, key=lambda ch: ch.name)
+        result = sorted(channels, key=lambda ch: ch.name)
+        return result[:limit] if limit > 0 else result
 
     def close_channel(self, channel_id: UUID) -> bool:
         with self._writing():
