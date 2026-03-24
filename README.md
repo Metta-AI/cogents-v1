@@ -2,6 +2,117 @@
 
 Autonomous software engineering agents built on the Viable System Model.
 
+## Architecture
+
+```mermaid
+graph TB
+    subgraph External["External World"]
+        Discord["Discord / Webhooks"]
+        CLI["CLI (cogtainer, cogent, cogos)"]
+    end
+
+    subgraph Dashboard["Dashboard"]
+        FE["React Frontend"]
+        API["CogOS API (FastAPI)"]
+        FE -->|HTTP/WS| API
+    end
+
+    subgraph CogOS["CogOS — Execution Engine"]
+        direction TB
+        Dispatcher["Dispatcher<br/><i>60s tick loop</i>"]
+        Ingress["Ingress<br/><i>immediate wake</i>"]
+        Scheduler["Scheduler<br/><i>match messages → handlers<br/>select runnable processes</i>"]
+        Executor["Executor<br/><i>sandbox + LLM call</i>"]
+
+        Dispatcher --> Scheduler
+        Ingress --> Scheduler
+        Scheduler -->|dispatch| Executor
+    end
+
+    subgraph Processes["Process Model"]
+        direction LR
+        Channels["Channels<br/><i>typed message streams</i>"]
+        Handlers["Handlers<br/><i>channel → process bindings</i>"]
+        Procs["Processes<br/><i>daemon or one-shot</i>"]
+        Caps["Capabilities<br/><i>files, channels, procs,<br/>scheduler, discord, ...</i>"]
+        Files["Files<br/><i>versioned key-value store</i>"]
+
+        Channels --> Handlers
+        Handlers --> Procs
+        Procs --- Caps
+        Caps --- Files
+    end
+
+    subgraph Cogtainer["Cogtainer — Infrastructure Layer"]
+        direction TB
+        Runtime{"Runtime<br/><i>Local | AWS | Docker</i>"}
+
+        subgraph Local["Local Runtime"]
+            LocalDB["LocalCogtainerRepository<br/><i>JSON file</i>"]
+            LocalFS["Local Filesystem"]
+            LocalQueue["In-memory Queue"]
+        end
+
+        subgraph AWS["AWS Runtime"]
+            Aurora["Aurora PostgreSQL<br/><i>AwsCogtainerRepository</i>"]
+            S3["S3"]
+            SQS["SQS FIFO"]
+            Lambda["Lambda Functions"]
+        end
+
+        Runtime -.-> Local
+        Runtime -.-> AWS
+    end
+
+    subgraph DB["CogOS Database (PostgreSQL)"]
+        CogosDB["cogos_process, cogos_channel,<br/>cogos_handler, cogos_delivery,<br/>cogos_run, cogos_file, ..."]
+    end
+
+    Discord -->|channel message| Channels
+    CLI -->|commands| API
+    API -->|reads/writes| DB
+    Executor -->|capability calls| Caps
+    Executor -->|LLM| LLM["LLM Provider<br/><i>Bedrock | Anthropic | OpenRouter</i>"]
+    Dispatcher -->|spawn| Executor
+    Ingress -->|spawn| Executor
+    CogOS -->|state| DB
+    Cogtainer -->|hosts| DB
+    Discord -->|nudge| Ingress
+```
+
+### Event Flow
+
+```mermaid
+sequenceDiagram
+    participant Ext as External Event
+    participant Ch as Channel
+    participant Sch as Scheduler
+    participant Disp as Dispatcher
+    participant Exec as Executor
+    participant LLM as LLM
+    participant DB as Database
+
+    Note over Disp: Every 60s tick
+    Disp->>Sch: match pending messages
+    Sch->>DB: create deliveries
+    Sch->>Disp: runnable processes
+    Disp->>Exec: spawn executor
+
+    Note over Ext: Hot path (< 1s)
+    Ext->>Ch: append message
+    Ch->>Sch: match handlers
+    Sch->>DB: create delivery
+    Ch-->>Disp: nudge via queue
+    Disp->>Exec: spawn executor
+
+    Note over Exec: Execution
+    Exec->>DB: load process + capabilities
+    Exec->>LLM: system prompt + tools
+    LLM->>Exec: tool calls (run_code, search)
+    Exec->>DB: mark run complete
+    Exec->>DB: update process status
+```
+
 ## Concepts
 
 - **Cogtainer** — a self-contained runtime environment that hosts cogents. Can run on AWS, locally, or in Docker.
