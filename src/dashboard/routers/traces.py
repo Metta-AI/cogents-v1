@@ -322,7 +322,10 @@ def list_message_traces(
         deliveries = repo.list_deliveries(limit=min(fetch_limit * 2, 250))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"list_deliveries failed: {exc}") from exc
-    runs = repo.list_runs(limit=min(fetch_limit * 2, 250), slim=True, since=cutoff.isoformat())
+    try:
+        runs = repo.list_runs(limit=min(fetch_limit * 2, 100), slim=True, since=cutoff.isoformat())
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"list_runs failed: {exc}") from exc
 
     channel_names = {channel.id: channel.name for channel in channels}
     handlers_by_id = {handler.id: handler for handler in handlers}
