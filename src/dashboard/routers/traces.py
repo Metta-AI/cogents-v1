@@ -8,10 +8,37 @@ from uuid import UUID
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
+import json as _json
+import logging
+
 from cogos.db.models import ChannelMessage, Delivery, Run
 from dashboard.db import get_repo
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["message-traces"])
+
+
+def _load_process_lookups(repo) -> tuple[dict[UUID, str], dict[UUID, list[str]]]:
+    """Load only id/name/required_tags from processes to avoid fetching large content columns."""
+    try:
+        response = repo._execute(
+            "SELECT id, name, required_tags FROM cogos_process WHERE epoch = :epoch ORDER BY name LIMIT 500",
+            [repo._param("epoch", repo.reboot_epoch)],
+        )
+        names: dict[UUID, str] = {}
+        runners: dict[UUID, list[str]] = {}
+        for r in repo._rows_to_dicts(response):
+            pid = UUID(r["id"])
+            names[pid] = r["name"]
+            tags = r.get("required_tags")
+            if isinstance(tags, str):
+                tags = _json.loads(tags)
+            runners[pid] = tags or []
+        return names, runners
+    except Exception:
+        logger.debug("Slim process lookup failed, falling back to full query", exc_info=True)
+        processes = repo.list_processes(limit=500)
+        return {p.id: p.name for p in processes}, {p.id: p.required_tags for p in processes}
 
 TraceRange = Literal["1m", "10m", "1h", "24h", "1w"]
 
@@ -273,15 +300,14 @@ def list_message_traces(
     if request_id_filters:
         fetch_limit = max(fetch_limit, 2000)
 
-    processes = repo.list_processes(limit=1000)
+    # Use lightweight queries to stay under RDS Data API 1MB result limit.
+    process_names, process_runners = _load_process_lookups(repo)
     channels = repo.list_channels(limit=500)
     handlers = repo.list_handlers()
     messages = repo.list_channel_messages(limit=fetch_limit, since=cutoff)
-    deliveries = repo.list_deliveries(limit=min(fetch_limit * 2, 500))
-    runs = repo.list_runs(limit=min(fetch_limit * 2, 500), slim=True, since=cutoff.isoformat())
+    deliveries = repo.list_deliveries(limit=min(fetch_limit * 2, 250))
+    runs = repo.list_runs(limit=min(fetch_limit * 2, 250), slim=True, since=cutoff.isoformat())
 
-    process_names = {process.id: process.name for process in processes}
-    process_runners = {process.id: process.required_tags for process in processes}
     channel_names = {channel.id: channel.name for channel in channels}
     handlers_by_id = {handler.id: handler for handler in handlers}
     runs_by_id = {run.id: run for run in runs}
