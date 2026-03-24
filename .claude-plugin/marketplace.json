@@ -7,7 +7,7 @@
       "source": {
         "source": "github",
         "repo": "Metta-AI/cogos",
-        "path": "plugins/cogos"
+        "path": "claude_code/plugins/cogos"
       }
     }
   ]
