@@ -226,6 +226,11 @@ cogtainers:
     cogents: [alpha, beta]
 ```
 
+**Important:** Every deployed cogent must be listed in the `cogents` array. CI uses this
+list to update Lambda function code for each cogent. If a cogent is missing from this list,
+its Lambdas won't receive code updates and will drift out of sync (stale env vars, missing
+fixes, etc.).
+
 After CI builds, update a cogtainer:
 
 ```bash
