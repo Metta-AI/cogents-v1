@@ -39,13 +39,18 @@ class EmailError(BaseModel):
 
 
 def _get_email_domain(secrets_provider=None) -> str:
-    """Read email domain from cogtainer secrets."""
+    """Read email domain from cogtainer secrets or EMAIL_DOMAIN env var."""
+    # Try env var first (always works, set in Lambda config)
+    env_domain = os.environ.get("EMAIL_DOMAIN", "")
+    if env_domain:
+        return env_domain
+    # Try cogtainer secret
     cogtainer = os.environ.get("COGTAINER", "")
     if secrets_provider and cogtainer:
         try:
             return secrets_provider.get_secret(f"cogtainer/{cogtainer}/email/domain")
         except Exception:
-            pass
+            logger.warning("Failed to read email domain from cogtainer/%s/email/domain", cogtainer)
     return ""
 
 
