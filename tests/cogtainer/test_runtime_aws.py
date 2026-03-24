@@ -21,7 +21,7 @@ def aws_runtime() -> AwsRuntime:
     )
     llm = MagicMock()
     session = MagicMock()
-    return AwsRuntime(entry=entry, llm=llm, session=session)
+    return AwsRuntime(entry=entry, llm=llm, session=session, cogtainer_name="test-ct")
 
 
 # ── LLM delegation ──────────────────────────────────────────
@@ -169,7 +169,7 @@ def test_aws_runtime_spawn_executor(aws_runtime: AwsRuntime):
     lam.invoke.assert_called_once()
     call_kwargs = lam.invoke.call_args[1]
     assert call_kwargs["InvocationType"] == "Event"
-    assert "cogent-alpha-executor" in call_kwargs["FunctionName"]
+    assert call_kwargs["FunctionName"] == "cogtainer-test-ct-alpha-executor"
 
 
 # ── create/destroy ───────────────────────────────────────────

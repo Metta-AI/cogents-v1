@@ -169,8 +169,9 @@ class AwsRuntime(CogtainerRuntime):
 
         lam = self._session.client("lambda", region_name=self._region)
         safe_name = safe(cogent_name)
+        fn_name = f"cogtainer-{self._cogtainer_name}-{safe_name}-executor"
         lam.invoke(
-            FunctionName=f"cogent-{safe_name}-executor",
+            FunctionName=fn_name,
             InvocationType="Event",
             Payload=json.dumps({"process_id": process_id}).encode(),
         )
