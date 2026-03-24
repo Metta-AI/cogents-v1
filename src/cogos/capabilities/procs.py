@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from cogos.capabilities.base import Capability
 from cogos.capabilities.process_handle import ProcessHandle
 from cogos.db.models import Channel, ChannelType, Handler, Process, ProcessCapability, ProcessMode, ProcessStatus
+from cogos.db.models.wait_condition import WaitCondition, WaitConditionType
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,7 @@ class ProcsCapability(Capability):
         idle_timeout_ms: int | None = None,
         detached: bool = False,
         tty: bool = False,
+        wait_for: "list[ProcessHandle] | None" = None,
     ) -> ProcessHandle | ProcessError:
         """Spawn a child process. Capabilities are NOT inherited — pass them explicitly.
 
@@ -159,12 +161,15 @@ class ProcsCapability(Capability):
             parent_id = self.process_id
 
         proc_mode = ProcessMode(mode)
+        # Deferred dispatch: process starts WAITING until targets exit.
         # Daemons start WAITING (activated by channel messages);
         # one-shots start RUNNABLE (run immediately).
-        initial_status = (
-            ProcessStatus.WAITING if proc_mode == ProcessMode.DAEMON
-            else ProcessStatus.RUNNABLE
-        )
+        if wait_for:
+            initial_status = ProcessStatus.WAITING
+        elif proc_mode == ProcessMode.DAEMON:
+            initial_status = ProcessStatus.WAITING
+        else:
+            initial_status = ProcessStatus.RUNNABLE
         # Inherit epoch from parent process
         parent_proc = self.repo.get_process(self.process_id)
         child_epoch = parent_proc.epoch if parent_proc else 0
@@ -335,6 +340,35 @@ class ProcsCapability(Capability):
                 if sub_ch is None:
                     return ProcessError(error=f"Subscribe channel '{sub_name}' not found")
                 self.repo.create_handler(Handler(process=child_id, channel=sub_ch.id, epoch=child_epoch))
+
+        # Deferred dispatch: create handlers + WAIT_ALL condition for target processes
+        if wait_for:
+            still_pending: list[str] = []
+            for handle in wait_for:
+                target_pid = UUID(handle.id)
+                # Check if target already exited
+                exit_ch = self.repo.get_channel_by_name(f"spawn:{target_pid}\u2192{self.process_id}")
+                already_exited = False
+                if exit_ch:
+                    msgs = self.repo.list_channel_messages(exit_ch.id, limit=50)
+                    already_exited = any(
+                        isinstance(m.payload, dict) and m.payload.get("type") == "child:exited"
+                        for m in msgs
+                    )
+                if not already_exited:
+                    still_pending.append(handle.id)
+                    if exit_ch:
+                        self.repo.create_handler(Handler(process=child_id, channel=exit_ch.id, epoch=child_epoch))
+
+            if still_pending:
+                self.repo.create_wait_condition(WaitCondition(
+                    process=child_id,
+                    type=WaitConditionType.WAIT_ALL,
+                    pending=still_pending,
+                ))
+            else:
+                # All targets already exited — make process runnable immediately
+                self.repo.update_process_status(child_id, ProcessStatus.RUNNABLE)
 
         child = self.repo.get_process(child_id)
         return ProcessHandle(
