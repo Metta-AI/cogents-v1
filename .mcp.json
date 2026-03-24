@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "cogos": {
-      "command": "bun",
-      "args": ["./channels/claude-code/server.ts"]
-    }
-  }
-}
