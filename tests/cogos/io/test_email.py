@@ -171,7 +171,7 @@ class TestIngestLambda:
         return {"headers": headers, "body": json.dumps(body)}
 
     def test_ingest_valid(self):
-        with patch("cogtainer.io.email.handler._insert_event", return_value="evt-1") as mock_insert:
+        with patch("cogtainer.io.email.handler._write_channel_message", return_value="msg-1") as mock_write:
             from cogtainer.io.email.handler import handler
             resp = handler(
                 self._make_event(
@@ -182,9 +182,10 @@ class TestIngestLambda:
                 None,
             )
             assert resp["statusCode"] == 200
-            assert "evt-1" in resp["body"]
-            mock_insert.assert_called_once_with("ovo", "email:received", "cloudflare-email-worker",
-                                                 {"from": "a@b.com", "subject": "Hi", "cogent": "ovo"})
+            assert "msg-1" in resp["body"]
+            mock_write.assert_called_once_with("ovo",
+                                                {"from": "a@b.com", "subject": "Hi", "cogent": "ovo"},
+                                                None)
 
     def test_ingest_unauthorized(self):
         from cogtainer.io.email.handler import handler
