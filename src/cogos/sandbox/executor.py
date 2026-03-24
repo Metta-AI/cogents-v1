@@ -15,6 +15,8 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from cogos.capabilities.base import HelpCapability
+
 logger = logging.getLogger(__name__)
 
 class _SandboxExit(Exception):
@@ -67,7 +69,7 @@ def _safe_help(obj=None):
     if obj is None:
         print("Use help(object) to see available methods.")
         return
-    if hasattr(obj, "help") and callable(obj.help) and not isinstance(obj, type):
+    if isinstance(obj, HelpCapability) and not isinstance(obj, type):
         print(obj.help())
         return
     methods = _safe_dir(obj)

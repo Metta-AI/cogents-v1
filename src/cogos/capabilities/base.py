@@ -6,12 +6,27 @@ import copy
 import inspect
 import typing
 from collections.abc import Callable
-from typing import Self
+from typing import Any, Protocol, Self, runtime_checkable
 from uuid import UUID
 
 from pydantic import BaseModel
 
 from cogos.db.protocol import CogosRepositoryInterface
+
+
+@runtime_checkable
+class ScopedCapability(Protocol):
+    def scope(self, **kwargs: object) -> Any: ...
+
+
+@runtime_checkable
+class HelpCapability(Protocol):
+    def help(self) -> str: ...
+
+
+@runtime_checkable
+class PendingResponseCapability(Protocol):
+    def get_pending_response(self, request_id: str) -> dict | None: ...
 
 
 def _describe_type(tp: type | None) -> str:

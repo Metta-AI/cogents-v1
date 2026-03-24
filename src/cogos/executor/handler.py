@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from cogos.capabilities.base import HelpCapability, PendingResponseCapability
 from cogos.db.models import Process, ProcessStatus, Run, RunStatus
 from cogos.db.models.channel_message import ChannelMessage
 from cogos.db.repository import Repository
@@ -531,7 +532,7 @@ def _extract_web_response(vt: VariableTable, event_data: dict) -> None:
     if not web_request_id:
         return
     web_cap = vt.get("web")
-    if web_cap is not None and hasattr(web_cap, "get_pending_response"):
+    if isinstance(web_cap, PendingResponseCapability):
         resp = web_cap.get_pending_response(web_request_id)
         if resp:
             event_data["_web_response"] = resp
@@ -1321,7 +1322,7 @@ def _setup_capability_proxies(
     cap_entries = []
     for name in sorted(k for k in vt.as_dict() if k != "print"):
         obj = vt.get(name)
-        if hasattr(obj, "help") and callable(obj.help):
+        if isinstance(obj, HelpCapability):
             cap_entries.append(f"{name}: {obj.help()}")
         else:
             cap_entries.append(name)
