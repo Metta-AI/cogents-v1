@@ -1,12 +1,20 @@
 {
+  "name": "cogos-marketplace",
+  "owner": {
+    "name": "Metta AI"
+  },
+  "metadata": {
+    "description": "CogOS plugins for Claude Code",
+    "version": "1.0.0"
+  },
   "plugins": [
     {
       "name": "cogos",
       "version": "1.0.0",
       "description": "Connect Claude Code to CogOS cogents — become any cogent interactively",
       "source": {
-        "source": "github",
-        "repo": "Metta-AI/cogos",
+        "source": "url",
+        "url": "https://github.com/Metta-AI/cogos.git",
         "path": "claude_code/plugins/cogos"
       }
     }
