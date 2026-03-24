@@ -173,6 +173,10 @@ class DiscordBridge:
         self._pending_dms: dict[str, tuple[str, str, float, str]] = {}
         self._alerted_dm_ids: set[str] = set()
 
+        # Alert cooldown: (cogent_name, alert_type) -> last alert time
+        self._alert_cooldowns: dict[tuple[str, str], float] = {}
+        self._ALERT_COOLDOWN_SECS = 300  # group alerts within 5 min window
+
         # Track which webhook/bot sent which message for reaction routing
         self._sent_message_owners: dict[int, str] = {}  # discord_message_id -> cogent_name
 
@@ -783,18 +787,34 @@ class DiscordBridge:
     # ------------------------------------------------------------------
 
     def _alert_reply_failure(self, msg: dict, exc: Exception, *, permanent: bool) -> None:
-        """Create an alert for a failed SQS reply send attempt."""
+        """Create an alert for a failed SQS reply send attempt.
+
+        Groups repeated failures for the same cogent/alert_type within a
+        cooldown window so the dashboard doesn't flood with duplicates.
+        """
         try:
             body = json.loads(msg.get("Body", "{}"))
             meta = body.get("_meta") if isinstance(body.get("_meta"), dict) else {}
             cogent_name = meta.get("cogent_name", "unknown")
+            resolved_name = cogent_name if cogent_name in self._configs else next(iter(self._configs), "unknown")
+            alert_type = "discord:send_permanent_failure" if permanent else "discord:send_failed"
+
+            # Cooldown: skip if we already alerted for this cogent/type recently
+            cooldown_key = (resolved_name, alert_type)
+            now = time.monotonic()
+            last = self._alert_cooldowns.get(cooldown_key, 0.0)
+            if now - last < self._ALERT_COOLDOWN_SECS:
+                logger.debug("Suppressing duplicate alert %s for %s (cooldown)", alert_type, resolved_name)
+                return
+            self._alert_cooldowns[cooldown_key] = now
+
             status = getattr(exc, "status", None)
             exc_label = f"{type(exc).__name__}(status={status})" if status else type(exc).__name__
             msg_type = body.get("type", "message")
             self._create_alert(
-                cogent_name if cogent_name in self._configs else next(iter(self._configs), "unknown"),
+                resolved_name,
                 "warning" if permanent else "critical",
-                "discord:send_permanent_failure" if permanent else "discord:send_failed",
+                alert_type,
                 (
                     f"Cannot send {msg_type} — {exc_label}: {exc} (message discarded)"
                     if permanent
@@ -851,7 +871,7 @@ class DiscordBridge:
                         self._alert_reply_failure(msg, exc, permanent=is_permanent)
                         if not is_permanent:
                             continue
-                    except (ValueError, discord.errors.InvalidData) as exc:
+                    except (ValueError, TypeError, AttributeError, discord.errors.InvalidData) as exc:
                         logger.error("Permanent failure sending reply %s (discarding): %s", msg.get("MessageId"), exc)
                         self._alert_reply_failure(msg, exc, permanent=True)
                     except Exception as exc:

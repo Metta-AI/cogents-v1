@@ -84,6 +84,8 @@ def _make_bridge():
     bridge._blob_bucket = ""
     bridge._pending_dms = {}
     bridge._alerted_dm_ids = set()
+    bridge._alert_cooldowns = {}
+    bridge._ALERT_COOLDOWN_SECS = 300
 
     # Multi-tenant routing
     bridge._configs = {"test-bot": MagicMock()}
