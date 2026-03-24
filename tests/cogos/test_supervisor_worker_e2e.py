@@ -200,7 +200,7 @@ class TestSupervisorWorkerFlow:
         assert worker.name == "worker-task"
         assert "## Task" in worker.content
         assert "github issue" in worker.content.lower()
-        assert worker.status == ProcessStatus.COMPLETED
+        assert worker.status == ProcessStatus.DISABLED
 
         # Verify run result
         runs = repo.list_runs(process_id=worker_process_id)
@@ -283,7 +283,7 @@ class TestSupervisorWorkerFlow:
         parent = Process(
             name="test-parent",
             mode=ProcessMode.ONE_SHOT,
-            status=ProcessStatus.RUNNING,
+            status=ProcessStatus.RUNNABLE,
             required_tags=["local"],
         )
         repo.upsert_process(parent)

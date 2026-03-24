@@ -123,7 +123,7 @@ def test_match_and_dispatch(tmp_path):
     assert len(repo.list_runs(process_id=proc.id)) == 1
     _tmp_get_process = repo.get_process(proc.id)
     assert _tmp_get_process is not None
-    assert _tmp_get_process.status == ProcessStatus.RUNNING
+    assert _tmp_get_process.status == ProcessStatus.WAITING
     delivery = next(iter(repo._deliveries.values()))
     assert delivery.status == DeliveryStatus.QUEUED
 

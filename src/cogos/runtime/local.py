@@ -112,7 +112,7 @@ def run_and_complete(
                     )
                     repo.update_process_status(process.id, next_status)
                 else:
-                    repo.update_process_status(process.id, ProcessStatus.COMPLETED)
+                    repo.update_process_status(process.id, ProcessStatus.DISABLED)
 
     except WaitSuspend:
         duration_ms = int((time.time() - start) * 1000)

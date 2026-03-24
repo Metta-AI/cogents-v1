@@ -39,7 +39,7 @@ def test_executor_handler_gets_repo_via_runtime(local_runtime, monkeypatch):
     repo = local_runtime.get_repository("test-cogent")
     p = Process(
         name="test-proc", mode=ProcessMode.DAEMON,
-        status=ProcessStatus.RUNNING, required_tags=[],
+        status=ProcessStatus.RUNNABLE, required_tags=[],
     )
     repo.upsert_process(p)
 

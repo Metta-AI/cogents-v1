@@ -269,7 +269,7 @@ def handler(event: dict, context: Any = None) -> dict:
         run_id = run.id
     else:
         # Legacy: no run_id in payload — create one (and mark process running)
-        repo.update_process_status(process.id, ProcessStatus.RUNNING)
+        repo.update_process_status(process.id, ProcessStatus.WAITING)
         run = Run(process=process.id, message=UUID(message_id) if message_id else None, status=RunStatus.RUNNING)
         run_id = repo.create_run(run)
 
@@ -370,7 +370,7 @@ def handler(event: dict, context: Any = None) -> dict:
                 )
                 repo.update_process_status(process.id, next_status)
             else:
-                repo.update_process_status(process.id, ProcessStatus.COMPLETED)
+                repo.update_process_status(process.id, ProcessStatus.DISABLED)
 
         logger.info(f"Run {run_id} completed in {duration_ms}ms")
         _reply_trace_link(repo, process, event, trace_ctx.trace_id)

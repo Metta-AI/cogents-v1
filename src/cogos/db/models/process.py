@@ -13,10 +13,8 @@ from pydantic import BaseModel, Field
 class ProcessStatus(str, enum.Enum):
     WAITING = "waiting"
     RUNNABLE = "runnable"
-    RUNNING = "running"
     BLOCKED = "blocked"
     SUSPENDED = "suspended"
-    COMPLETED = "completed"
     DISABLED = "disabled"
 
 

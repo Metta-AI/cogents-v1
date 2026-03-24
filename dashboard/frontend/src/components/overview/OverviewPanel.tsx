@@ -14,8 +14,6 @@ type BadgeVariant = "accent" | "info" | "success" | "neutral" | "error" | "warni
 const PROCESS_STATUS_VARIANT: Record<string, BadgeVariant> = {
   waiting: "neutral",
   runnable: "info",
-  running: "accent",
-  completed: "success",
   disabled: "neutral",
   blocked: "warning",
   suspended: "warning",
@@ -76,7 +74,7 @@ export function OverviewPanel({ data }: Props) {
     return groups;
   }, [data.processes]);
 
-  const PROCESS_DISPLAY_ORDER = ["running", "runnable", "waiting", "completed"] as const;
+  const PROCESS_DISPLAY_ORDER = ["runnable", "waiting", "blocked", "suspended", "disabled"] as const;
 
   return (
     <div>
@@ -104,9 +102,6 @@ export function OverviewPanel({ data }: Props) {
                     </div>
                     {(expandedProcessGroups.has(status) ? procs : procs.slice(0, 3)).map((p) => (
                       <div key={p.id} className="flex items-center gap-2 py-0.5 text-xs">
-                        {status === "running" && (
-                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent)]" style={{ animation: "pulse-dot 1.5s ease-in-out infinite" }} />
-                        )}
                         <span className="text-[var(--text-primary)] font-mono truncate">{p.name}</span>
                         {p.updated_at && <span className="text-[var(--text-muted)] ml-auto text-[11px]">{fmtTimestamp(p.updated_at)}</span>}
                       </div>

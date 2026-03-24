@@ -18,9 +18,7 @@ type CapRow = CogosCapability & Record<string, unknown>;
 const STATUS_VARIANT: Record<string, "success" | "warning" | "error" | "info" | "neutral"> = {
   waiting: "neutral",
   runnable: "info",
-  running: "success",
-  completed: "neutral",
-  disabled: "error",
+  disabled: "neutral",
   blocked: "warning",
   suspended: "warning",
 };

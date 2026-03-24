@@ -25,7 +25,7 @@ def test_flush_dead_letters_writes_failed_runs(tmp_path):
 
     repo = _repo(tmp_path)
 
-    process = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.COMPLETED)
+    process = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED)
     repo.upsert_process(process)
 
     run = Run(process=process.id, status=RunStatus.FAILED, error="boom")
@@ -50,7 +50,7 @@ def test_flush_dead_letters_skips_already_reported(tmp_path):
 
     repo = _repo(tmp_path)
 
-    process = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.COMPLETED)
+    process = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED)
     repo.upsert_process(process)
 
     run = Run(process=process.id, status=RunStatus.FAILED, error="boom")
@@ -69,7 +69,7 @@ def test_flush_dead_letters_tolerates_metadata_write_failure(tmp_path, monkeypat
 
     repo = _repo(tmp_path)
 
-    process = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.COMPLETED)
+    process = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED)
     repo.upsert_process(process)
 
     run = Run(process=process.id, status=RunStatus.FAILED, error="boom")
@@ -98,7 +98,7 @@ def test_flush_dead_letters_ignores_completed_runs(tmp_path):
 
     repo = _repo(tmp_path)
 
-    process = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.COMPLETED)
+    process = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED)
     repo.upsert_process(process)
 
     run = Run(process=process.id, status=RunStatus.COMPLETED)
@@ -112,7 +112,7 @@ def test_list_recent_failed_runs(tmp_path):
     """list_recent_failed_runs returns only failed/timeout runs."""
     repo = _repo(tmp_path)
 
-    process = Process(name="w", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.COMPLETED)
+    process = Process(name="w", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED)
     repo.upsert_process(process)
 
     r1 = Run(process=process.id, status=RunStatus.FAILED, error="e1")

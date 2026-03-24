@@ -30,14 +30,12 @@ type BadgeVariant = "success" | "warning" | "error" | "info" | "neutral" | "acce
 const STATUS_VARIANT: Record<string, BadgeVariant> = {
   waiting: "neutral",
   runnable: "info",
-  running: "success",
-  completed: "accent",
-  disabled: "error",
+  disabled: "neutral",
   blocked: "warning",
   suspended: "warning",
 };
 
-const STATUSES = ["waiting", "runnable", "running", "completed", "disabled", "blocked", "suspended"];
+const STATUSES = ["waiting", "runnable", "disabled", "blocked", "suspended"];
 const MODES: ("daemon" | "one_shot")[] = ["one_shot", "daemon"];
 // Runner constants removed — processes use required_tags instead
 const EXECUTOR_DEFAULT_MODEL_LABEL = "default (sonnet)";
@@ -2272,7 +2270,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
           return path;
         }
 
-        const STATUS_ORDER = ["running", "runnable", "waiting", "blocked", "suspended", "completed", "disabled"];
+        const STATUS_ORDER = ["runnable", "waiting", "blocked", "suspended", "disabled"];
 
         type GroupEntry = { proc: CogosProcess; depth: number; ancestors?: string[]; hasChildren?: boolean };
 

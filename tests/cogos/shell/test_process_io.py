@@ -40,7 +40,7 @@ def _spawn_setup(tmp_path):
     repo = LocalRepository(str(tmp_path))
     cap = Capability(name="procs", handler="cogos.capabilities.procs.ProcsCapability", enabled=True)
     repo.upsert_capability(cap)
-    parent = Process(name="parent", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
+    parent = Process(name="parent", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE)
     repo.upsert_process(parent)
     repo.create_process_capability(ProcessCapability(process=parent.id, capability=cap.id, name="procs"))
     return repo, ProcsCapability(repo, parent.id)  # type: ignore[arg-type]
@@ -66,7 +66,7 @@ def test_spawn_with_tty(tmp_path):
 
 def _me_setup(tmp_path, *, tty=False):
     repo = LocalRepository(str(tmp_path))
-    proc = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING, tty=tty)
+    proc = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, tty=tty)
     repo.upsert_process(proc)
     for stream in ("stdin", "stdout", "stderr"):
         repo.upsert_channel(
@@ -129,9 +129,9 @@ def test_me_stdout_no_tty_no_forward(tmp_path):
 
 def _handle_setup(tmp_path):
     repo = LocalRepository(str(tmp_path))
-    parent = Process(name="parent", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
+    parent = Process(name="parent", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE)
     repo.upsert_process(parent)
-    child = Process(name="child", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING, parent_process=parent.id)
+    child = Process(name="child", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, parent_process=parent.id)
     repo.upsert_process(child)
     for stream in ("stdin", "stdout", "stderr"):
         repo.upsert_channel(
@@ -168,7 +168,7 @@ def test_handle_stdout_empty(tmp_path):
 
 def _pio_setup(tmp_path, *, tty=False):
     repo = LocalRepository(str(tmp_path))
-    proc = Process(name="test-proc", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING, tty=tty)
+    proc = Process(name="test-proc", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, tty=tty)
     repo.upsert_process(proc)
     for stream in ("stdout", "stderr"):
         repo.upsert_channel(

@@ -75,11 +75,10 @@ def handler(event: dict, context) -> dict:
     if reaped:
         logger.warning("Reaped %s stale runs stuck in RUNNING state", reaped)
 
-    # 0b. Recover stuck daemons — if RUNNING but no active run, reset to WAITING
-    _recover_stuck_daemons(repo)
+    # 0b. Recover stuck processes — run finished but process still WAITING
+    _recover_stuck_processes(repo)
 
-    # 0b2. Wake waiting daemons that have pending deliveries (they may have been
-    # reset to WAITING by _recover_stuck_daemons but still have unprocessed work)
+    # 0b2. Wake waiting daemons that have pending deliveries
     _wake_waiting_with_pending(repo)
 
     # 0c. Flush failed runs to dead-letter channel
@@ -147,31 +146,34 @@ def handler(event: dict, context) -> dict:
     return {"statusCode": 200, "dispatched": dispatched}
 
 
-def _recover_stuck_daemons(repo) -> None:
-    """Reset processes stuck in RUNNING with no active run."""
+def _recover_stuck_processes(repo) -> None:
+    """Recover processes with stale RUNNING runs (executor crash recovery).
+
+    Finds runs stuck in RUNNING state whose process has no active executor,
+    fails the run, and transitions the process appropriately.
+    """
     from cogos.db.models import ProcessMode, ProcessStatus, RunStatus
 
-    running = repo.list_processes(status=ProcessStatus.RUNNING)
-    for proc in running:
+    waiting = repo.list_processes(status=ProcessStatus.WAITING)
+    for proc in waiting:
         runs = repo.list_runs(process_id=proc.id, limit=1)
-        if not runs or runs[0].status != RunStatus.RUNNING:
-            if proc.mode == ProcessMode.DAEMON:
-                next_status = ProcessStatus.WAITING
-            else:
-                # One-shot processes with no active run are dead — disable them
-                next_status = ProcessStatus.DISABLED
-            repo.update_process_status(proc.id, next_status)
-            alert_type = "scheduler:stuck_daemon" if proc.mode == ProcessMode.DAEMON else "scheduler:stuck_process"
-            logger.info("Recovered stuck %s %s: running -> %s", proc.mode.value, proc.name, next_status.value)
+        if not runs or runs[0].status == RunStatus.RUNNING:
+            continue  # no runs yet, or actively executing
+        # Latest run finished but process is still WAITING — may be stuck
+        if proc.mode == ProcessMode.DAEMON:
+            if repo.has_pending_deliveries(proc.id):
+                repo.update_process_status(proc.id, ProcessStatus.RUNNABLE)
+                logger.info("Recovered stuck daemon %s: waiting -> runnable (has pending deliveries)", proc.name)
+            # else: legitimately waiting, leave it
+        else:
+            repo.update_process_status(proc.id, ProcessStatus.DISABLED)
+            logger.info("Recovered stuck one-shot %s: waiting -> disabled (run finished)", proc.name)
             try:
                 repo.create_alert(
                     severity="warning",
-                    alert_type=alert_type,
+                    alert_type="scheduler:stuck_process",
                     source="dispatcher",
-                    message=(
-                        f"Recovered stuck {proc.mode.value} '{proc.name}':"
-                        f" was running with no active run, set to {next_status.value}"
-                    ),
+                    message=f"Recovered stuck one-shot '{proc.name}': run finished but process was still waiting",
                     metadata={"process_id": str(proc.id), "process_name": proc.name},
                 )
             except Exception:

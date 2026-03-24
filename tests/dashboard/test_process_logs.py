@@ -18,7 +18,7 @@ def test_get_process_logs_returns_stdout_stderr(tmp_path):
         id=uuid4(),
         name="test-proc",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=["local"],
     )
     repo.upsert_process(process)
@@ -76,7 +76,7 @@ def test_get_process_logs_empty_when_no_channels(tmp_path):
         id=uuid4(),
         name="quiet-proc",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=["local"],
     )
     repo.upsert_process(process)

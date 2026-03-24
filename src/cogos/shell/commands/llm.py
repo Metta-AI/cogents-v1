@@ -100,7 +100,7 @@ def _execute_prompt(state: ShellState, content: str, *, verbose: bool = False) -
         mode=ProcessMode.ONE_SHOT,
         content=full_content,
         runner="local",
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         tty=True,
     )
     pid = state.repo.upsert_process(process)
@@ -267,7 +267,7 @@ def _execute_prompt(state: ShellState, content: str, *, verbose: bool = False) -
         execute_fn=_verbose_executor,
     )
 
-    state.repo.update_process_status(process.id, ProcessStatus.COMPLETED)
+    state.repo.update_process_status(process.id, ProcessStatus.DISABLED)
 
     # Clean up temp shell process
     try:
@@ -469,14 +469,14 @@ def register(reg: CommandRegistry) -> None:
         # Run the process
         run_obj = Run(process=proc.id, status=RunStatus.RUNNING)
         state.repo.create_run(run_obj)
-        state.repo.update_process_status(proc.id, ProcessStatus.RUNNING)
+        state.repo.update_process_status(proc.id, ProcessStatus.WAITING)
 
         config = get_config()
         run_obj = run_and_complete(
             proc, {}, run_obj, config, state.repo,
         )
 
-        state.repo.update_process_status(proc.id, ProcessStatus.COMPLETED)
+        state.repo.update_process_status(proc.id, ProcessStatus.DISABLED)
         completed_run = state.repo.get_run(run_obj.id)
         if completed_run:
             run_obj = completed_run

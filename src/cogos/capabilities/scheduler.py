@@ -205,7 +205,7 @@ class SchedulerCapability(Capability):
             return SchedulerError(error=f"process is {proc.status.value}, expected runnable")
 
         # Atomic transition: only set RUNNING if still RUNNABLE (prevents duplicate dispatches)
-        if not self.repo.try_transition_process(target_id, ProcessStatus.RUNNABLE, ProcessStatus.RUNNING):
+        if not self.repo.try_transition_process(target_id, ProcessStatus.RUNNABLE, ProcessStatus.WAITING):
             return SchedulerError(error="process was already claimed by another dispatcher")
 
         deliveries = self.repo.get_pending_deliveries(target_id)
@@ -318,7 +318,7 @@ class SchedulerCapability(Capability):
             return SchedulerError(error="no available executor matching requirements")
 
         # Standard dispatch: create run, mark process running
-        self.repo.update_process_status(target_id, ProcessStatus.RUNNING)
+        self.repo.update_process_status(target_id, ProcessStatus.WAITING)
 
         deliveries = self.repo.get_pending_deliveries(target_id)
         message_id = deliveries[0].message if deliveries else None

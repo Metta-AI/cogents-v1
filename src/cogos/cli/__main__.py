@@ -440,7 +440,7 @@ def process_run(name: str, run_local: bool, event: str | None):
                 os.environ.setdefault("OPENROUTER_API_KEY", os.environ.get(llm.api_key_env, ""))
 
         config = get_config()
-        repo.update_process_status(p.id, ProcessStatus.RUNNING)
+        repo.update_process_status(p.id, ProcessStatus.WAITING)
 
         run = Run(process=p.id, status=RunStatus.RUNNING)
         repo.create_run(run)

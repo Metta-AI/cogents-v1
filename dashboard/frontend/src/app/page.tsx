@@ -105,11 +105,14 @@ function Dashboard({ cogentName, activeTab, onTabChange, initialTraceId, initial
 
   const STUCK_THRESHOLD_MS = 10 * 60 * 1000;
   const stuckProcessCount = useMemo(() => {
+    const activeRunProcessIds = new Set(
+      data.runs.filter((r) => r.status === "running").map((r) => r.process),
+    );
     return data.processes.filter(
-      (p) => p.status === "running" && p.updated_at &&
+      (p) => activeRunProcessIds.has(p.id) && p.updated_at &&
         Date.now() - new Date(p.updated_at).getTime() > STUCK_THRESHOLD_MS,
     ).length;
-  }, [data.processes]);
+  }, [data.processes, data.runs]);
 
   const cs = data.cogosStatus;
   const currentEpoch = cs?.reboot_epoch ?? 0;

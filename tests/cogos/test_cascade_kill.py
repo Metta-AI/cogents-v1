@@ -57,18 +57,18 @@ def test_cascade_kill_does_not_affect_unrelated(tmp_path):
     assert s.status == ProcessStatus.RUNNABLE
 
 
-def test_non_disable_does_not_cascade(tmp_path):
+def test_already_disabled_child_not_touched(tmp_path):
     repo = LocalRepository(str(tmp_path))
     parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE)
     parent_id = repo.upsert_process(parent)
-    child = Process(name="child", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, parent_process=parent_id)
+    child = Process(name="child", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED, parent_process=parent_id)
     child_id = repo.upsert_process(child)
 
-    repo.update_process_status(parent_id, ProcessStatus.COMPLETED)
+    repo.update_process_status(parent_id, ProcessStatus.DISABLED)
 
     c = repo.get_process(child_id)
     assert c is not None
-    assert c.status == ProcessStatus.RUNNABLE
+    assert c.status == ProcessStatus.DISABLED
 
 
 # ── Task 2: Detached processes ──────────────────────────────
@@ -94,7 +94,7 @@ def _setup_with_procs(tmp_path):
         ]
     )
     apply_image(spec, repo)
-    init_proc = Process(name="init", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.COMPLETED)
+    init_proc = Process(name="init", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED)
     init_id = repo.upsert_process(init_proc)
     parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE, parent_process=init_id)
     parent_id = repo.upsert_process(parent)

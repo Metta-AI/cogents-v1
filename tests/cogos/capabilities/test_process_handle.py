@@ -121,8 +121,8 @@ class TestWait:
     def test_wait_any_suspends(self, repo, parent_id):
         from cogos.sandbox.executor import WaitSuspend
         run_id = uuid4()
-        p1 = Process(name="a", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
-        p2 = Process(name="b", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
+        p1 = Process(name="a", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE)
+        p2 = Process(name="b", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE)
         repo.get_channel_by_name.return_value = None
         h1 = ProcessHandle(repo=repo, caller_process_id=parent_id, process=p1,
                            send_channel=None, recv_channel=None, run_id=run_id)
@@ -134,8 +134,8 @@ class TestWait:
     def test_wait_all_suspends(self, repo, parent_id):
         from cogos.sandbox.executor import WaitSuspend
         run_id = uuid4()
-        p1 = Process(name="a", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
-        p2 = Process(name="b", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING)
+        p1 = Process(name="a", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE)
+        p2 = Process(name="b", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE)
         repo.get_channel_by_name.return_value = None
         h1 = ProcessHandle(repo=repo, caller_process_id=parent_id, process=p1,
                            send_channel=None, recv_channel=None, run_id=run_id)
@@ -157,7 +157,7 @@ class TestWait:
 class TestPythonWaitBan:
     def _make_handle(self, repo, parent_id, child_process, executor="python"):
         run_id = uuid4()
-        parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNING, executor=executor)
+        parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE, executor=executor)
         parent.id = parent_id
         repo.get_process.return_value = parent
         repo.get_channel_by_name.return_value = None

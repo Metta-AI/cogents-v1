@@ -25,7 +25,7 @@ def _make_process(repo, *, mode=ProcessMode.ONE_SHOT, max_retries=0) -> Process:
     p = Process(
         name="test-proc",
         mode=mode,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=["local"],
         max_retries=max_retries,
     )
@@ -49,7 +49,7 @@ def _failing_execute(process, event_data, run, config, repo, **kwargs):
     raise RuntimeError("boom")
 
 
-def _process(name: str, *, mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNING) -> Process:
+def _process(name: str, *, mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE) -> Process:
     return Process(name=name, mode=mode, status=status, required_tags=["local"])
 
 
@@ -77,7 +77,7 @@ def test_run_and_complete_success(tmp_path):
     assert _tmp_get_run.status == RunStatus.COMPLETED
     _tmp_get_process = repo.get_process(process.id)
     assert _tmp_get_process is not None
-    assert _tmp_get_process.status == ProcessStatus.COMPLETED
+    assert _tmp_get_process.status == ProcessStatus.DISABLED
 
 
 def test_run_and_complete_daemon_goes_to_waiting(tmp_path):
@@ -206,7 +206,7 @@ def test_run_local_tick_executes_runnable_process(tmp_path):
     assert executed == 1
     _tmp_get_process = repo.get_process(p.id)
     assert _tmp_get_process is not None
-    assert _tmp_get_process.status == ProcessStatus.COMPLETED
+    assert _tmp_get_process.status == ProcessStatus.DISABLED
 
 
 def test_run_local_tick_no_work(tmp_path):

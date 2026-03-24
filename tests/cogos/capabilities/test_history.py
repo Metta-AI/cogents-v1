@@ -30,7 +30,7 @@ def pid():
 
 
 def _make_proc(name="worker-1"):
-    return Process(name=name, mode=ProcessMode.ONE_SHOT, status=ProcessStatus.COMPLETED)
+    return Process(name=name, mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED)
 
 
 def _make_run(process_id=None, status=RunStatus.COMPLETED, error=None, duration_ms=100):

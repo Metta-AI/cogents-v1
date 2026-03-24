@@ -24,7 +24,7 @@ def _make_process():
         id=uuid4(),
         name="test-proc",
         mode=ProcessMode.ONE_SHOT,
-        status=ProcessStatus.RUNNING,
+        status=ProcessStatus.RUNNABLE,
         required_tags=[],
     )
 
