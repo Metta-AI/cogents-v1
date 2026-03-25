@@ -79,9 +79,12 @@ def get_rendered_memory(
         file_contents = file_store.list_files_with_content(
             exclude_prefix="mnt/boot/", limit=5000,
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to list files for memory/rendered")
-        raise HTTPException(status_code=500, detail="Failed to list files from store")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list files from store: {type(exc).__name__}: {exc}",
+        )
 
     layers = []
     sections: list[str] = []
