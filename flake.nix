@@ -20,6 +20,7 @@
         packagesList = [
           pkgs.uv
           pkgs.nodejs_20
+          pkgs.sqlite # For inspecting the db
         ];
       in
       {
