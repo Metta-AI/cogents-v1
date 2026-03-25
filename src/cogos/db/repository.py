@@ -1096,7 +1096,11 @@ class RdsDataApiRepository:
         return [self._file_from_row(r) for r in self._rows_to_dicts(response)]
 
     def list_files_with_content(
-        self, *, prefix: str | None = None, limit: int = 200,
+        self,
+        *,
+        prefix: str | None = None,
+        exclude_prefix: str | None = None,
+        limit: int = 200,
     ) -> list[tuple[str, str]]:
         sql = """SELECT f.key, fv.content FROM cogos_file f
                  JOIN cogos_file_version fv ON fv.file_id = f.id
@@ -1105,6 +1109,9 @@ class RdsDataApiRepository:
         if prefix:
             sql += " AND f.key LIKE :prefix"
             params.append(self._param("prefix", prefix + "%"))
+        if exclude_prefix:
+            sql += " AND f.key NOT LIKE :excl"
+            params.append(self._param("excl", exclude_prefix + "%"))
         sql += " ORDER BY f.key LIMIT :limit"
         params.append(self._param("limit", limit))
         response = self._execute(sql, params)

@@ -188,7 +188,11 @@ class CogosRepositoryInterface(Protocol):
     def list_files(self, *, prefix: str | None = None, limit: int = 200) -> list[File]: ...
 
     def list_files_with_content(
-        self, *, prefix: str | None = None, limit: int = 200,
+        self,
+        *,
+        prefix: str | None = None,
+        exclude_prefix: str | None = None,
+        limit: int = 200,
     ) -> list[tuple[str, str]]: ...
 
     def grep_files(

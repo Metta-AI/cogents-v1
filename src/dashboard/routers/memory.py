@@ -36,14 +36,14 @@ def get_rendered_memory(
     name: str,
     process_name: str | None = Query(
         None,
-        description="Process name to render prompt for. If omitted, returns all file contents with resolved includes.",
+        description="Process name to render prompt for. If omitted, returns prompt-relevant file contents.",
     ),
 ) -> RenderedPromptResponse:
     """Return the fully rendered system prompt.
 
     If *process_name* is provided, builds the prompt for that specific
     process (resolving all ``@{file-key}`` references).  Otherwise returns
-    all files with their includes resolved.
+    prompt-relevant files (excluding boot scripts) with a bulk query.
     """
     repo = get_repo()
     file_store = FileStore(repo)
@@ -73,10 +73,12 @@ def get_rendered_memory(
 
         return RenderedPromptResponse(prompt=full_prompt, layers=layers)
 
-    # No process specified — return all files with resolved includes.
-    # Use bulk query to avoid N+1 (one query instead of 2N+1).
+    # No process specified — return prompt-relevant files (single bulk query),
+    # excluding boot scripts which are code, not memory content.
     try:
-        file_contents = file_store.list_files_with_content(limit=5000)
+        file_contents = file_store.list_files_with_content(
+            exclude_prefix="mnt/boot/", limit=5000,
+        )
     except Exception:
         logger.exception("Failed to list files for memory/rendered")
         raise HTTPException(status_code=500, detail="Failed to list files from store")

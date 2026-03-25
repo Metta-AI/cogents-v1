@@ -1417,7 +1417,11 @@ class SqliteRepository:
         return [self._row_to_file(r) for r in self._query(sql, params)]
 
     def list_files_with_content(
-        self, *, prefix: str | None = None, limit: int = 200,
+        self,
+        *,
+        prefix: str | None = None,
+        exclude_prefix: str | None = None,
+        limit: int = 200,
     ) -> list[tuple[str, str]]:
         sql = """SELECT f.key, fv.content FROM cogos_file f
                  JOIN cogos_file_version fv ON fv.file_id = f.id
@@ -1426,6 +1430,9 @@ class SqliteRepository:
         if prefix:
             sql += " AND f.key LIKE :prefix || '%'"
             params["prefix"] = prefix
+        if exclude_prefix:
+            sql += " AND f.key NOT LIKE :excl || '%'"
+            params["excl"] = exclude_prefix
         sql += " ORDER BY f.key LIMIT :limit"
         params["limit"] = limit
         return [(r["key"], r["content"]) for r in self._query(sql, params)]
