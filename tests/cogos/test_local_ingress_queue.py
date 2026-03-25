@@ -62,6 +62,28 @@ def test_full_queue_drops_message():
     assert q.pending == 2
 
 
+def test_wait_for_nudge_returns_true_on_send():
+    """wait_for_nudge returns True immediately when a message has been enqueued."""
+    q = LocalIngressQueue()
+    q.send("local://ingress", json.dumps({"process_id": "abc"}))
+    assert q.wait_for_nudge(timeout=0.01) is True
+
+
+def test_wait_for_nudge_returns_false_on_timeout():
+    """wait_for_nudge returns False when no message arrives before timeout."""
+    q = LocalIngressQueue()
+    assert q.wait_for_nudge(timeout=0.01) is False
+
+
+def test_wait_for_nudge_clears_event():
+    """After wait_for_nudge returns, the event is cleared so the next call blocks."""
+    q = LocalIngressQueue()
+    q.send("local://ingress", json.dumps({"n": 1}))
+    assert q.wait_for_nudge(timeout=0.01) is True
+    # Event cleared — should timeout now (no new send)
+    assert q.wait_for_nudge(timeout=0.01) is False
+
+
 # ── Integration: nudge fires on channel message ────────────
 
 

@@ -323,22 +323,25 @@ def run_loop(
         except Exception:
             logger.exception("Tick failed")
 
-        # Between ticks, sleep in 1-second increments but check the ingress
-        # queue each iteration for near-instant event-driven dispatch.
+        # Between ticks, wait on the ingress queue so nudged processes are
+        # dispatched immediately instead of sleeping a fixed interval.
         # Also periodically unblock processes and attempt dispatch.
-        for i in range(tick_interval):
-            if shutdown:
-                break
+        elapsed = 0
+        while elapsed < tick_interval and not shutdown:
             if ingress_queue is not None:
+                # Block until a nudge arrives or 1s elapses
+                ingress_queue.wait_for_nudge(timeout=1.0)
                 try:
                     _dispatch_nudged_processes(repo, runtime, cogent_name)
                 except Exception:
                     logger.debug("Ingress drain failed", exc_info=True)
-            if i % 5 == 4:
+            else:
+                time.sleep(1)
+            elapsed += 1
+            if elapsed % 5 == 4:
                 try:
                     _try_dispatch_blocked(repo, runtime, cogent_name)
                 except Exception:
                     logger.debug("Blocked dispatch failed", exc_info=True)
-            time.sleep(1)
 
     logger.info("Local dispatcher stopped")
