@@ -29,7 +29,7 @@ The payload has `_history` with recent conversation. Do NOT call `discord.histor
 # Parse payload fields
 author_id = "..."      # numeric Discord user ID
 author = "..."         # display name
-channel_id = "..."     # numeric Discord channel ID — pass to discord.send()
+channel_id = "..."     # numeric Discord channel ID — pass to discord.send() (may be None for dashboard messages)
 content = "..."        # message text
 message_id = "..."     # numeric Discord message ID
 is_dm = True/False
@@ -49,8 +49,11 @@ elif needs_capability_i_dont_have:
         "discord_message_id": message_id,
         "discord_author_id": author_id,
     })
-else:
+elif channel_id:
     discord.send(channel=channel_id, content="your reply", reply_to=message_id)
+else:
+    # Dashboard or other messages without a channel_id — reply via DM
+    discord.dm(user_id=author_id, content="your reply")
 print("Done")
 ```
 
