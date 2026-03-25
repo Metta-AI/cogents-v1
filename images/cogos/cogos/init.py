@@ -6,10 +6,14 @@
 _cap_objects = {
     "me": me, "procs": procs, "fs_dir": fs_dir, "file": file,
     "channels": channels, "secrets": secrets,
-    "blob": blob, "image": image,
+    "blob": blob,
     "web_search": web_search, "web_fetch": web_fetch, "web": web,
 }
 # Capabilities that may not be injected into init's sandbox
+try:
+    _cap_objects["image"] = image
+except NameError:
+    pass
 try:
     _cap_objects["discord"] = discord
 except NameError:
