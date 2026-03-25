@@ -278,6 +278,23 @@ def list_processes(
     return ProcessesResponse(cogent_name=name, count=len(details), processes=details)
 
 
+@router.get("/processes/by-name/{process_name}")
+def get_process_by_name(name: str, process_name: str) -> dict:
+    """Look up a process by name and return its resolved prompt."""
+    repo = get_repo()
+    p = repo.get_process_by_name(process_name)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"Process not found: {process_name}")
+
+    ctx = ContextEngine(FileStore(repo))
+    resolved_prompt = ctx.generate_full_prompt(p)
+
+    return {
+        "process": _detail(p).model_dump(),
+        "resolved_prompt": resolved_prompt,
+    }
+
+
 @router.get("/processes/{process_id}")
 def get_process(name: str, process_id: str) -> dict:
     repo = get_repo()
