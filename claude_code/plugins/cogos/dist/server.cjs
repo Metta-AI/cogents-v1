@@ -7903,7 +7903,7 @@ var mcpServer = new import_server.Server(
 );
 var CONNECT_TOOL = {
   name: "connect",
-  description: "Connect to a CogOS cogent process. Use 'process@address' to connect to a specific process (default: supervisor). Examples: 'alpha.softmax-cogents.com', 'supervisor@alpha.softmax-cogents.com', 'discord@alpha'. If no token is cached, opens a browser for authentication.",
+  description: "Connect to a CogOS cogent process. Use 'process@address' to connect to a specific process (default: supervisor). Examples: 'alpha.softmax-cogents.com', 'supervisor@alpha.softmax-cogents.com', 'discord@alpha'. If no token is cached, creates one automatically via the API.",
   inputSchema: {
     type: "object",
     properties: {
