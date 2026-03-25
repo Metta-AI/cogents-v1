@@ -47,7 +47,16 @@ function encodeFileKey(key: string): string {
 async function fetchJSON<T>(path: string): Promise<T> {
   const resp = await fetch(path, { headers: headers() });
   if (resp.status === 401) throw new Error("unauthorized");
-  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  if (!resp.ok) {
+    let detail = `${resp.status} ${resp.statusText}`;
+    try {
+      const body = await resp.json();
+      if (body?.detail) detail = `${resp.status}: ${body.detail}`;
+    } catch {
+      // no JSON body
+    }
+    throw new Error(detail);
+  }
   return resp.json();
 }
 

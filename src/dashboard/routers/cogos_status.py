@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json as _json
 import logging
 
 from fastapi import APIRouter, Query
@@ -225,28 +226,29 @@ def dashboard_init(
     ]
 
     # --- alerts ---
-    alert_rows = repo.list_alerts(resolved=False, limit=50)
-    import json as _json
-
-    alert_list = []
-    for a in alert_rows:
-        d = a if isinstance(a, dict) else (a.model_dump() if hasattr(a, "model_dump") else a.__dict__)
-        meta = d.get("metadata")
-        if isinstance(meta, str):
-            try:
-                meta = _json.loads(meta)
-            except Exception:
-                pass
-        alert_list.append({
-            "id": str(d.get("id", "")),
-            "severity": d.get("severity", ""),
-            "alert_type": d.get("alert_type", ""),
-            "source": d.get("source", ""),
-            "message": d.get("message", ""),
-            "metadata": meta,
-            "resolved_at": str(d["resolved_at"]) if d.get("resolved_at") else None,
-            "created_at": str(d["created_at"]) if d.get("created_at") else None,
-        })
+    alert_list: list[dict] = []
+    try:
+        alert_rows = repo.list_alerts(resolved=False, limit=50)
+        for a in alert_rows:
+            d = a if isinstance(a, dict) else (a.model_dump() if hasattr(a, "model_dump") else a.__dict__)
+            meta = d.get("metadata")
+            if isinstance(meta, str):
+                try:
+                    meta = _json.loads(meta)
+                except Exception:
+                    pass
+            alert_list.append({
+                "id": str(d.get("id", "")),
+                "severity": d.get("severity", ""),
+                "alert_type": d.get("alert_type", ""),
+                "source": d.get("source", ""),
+                "message": d.get("message", ""),
+                "metadata": meta,
+                "resolved_at": str(d["resolved_at"]) if d.get("resolved_at") else None,
+                "created_at": str(d["created_at"]) if d.get("created_at") else None,
+            })
+    except Exception:
+        logger.warning("Failed to fetch alerts for dashboard-init", exc_info=True)
 
     return DashboardInitResponse(
         cogos_status=cs,
