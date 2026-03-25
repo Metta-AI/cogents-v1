@@ -143,7 +143,7 @@ def list_channels(
     name: str,
     channel_type: str | None = Query(None),
     owner: str | None = Query(None),
-    limit: int = Query(500, ge=1, le=2000),
+    limit: int = Query(200, ge=1, le=2000),
 ) -> ChannelsResponse:
     repo = get_repo()
     owner_id = UUID(owner) if owner else None
@@ -170,7 +170,6 @@ def list_channels(
     out = []
     for ch in channels:
         schema = schemas_by_id.get(ch.schema_id) if ch.schema_id else None
-        schema_def = ch.inline_schema or (schema.definition if schema else None)
         out.append(
             ChannelOut(
                 id=str(ch.id),
@@ -180,8 +179,8 @@ def list_channels(
                 owner_process_name=proc_names.get(ch.owner_process) if ch.owner_process else None,
                 schema_name=schema.name if schema else None,
                 schema_id=str(ch.schema_id) if ch.schema_id else None,
-                schema_definition=schema_def,
-                inline_schema=ch.inline_schema,
+                schema_definition=None,  # omit from list view to reduce payload
+                inline_schema=None,  # omit from list view to reduce payload
                 auto_close=ch.auto_close,
                 closed_at=str(ch.closed_at) if ch.closed_at else None,
                 message_count=message_counts.get(ch.id, 0),

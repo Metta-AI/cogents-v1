@@ -2211,20 +2211,24 @@ class RdsDataApiRepository:
         row = self._first_row(response)
         return self._channel_from_row(row) if row else None
 
+    _CHANNEL_LIST_COLS = "id, name, channel_type, owner_process, schema_id, auto_close, closed_at, created_at"
+
     def list_channels(self, *, owner_process: UUID | None = None, limit: int = 0) -> list[Channel]:
+        # Exclude inline_schema from list queries to stay within RDS Data API 1MB limit
+        cols = self._CHANNEL_LIST_COLS
         if owner_process is not None:
             response = self._execute(
-                "SELECT * FROM cogos_channel WHERE owner_process = :owner ORDER BY name",
+                f"SELECT {cols} FROM cogos_channel WHERE owner_process = :owner ORDER BY name",
                 [self._param("owner", owner_process)],
             )
         elif limit > 0:
             response = self._execute(
-                "SELECT * FROM cogos_channel ORDER BY name LIMIT :limit",
+                f"SELECT {cols} FROM cogos_channel ORDER BY name LIMIT :limit",
                 [self._param("limit", limit)],
             )
         else:
             response = self._execute(
-                "SELECT * FROM cogos_channel ORDER BY name",
+                f"SELECT {cols} FROM cogos_channel ORDER BY name",
             )
         return [self._channel_from_row(r) for r in self._rows_to_dicts(response)]
 
