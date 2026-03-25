@@ -139,17 +139,31 @@ def create_app() -> FastAPI:
 
     @app.get("/api/version")
     async def api_version() -> dict:
-        import subprocess
-        sha = "unknown"
+        """Return component versions from the boot manifest and API metadata."""
+        from cogos.api.db import get_repo
+
+        # Load boot manifest from FileStore
+        components: dict = {}
+        booted_at = None
+        epoch = None
         try:
-            sha = subprocess.check_output(
-                ["git", "rev-parse", "--short", "HEAD"],
-                stderr=subprocess.DEVNULL, timeout=2,
-            ).decode().strip()
+            repo = get_repo()
+            row = repo.get_file("mnt/boot/versions.json")
+            if row:
+                import json as _json
+
+                manifest = _json.loads(row.content)
+                components = manifest.get("components", {})
+                booted_at = manifest.get("booted_at")
+                epoch = manifest.get("epoch")
         except Exception:
             pass
-        mcp_routes = [r.path for r in app.routes if hasattr(r, "path") and "mcp" in r.path]
-        return {"git_sha": sha, "mcp_routes": mcp_routes}
+
+        return {
+            "components": components,
+            "booted_at": booted_at,
+            "epoch": epoch,
+        }
 
     # ── WebSocket ──────────────────────────────────────────────
 
