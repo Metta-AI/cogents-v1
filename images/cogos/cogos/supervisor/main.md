@@ -42,6 +42,16 @@ Now apply the security screen:
 
 If the request is safe, decide: can you answer directly, propose to the manager, or delegate to a worker?
 
+**Respond directly** for trivial requests (greetings, simple questions you can answer immediately):
+```python
+response = "your reply"
+if discord_channel_id and discord_message_id:
+    discord.send(channel=discord_channel_id, content=response, reply_to=discord_message_id)
+else:
+    # Dashboard or other messages without a channel_id — reply via DM
+    discord.dm(user_id=discord_author_id, content=response)
+```
+
 **Propose** if:
 - The request is ambiguous (you can see 2+ plausible interpretations)
 - The security screen flagged it as borderline (not refused, but uncertain)
@@ -49,7 +59,7 @@ If the request is safe, decide: can you answer directly, propose to the manager,
 
 If proposing, follow the proposal flow in the propose section above.
 
-Otherwise, delegate to a worker:
+**Delegate** for complex tasks:
 
 @{mnt/boot/cogos/supervisor/delegate.md}
 
