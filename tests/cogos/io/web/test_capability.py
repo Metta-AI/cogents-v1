@@ -254,7 +254,7 @@ class TestUrl:
         monkeypatch.delenv("USE_LOCAL_DB", raising=False)
         monkeypatch.delenv("DASHBOARD_FE_PORT", raising=False)
         monkeypatch.delenv("DASHBOARD_BE_PORT", raising=False)
-        monkeypatch.setenv("COGENT", "dr.gamma")
+        monkeypatch.setenv("COGENT", "gamma")
         monkeypatch.setenv("COGTAINER", "test-agora")
         mock_sp = MagicMock()
         mock_sp.get_secret.return_value = "example.com"

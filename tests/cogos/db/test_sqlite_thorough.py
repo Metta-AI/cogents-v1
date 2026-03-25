@@ -672,11 +672,11 @@ def test_trace_crud(repo: SqliteRepository) -> None:
 
 
 def test_request_trace_and_spans(repo: SqliteRepository) -> None:
-    rt = RequestTrace(cogent_id="dr.gamma", source="discord", source_ref="msg-123")
+    rt = RequestTrace(cogent_id="gamma", source="discord", source_ref="msg-123")
     repo.create_request_trace(rt)
     got = repo.get_request_trace(rt.id)
     assert got is not None
-    assert got.cogent_id == "dr.gamma"
+    assert got.cogent_id == "gamma"
 
     span = Span(trace_id=rt.id, name="handle_message")
     repo.create_span(span)
@@ -910,7 +910,7 @@ def test_executor_token_revoke_idempotent(repo: SqliteRepository) -> None:
 # ── Discord Metadata ─────────────────────────────────────────
 
 def test_discord_channel_crud(repo: SqliteRepository) -> None:
-    guild = DiscordGuild(guild_id="g1", cogent_name="dr.gamma", name="Test Guild")
+    guild = DiscordGuild(guild_id="g1", cogent_name="gamma", name="Test Guild")
     repo.upsert_discord_guild(guild)
 
     ch = DiscordChannel(channel_id="c1", guild_id="g1", name="general", channel_type="text")
@@ -928,7 +928,7 @@ def test_discord_channel_crud(repo: SqliteRepository) -> None:
 
 
 def test_discord_guild_delete_cascades_channels(repo: SqliteRepository) -> None:
-    guild = DiscordGuild(guild_id="g1", cogent_name="dr.gamma", name="Test")
+    guild = DiscordGuild(guild_id="g1", cogent_name="gamma", name="Test")
     repo.upsert_discord_guild(guild)
     ch = DiscordChannel(channel_id="c1", guild_id="g1", name="ch", channel_type="text")
     repo.upsert_discord_channel(ch)

@@ -77,10 +77,10 @@ def test_update_rds_runs_brain_and_cogos_migrations(monkeypatch):
     )
 
     runner = CliRunner()
-    result = runner.invoke(update, ["rds"], obj={"cogent_id": "dr.gamma"})
+    result = runner.invoke(update, ["rds"], obj={"cogent_id": "gamma"})
 
     assert result.exit_code == 0
-    assert calls["ensure"] == ("dr.gamma", None)
+    assert calls["ensure"] == ("gamma", None)
     assert calls["repo"] is fake_repo
     assert "Schema at version 10." in result.output
     assert "CogOS SQL migrations applied" in result.output
