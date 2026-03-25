@@ -137,6 +137,20 @@ def create_app() -> FastAPI:
     async def healthz() -> dict:
         return {"ok": True}
 
+    @app.get("/api/version")
+    async def api_version() -> dict:
+        import subprocess
+        sha = "unknown"
+        try:
+            sha = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                stderr=subprocess.DEVNULL, timeout=2,
+            ).decode().strip()
+        except Exception:
+            pass
+        mcp_routes = [r.path for r in app.routes if hasattr(r, "path") and "mcp" in r.path]
+        return {"git_sha": sha, "mcp_routes": mcp_routes}
+
     # ── WebSocket ──────────────────────────────────────────────
 
     from dashboard.ws import manager
@@ -301,8 +315,8 @@ def create_app() -> FastAPI:
         mcp = FastApiMCP(app, name="cogos")
         mcp.mount_http(mount_path="/api/mcp")
         logger.info("FastAPI-MCP mounted at /api/mcp")
-    except ImportError:
-        logger.warning("fastapi-mcp not installed, /mcp endpoint unavailable")
+    except Exception:
+        logger.warning("fastapi-mcp setup failed", exc_info=True)
 
     # ── Static frontend files ──────────────────────────────────
 
