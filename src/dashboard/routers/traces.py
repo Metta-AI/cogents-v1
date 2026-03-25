@@ -345,6 +345,18 @@ def list_message_traces(
     for delivery in deliveries:
         deliveries_by_message.setdefault(delivery.message, []).append(delivery)
 
+    # Pre-fetch any missing runs referenced by deliveries to avoid N+1 get_run calls
+    missing_run_ids = []
+    for delivery in deliveries:
+        if delivery.run and delivery.run not in runs_by_id:
+            missing_run_ids.append(delivery.run)
+    if missing_run_ids:
+        # Deduplicate and batch-fetch
+        for rid in set(missing_run_ids):
+            run = repo.get_run(rid)
+            if run is not None:
+                runs_by_id[run.id] = run
+
     candidate_messages = []
     for message in messages:
         created_at = _as_utc(message.created_at)
@@ -372,10 +384,6 @@ def list_message_traces(
             handler = handlers_by_id.get(delivery.handler)
             process_id = handler.process if handler else None
             run = runs_by_id.get(delivery.run) if delivery.run else None
-            if delivery.run is not None and run is None:
-                run = repo.get_run(delivery.run)
-                if run is not None:
-                    runs_by_id[run.id] = run
 
             emitted_messages = []
             if run is not None:

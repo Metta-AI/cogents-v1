@@ -121,7 +121,12 @@ class CogosRepositoryInterface(Protocol):
     def create_handler(self, h: Handler) -> UUID: ...
 
     def list_handlers(
-        self, *, process_id: UUID | None = None, enabled_only: bool = False, epoch: int | None = None,
+        self,
+        *,
+        process_id: UUID | None = None,
+        enabled_only: bool = False,
+        epoch: int | None = None,
+        limit: int = 0,
     ) -> list[Handler]: ...
 
     def delete_handler(self, handler_id: UUID) -> bool: ...

@@ -151,8 +151,13 @@ def list_channels(
     if channel_type:
         channels = [ch for ch in channels if ch.channel_type.value == channel_type]
 
-    processes = repo.list_processes()
-    proc_names = {p.id: p.name for p in processes}
+    # Only build process name lookup for channels that have an owner
+    owner_pids = {ch.owner_process for ch in channels if ch.owner_process}
+    if owner_pids:
+        processes = repo.list_processes(limit=500)
+        proc_names = {p.id: p.name for p in processes if p.id in owner_pids}
+    else:
+        proc_names = {}
 
     # Batch-fetch message counts and handler counts to avoid N+1 queries
     channel_ids = [ch.id for ch in channels]
@@ -199,11 +204,20 @@ def get_channel(name: str, channel_id: str, limit: int = Query(50)) -> ChannelDe
     if not ch:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    processes = repo.list_processes()
-    proc_names = {p.id: p.name for p in processes}
     handlers = repo.match_handlers_by_channel(ch.id)
 
     msgs = repo.list_channel_messages(ch.id, limit=limit)
+
+    # Build process name lookup only for referenced processes
+    referenced_pids = {m.sender_process for m in msgs if m.sender_process}
+    if ch.owner_process:
+        referenced_pids.add(ch.owner_process)
+    if referenced_pids:
+        processes = repo.list_processes(limit=500)
+        proc_names: dict[UUID, str] = {p.id: p.name for p in processes if p.id in referenced_pids}
+    else:
+        proc_names = {}
+
     msg_out = [
         ChannelMessageOut(
             id=str(m.id),

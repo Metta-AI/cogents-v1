@@ -772,7 +772,12 @@ class RdsDataApiRepository:
         return h.id
 
     def list_handlers(
-        self, *, process_id: UUID | None = None, enabled_only: bool = False, epoch: int | None = None,
+        self,
+        *,
+        process_id: UUID | None = None,
+        enabled_only: bool = False,
+        epoch: int | None = None,
+        limit: int = 0,
     ) -> list[Handler]:
         effective_epoch = self.reboot_epoch if epoch is None else epoch
         conditions = []
@@ -786,8 +791,12 @@ class RdsDataApiRepository:
         if enabled_only:
             conditions.append("enabled = TRUE")
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        limit_clause = ""
+        if limit > 0:
+            limit_clause = " LIMIT :limit"
+            params.append(self._param("limit", limit))
         response = self._execute(
-            f"SELECT * FROM cogos_handler {where} ORDER BY created_at",
+            f"SELECT * FROM cogos_handler {where} ORDER BY created_at{limit_clause}",
             params or None,
         )
         return [self._handler_from_row(r) for r in self._rows_to_dicts(response)]

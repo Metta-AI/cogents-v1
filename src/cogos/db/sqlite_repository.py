@@ -1186,7 +1186,12 @@ class SqliteRepository:
         return h.id
 
     def list_handlers(
-        self, *, process_id: UUID | None = None, enabled_only: bool = False, epoch: int | None = None,
+        self,
+        *,
+        process_id: UUID | None = None,
+        enabled_only: bool = False,
+        epoch: int | None = None,
+        limit: int = 0,
     ) -> list[Handler]:
         sql = "SELECT * FROM cogos_handler WHERE 1=1"
         params: dict[str, Any] = {}
@@ -1200,6 +1205,8 @@ class SqliteRepository:
         if enabled_only:
             sql += " AND enabled = 1"
         sql += " ORDER BY channel"
+        if limit > 0:
+            sql += f" LIMIT {limit}"
         return [self._row_to_handler(r) for r in self._query(sql, params)]
 
     def delete_handler(self, handler_id: UUID) -> bool:
