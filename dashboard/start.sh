@@ -2,7 +2,7 @@
 set -e
 
 # Start FastAPI backend
-python -m uvicorn cogos.api.app:app --host 0.0.0.0 --port 8100 &
+python -m uvicorn cogos.api.app:app --host 0.0.0.0 --port 8100 --workers 3 &
 BACKEND_PID=$!
 
 # Pre-warm: wait for backend, then hit a real dashboard endpoint
@@ -17,10 +17,11 @@ for i in $(seq 1 30); do
         # 2. get_repo() → RDS Data API client creation (LRU cached)
         # 3. A real DB query to warm the connection
         # Use alerts endpoint (lightweight, just reads a small table)
-        COGENT_NAME="${COGENT:-unknown}"
-        curl -sf --max-time 45 "http://127.0.0.1:8100/api/cogents/${COGENT_NAME}/alerts" > /dev/null 2>&1 \
+        # Hit a lightweight endpoint to confirm backend is serving
+        # (auth + DB already warmed via lifespan in each worker)
+        curl -sf --max-time 10 "http://127.0.0.1:8100/api/version" > /dev/null 2>&1 \
             && echo "[start] Pre-warm complete" \
-            || echo "[start] Pre-warm timed out (non-fatal, first user request may be slow)"
+            || echo "[start] Pre-warm: backend not ready yet (non-fatal)"
         break
     fi
     sleep 1
