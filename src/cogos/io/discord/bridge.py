@@ -914,6 +914,11 @@ class DiscordBridge:
             return
 
         raw_channel = body.get("channel", "")
+        # Dashboard-originated messages use "dashboard" as channel_id;
+        # they are consumed by the dashboard chat UI, not Discord.
+        if raw_channel == "dashboard":
+            logger.debug("Skipping dashboard-targeted reply (not a Discord channel)")
+            return
         try:
             channel_id = int(raw_channel)
         except (ValueError, TypeError):
