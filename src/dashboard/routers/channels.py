@@ -32,7 +32,7 @@ def _count_channel_messages(repo, channel_id: UUID) -> int:
 
 
 def _batch_count_messages(repo, channel_ids: list[UUID]) -> dict[UUID, int]:
-    """Count messages for all channels in a single query."""
+    """Count messages per channel using a simple GROUP BY with a timeout fallback."""
     if not channel_ids:
         return {}
     try:
@@ -46,8 +46,8 @@ def _batch_count_messages(repo, channel_ids: list[UUID]) -> dict[UUID, int]:
             result[cid] = cnt
         return result
     except Exception:
-        logger.warning("Batch message count failed, falling back to per-channel", exc_info=True)
-        return {cid: _count_channel_messages(repo, cid) for cid in channel_ids}
+        logger.warning("Batch message count failed", exc_info=True)
+        return {}
 
 
 def _batch_count_handlers(repo, channel_ids: list[UUID]) -> dict[UUID, int]:

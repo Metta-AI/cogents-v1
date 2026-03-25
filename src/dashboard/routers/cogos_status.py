@@ -51,24 +51,27 @@ def cogos_status(
     repo = get_repo()
     ep = ALL_EPOCHS if epoch == "all" else None
 
-    # Process counts by status
+    # Process counts by status — need full list for proc_map below
     all_procs = repo.list_processes(epoch=ep)
     counts: dict[str, int] = {}
     for p in all_procs:
         s = p.status.value
         counts[s] = counts.get(s, 0) + 1
 
-    # File count
-    files = repo.list_files()
-    file_count = len(files)
+    # Use COUNT queries to avoid fetching large payloads
+    def _count(table: str) -> int:
+        try:
+            resp = repo._execute(f"SELECT COUNT(*) AS cnt FROM {table}")
+            records = resp.get("records", [])
+            if records and records[0]:
+                return records[0][0].get("longValue", 0)
+        except Exception:
+            pass
+        return 0
 
-    # Capability count
-    caps = repo.list_capabilities()
-    cap_count = len(caps)
-
-    # Channel count
-    channels = repo.list_channels()
-    channel_count = len(channels)
+    file_count = _count("cogos_file")
+    cap_count = _count("cogos_capability")
+    channel_count = _count("cogos_channel")
 
     # Recent runs (last 10) with process name
     proc_map = {p.id: p.name for p in all_procs}
