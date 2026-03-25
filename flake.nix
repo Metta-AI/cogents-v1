@@ -18,9 +18,10 @@
         pkgs = import nixpkgs { inherit system; };
 
         packagesList = [
-          pkgs.uv
+          pkgs.graphite_cli
           pkgs.nodejs_20
           pkgs.sqlite # For inspecting the db
+          pkgs.uv
         ];
       in
       {

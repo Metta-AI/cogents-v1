@@ -5,6 +5,7 @@ const bePort = process.env.DASHBOARD_BE_PORT || "8100";
 
 const nextConfig: NextConfig = {
   output: isExport ? "export" : "standalone",
+  transpilePackages: ["highlight.js"],
   ...(!isExport && {
     async rewrites() {
       return [
