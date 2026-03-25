@@ -74,8 +74,9 @@ def get_rendered_memory(
         return RenderedPromptResponse(prompt=full_prompt, layers=layers)
 
     # No process specified — return all files with resolved includes.
+    # Use bulk query to avoid N+1 (one query instead of 2N+1).
     try:
-        files = file_store.list_files(limit=5000)
+        file_contents = file_store.list_files_with_content(limit=5000)
     except Exception:
         logger.exception("Failed to list files for memory/rendered")
         raise HTTPException(status_code=500, detail="Failed to list files from store")
@@ -83,20 +84,15 @@ def get_rendered_memory(
     layers = []
     sections: list[str] = []
 
-    for idx, f in enumerate(sorted(files, key=lambda f: f.key)):
-        try:
-            content = file_store.get_content(f.key) or ""
-        except Exception:
-            logger.warning("Failed to read content for file %s", f.key)
-            content = f"(error reading {f.key})"
+    for idx, (key, content) in enumerate(file_contents):
         layers.append(
             PromptLayer(
-                name=f.key,
+                name=key,
                 content=content,
                 priority=100 - idx,
             )
         )
-        sections.append(f"--- {f.key} ---\n{content}")
+        sections.append(f"--- {key} ---\n{content}")
 
     full_text = "\n\n".join(sections)
     return RenderedPromptResponse(prompt=full_text, layers=layers)
