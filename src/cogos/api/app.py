@@ -308,6 +308,16 @@ def create_app() -> FastAPI:
                 return FileResponse(str(file_path))
             return FileResponse(str(index_html))
 
+    # ── MCP server — auto-expose all endpoints as tools ────────
+    try:
+        from fastapi_mcp import FastApiMCP
+
+        mcp = FastApiMCP(app, name="cogos")
+        mcp.mount()
+        logger.info("FastAPI-MCP mounted at /mcp")
+    except ImportError:
+        logger.warning("fastapi-mcp not installed, /mcp endpoint unavailable")
+
     return app
 
 
