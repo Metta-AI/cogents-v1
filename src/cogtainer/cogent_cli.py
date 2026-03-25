@@ -55,7 +55,8 @@ def cli(ctx: click.Context) -> None:
 
         runtime = create_runtime(entry, cogtainer_name=cogtainer_name)
         try:
-            db_info = runtime._get_db_info()
+            # TODO: _get_db_info should be on CogtainerRuntime base class, not just AwsRuntime
+            db_info = getattr(runtime, "_get_db_info", lambda: {})()  # type: ignore[arg-type]
             if db_info.get("cluster_arn"):
                 os.environ.setdefault("DB_CLUSTER_ARN", db_info["cluster_arn"])
                 os.environ.setdefault("DB_RESOURCE_ARN", db_info["cluster_arn"])

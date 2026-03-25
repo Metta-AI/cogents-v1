@@ -282,7 +282,7 @@ def _update_boot_versions(name: str, updates: dict[str, str]) -> None:
         content = fs.get_content("mnt/boot/versions.json")
         manifest = _json.loads(content) if content else {"components": {}}
         manifest.setdefault("components", {}).update(updates)
-        fs.put_content("mnt/boot/versions.json", _json.dumps(manifest))
+        fs.upsert("mnt/boot/versions.json", _json.dumps(manifest))
     except Exception:
         pass
 
