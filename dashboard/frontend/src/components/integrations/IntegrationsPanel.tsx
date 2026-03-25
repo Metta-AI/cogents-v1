@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Badge } from "@/components/shared/Badge";
 import {
   getIntegrations,
+  getIntegrationStatuses,
   updateIntegration,
-  deleteIntegration,
+  toggleIntegration,
   revealIntegrationField,
   type IntegrationInfo,
   type IntegrationField,
@@ -21,8 +22,15 @@ export function IntegrationsPanel({ cogentName }: IntegrationsPanelProps) {
   const [integrations, setIntegrations] = useState<IntegrationInfo[]>([]);
   const [setup, setSetup] = useState<Record<string, ChannelSetup>>({});
   const [loading, setLoading] = useState(true);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedName, setExpandedName] = useState<string | null>(null);
+  const [expandedName, setExpandedName] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return localStorage.getItem("integrations:expandedName") || null; } catch { return null; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("integrations:expandedName", expandedName || ""); } catch { /* ignore */ }
+  }, [expandedName]);
 
   const fetchIntegrations = useCallback(async () => {
     setLoading(true);
@@ -34,6 +42,21 @@ export function IntegrationsPanel({ cogentName }: IntegrationsPanelProps) {
     } finally {
       setLoading(false);
     }
+  }, [cogentName]);
+
+  const fetchStatuses = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const statuses = await getIntegrationStatuses(cogentName);
+      const byName = new Map(statuses.map((s) => [s.name, s]));
+      setIntegrations((prev) =>
+        prev.map((i) => {
+          const s = byName.get(i.name);
+          return s ? { ...i, status: s.status, config: s.config } : i;
+        }),
+      );
+    } catch { /* status is non-blocking */ }
+    finally { setStatusLoading(false); }
   }, [cogentName]);
 
   const fetchSetup = useCallback(async () => {
@@ -49,9 +72,10 @@ export function IntegrationsPanel({ cogentName }: IntegrationsPanelProps) {
 
   const fetchData = useCallback(async () => {
     await fetchIntegrations();
-  }, [fetchIntegrations]);
+    fetchStatuses();
+  }, [fetchIntegrations, fetchStatuses]);
 
-  useEffect(() => { fetchIntegrations(); fetchSetup(); }, [fetchIntegrations, fetchSetup]);
+  useEffect(() => { fetchIntegrations(); fetchStatuses(); fetchSetup(); }, [fetchIntegrations, fetchStatuses, fetchSetup]);
 
   if (loading && integrations.length === 0) {
     return <div style={{ color: "var(--text-muted)", padding: "2rem" }}>Loading integrations...</div>;
@@ -72,6 +96,7 @@ export function IntegrationsPanel({ cogentName }: IntegrationsPanelProps) {
           expanded={expandedName === integration.name}
           onToggle={() => setExpandedName(expandedName === integration.name ? null : integration.name)}
           onUpdate={fetchData}
+          statusLoading={statusLoading && integration.status === null}
         />
       ))}
     </div>
@@ -100,6 +125,7 @@ function IntegrationRow({
   expanded,
   onToggle,
   onUpdate,
+  statusLoading,
 }: {
   integration: IntegrationInfo;
   setupChannel?: ChannelSetup;
@@ -107,29 +133,34 @@ function IntegrationRow({
   expanded: boolean;
   onToggle: () => void;
   onUpdate: () => void;
+  statusLoading: boolean;
 }) {
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (expanded) {
       const values: Record<string, string> = {};
       for (const field of integration.fields) {
         if (field.type === "toggle") {
-          // Initialize toggles from current config, default false
           values[field.name] = integration.config[field.name] === "true" ? "true" : "false";
         } else {
-          values[field.name] = "";
+          values[field.name] = integration.config[field.name] ?? "";
         }
       }
       setFormValues(values);
       setSaveError(null);
-      setDeleteConfirm(false);
     }
   }, [expanded, integration.fields, integration.config]);
+
+  const hasChanges = useMemo(() => {
+    return integration.fields.some((field) => {
+      const current = integration.config[field.name] ?? "";
+      const edited = formValues[field.name] ?? "";
+      return edited !== current;
+    });
+  }, [formValues, integration.config, integration.fields]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -138,9 +169,12 @@ function IntegrationRow({
       const config: Record<string, string> = {};
       for (const [k, v] of Object.entries(formValues)) {
         const field = integration.fields.find((f) => f.name === k);
+        const original = integration.config[k] ?? "";
         if (field?.type === "toggle") {
-          // Always include toggle values
           config[k] = v;
+        } else if (v === original) {
+          // Unchanged — skip (especially masked secrets)
+          continue;
         } else if (v.trim()) {
           config[k] = v.trim();
         }
@@ -168,22 +202,24 @@ function IntegrationRow({
     }
   };
 
-  const handleDelete = async () => {
-    setDeleting(true);
+  const [toggling, setToggling] = useState(false);
+
+  const handleToggleEnabled = async () => {
+    setToggling(true);
     try {
-      await deleteIntegration(cogentName, integration.name);
-      setDeleteConfirm(false);
+      await toggleIntegration(cogentName, integration.name);
       onUpdate();
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Failed to delete");
+      setSaveError(e instanceof Error ? e.message : "Failed to toggle");
     } finally {
-      setDeleting(false);
+      setToggling(false);
     }
   };
 
-  const isConfigured = integration.status.configured;
+  const isConfigured = integration.status?.configured ?? false;
+  const isEnabled = integration.status?.enabled ?? true;
   const hasAnyConfig = Object.values(integration.config).some((v) => v && v !== "" && v !== "false");
-  const missingFields = new Set(integration.status.missing_fields);
+  const missingFields = new Set(integration.status?.missing_fields ?? []);
   const fieldGroups = groupFields(integration.fields);
   const hasToggles = integration.fields.some((f) => f.type === "toggle");
 
@@ -222,7 +258,7 @@ function IntegrationRow({
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <StatusPill configured={isConfigured} hasAnyConfig={hasAnyConfig} />
+          <StatusPill configured={isConfigured} hasAnyConfig={hasAnyConfig} loading={statusLoading} enabled={isEnabled} />
           <span style={{ color: "var(--text-muted)", fontSize: "12px", transform: expanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 150ms" }}>
             ▶
           </span>
@@ -239,7 +275,6 @@ function IntegrationRow({
                   key={group.input.name}
                   inputField={group.input}
                   toggleFields={group.toggles}
-                  config={integration.config}
                   formValues={formValues}
                   onChange={(name, v) => setFormValues((prev) => ({ ...prev, [name]: v }))}
                   cogentName={cogentName}
@@ -252,7 +287,6 @@ function IntegrationRow({
                 <FieldRow
                   key={field.name}
                   field={field}
-                  currentValue={integration.config[field.name] ?? ""}
                   editValue={formValues[field.name] ?? ""}
                   onChange={(v) => setFormValues((prev) => ({ ...prev, [field.name]: v }))}
                   cogentName={cogentName}
@@ -270,60 +304,25 @@ function IntegrationRow({
           <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
             <button
               onClick={handleSave}
-              disabled={saving}
-              className="text-[11px] px-3 py-1 rounded border-0 cursor-pointer disabled:opacity-40"
+              disabled={saving || !hasChanges}
+              className="text-[11px] px-3 py-1 rounded border-0 cursor-pointer disabled:opacity-40 disabled:cursor-default"
               style={{ background: "var(--accent)", color: "white" }}
             >
               {saving ? "Saving..." : "Save"}
             </button>
-            {isConfigured && !deleteConfirm && (
-              <button
-                onClick={() => setDeleteConfirm(true)}
-                className="text-[11px] px-3 py-1 rounded border cursor-pointer"
-                style={{ background: "transparent", borderColor: "var(--border)", color: "var(--error)" }}
-              >
-                Remove
-              </button>
-            )}
-            {deleteConfirm && (
-              <>
-                <span className="text-[11px] text-[var(--text-muted)]">Remove all config?</span>
-                <button
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="text-[11px] px-2 py-0.5 rounded border-0 cursor-pointer disabled:opacity-40"
-                  style={{ background: "var(--error)", color: "white" }}
-                >
-                  {deleting ? "..." : "Yes"}
-                </button>
-                <button
-                  onClick={() => setDeleteConfirm(false)}
-                  className="text-[11px] px-2 py-0.5 rounded border cursor-pointer"
-                  style={{ background: "transparent", borderColor: "var(--border)", color: "var(--text-muted)" }}
-                >
-                  No
-                </button>
-              </>
-            )}
+            <button
+              onClick={handleToggleEnabled}
+              disabled={toggling}
+              className="text-[11px] px-3 py-1 rounded border cursor-pointer disabled:opacity-40"
+              style={{ background: "transparent", borderColor: "var(--border)", color: isEnabled ? "var(--warning)" : "var(--success)" }}
+            >
+              {toggling ? "..." : isEnabled ? "Disable" : "Enable"}
+            </button>
           </div>
 
-          {/* Setup instructions */}
+          {/* Setup instructions (collapsible) */}
           {setupChannel && setupChannel.steps.length > 0 && (
-            <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-              <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)] mb-2">
-                Setup Instructions
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {setupChannel.steps.map((step, i) => (
-                  <StepItem key={step.key} index={i + 1} step={step} />
-                ))}
-              </div>
-              {setupChannel.diagnostics.length > 0 && (
-                <div className="mt-2 text-[11px] text-[var(--warning)] space-y-1">
-                  {setupChannel.diagnostics.map((d) => <div key={d}>{d}</div>)}
-                </div>
-              )}
-            </div>
+            <SetupInstructions setupChannel={setupChannel} />
           )}
         </div>
       )}
@@ -335,7 +334,6 @@ function IntegrationRow({
 function FieldGroup({
   inputField,
   toggleFields,
-  config,
   formValues,
   onChange,
   cogentName,
@@ -344,7 +342,6 @@ function FieldGroup({
 }: {
   inputField: IntegrationField;
   toggleFields: IntegrationField[];
-  config: Record<string, string>;
   formValues: Record<string, string>;
   onChange: (name: string, value: string) => void;
   cogentName: string;
@@ -355,7 +352,6 @@ function FieldGroup({
     <div>
       <FieldRow
         field={inputField}
-        currentValue={config[inputField.name] ?? ""}
         editValue={formValues[inputField.name] ?? ""}
         onChange={(v) => onChange(inputField.name, v)}
         cogentName={cogentName}
@@ -398,7 +394,6 @@ function TogglePill({ label, active, onToggle }: { label: string; active: boolea
 
 function FieldRow({
   field,
-  currentValue,
   editValue,
   onChange,
   cogentName,
@@ -406,7 +401,6 @@ function FieldRow({
   isMissing,
 }: {
   field: IntegrationField;
-  currentValue: string;
   editValue: string;
   onChange: (v: string) => void;
   cogentName: string;
@@ -414,7 +408,6 @@ function FieldRow({
   isMissing: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
-  const [revealedValue, setRevealedValue] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -422,11 +415,14 @@ function FieldRow({
   const inputType = isSecret && !revealed ? "password" : field.type === "email" ? "email" : field.type === "url" ? "url" : "text";
 
   const handleReveal = async () => {
-    if (revealed) { setRevealed(false); return; }
+    if (revealed) {
+      setRevealed(false);
+      return;
+    }
     setRevealing(true);
     try {
       const raw = await revealIntegrationField(cogentName, integrationName, field.name);
-      setRevealedValue(raw);
+      onChange(raw);
       setRevealed(true);
     } catch { /* ignore */ }
     finally { setRevealing(false); }
@@ -434,8 +430,9 @@ function FieldRow({
 
   const handleCopy = async () => {
     try {
-      let value = revealedValue;
-      if (!value) {
+      let value = editValue;
+      // If still masked, fetch the real value first
+      if (isSecret && !revealed && editValue.includes("••••")) {
         value = await revealIntegrationField(cogentName, integrationName, field.name);
       }
       if (value) {
@@ -446,10 +443,6 @@ function FieldRow({
     } catch { /* ignore */ }
   };
 
-  const placeholder = currentValue
-    ? revealed && revealedValue ? revealedValue : `Current: ${currentValue}`
-    : field.placeholder || field.label;
-
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
@@ -458,16 +451,13 @@ function FieldRow({
           {field.required && <span style={{ color: "var(--error)", marginLeft: 2 }}>*</span>}
           {isMissing && <span className="text-[9px] ml-1">(required)</span>}
         </label>
-        {currentValue && !isSecret && (
-          <span className="text-[10px] font-mono text-[var(--text-muted)]">{currentValue}</span>
-        )}
       </div>
       <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
         {field.type === "textarea" ? (
           <textarea
             value={editValue}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
+            placeholder={field.placeholder || field.label}
             rows={3}
             className="w-full px-2 py-1.5 text-[12px] rounded border font-mono resize-y"
             style={{ background: "var(--bg-base)", borderColor: "var(--border)", color: "var(--text-primary)" }}
@@ -476,8 +466,8 @@ function FieldRow({
           <input
             type={inputType}
             value={editValue}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
+            onChange={(e) => { onChange(e.target.value); if (isSecret && revealed) setRevealed(false); }}
+            placeholder={field.placeholder || field.label}
             className="flex-1 min-w-0 px-2 py-1.5 text-[12px] rounded border"
             style={{
               background: "var(--bg-base)",
@@ -487,12 +477,12 @@ function FieldRow({
             }}
           />
         )}
-        {isSecret && currentValue && (
+        {isSecret && editValue && (
           <>
             <button
               onClick={handleReveal}
               disabled={revealing}
-              title={revealed ? "Hide" : "View"}
+              title={revealed ? "Hide" : "Reveal"}
               className="text-[11px] px-1.5 py-1.5 rounded border cursor-pointer shrink-0"
               style={{ background: "transparent", borderColor: "var(--border)", color: "var(--text-muted)", lineHeight: 1 }}
             >
@@ -531,6 +521,36 @@ function FieldRow({
       </div>
       {field.help_text && (
         <div className="text-[10px] text-[var(--text-muted)] mt-1">{field.help_text}</div>
+      )}
+    </div>
+  );
+}
+
+function SetupInstructions({ setupChannel }: { setupChannel: ChannelSetup }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-[11px] uppercase tracking-wide text-[var(--text-muted)] cursor-pointer bg-transparent border-0 p-0 flex items-center gap-1 select-none"
+        style={{ fontWeight: 500 }}
+      >
+        <span style={{ display: "inline-block", width: 12, fontSize: 10, transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 150ms" }}>▶</span>
+        Setup Instructions
+      </button>
+      {open && (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+            {setupChannel.steps.map((step, i) => (
+              <StepItem key={step.key} index={i + 1} step={step} />
+            ))}
+          </div>
+          {setupChannel.diagnostics.length > 0 && (
+            <div className="mt-2 text-[11px] text-[var(--warning)] space-y-1">
+              {setupChannel.diagnostics.map((d) => <div key={d}>{d}</div>)}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -583,7 +603,29 @@ function StepItem({ index, step }: { index: number; step: SetupStep }) {
   );
 }
 
-function StatusPill({ configured, hasAnyConfig }: { configured: boolean; hasAnyConfig: boolean }) {
+function StatusPill({ configured, hasAnyConfig, loading, enabled }: { configured: boolean; hasAnyConfig: boolean; loading: boolean; enabled: boolean }) {
+  if (loading) {
+    return (
+      <span style={{
+        display: "inline-block", padding: "2px 8px", borderRadius: 12,
+        fontSize: "10px", fontWeight: 500, background: "rgba(148,163,184,0.12)", color: "var(--text-muted)",
+        animation: "pulse 1.5s ease-in-out infinite",
+      }}>
+        <style>{`@keyframes pulse { 0%, 100% { opacity: 0.4 } 50% { opacity: 1 } }`}</style>
+        ···
+      </span>
+    );
+  }
+  if (!enabled && hasAnyConfig) {
+    return (
+      <span style={{
+        display: "inline-block", padding: "2px 8px", borderRadius: 12,
+        fontSize: "10px", fontWeight: 500, background: "rgba(148,163,184,0.12)", color: "var(--text-muted)",
+      }}>
+        Disabled
+      </span>
+    );
+  }
   const bg = configured ? "rgba(34,197,94,0.12)" : hasAnyConfig ? "rgba(239,68,68,0.12)" : "rgba(250,204,21,0.12)";
   const color = configured ? "var(--success)" : hasAnyConfig ? "var(--error)" : "var(--warning)";
   const label = configured ? "Connected" : hasAnyConfig ? "Incomplete" : "Not configured";

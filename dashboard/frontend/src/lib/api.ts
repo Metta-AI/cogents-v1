@@ -705,6 +705,7 @@ export interface IntegrationField {
 export interface IntegrationStatus {
   configured: boolean;
   missing_fields: string[];
+  enabled: boolean;
 }
 
 export interface IntegrationInfo {
@@ -712,6 +713,12 @@ export interface IntegrationInfo {
   display_name: string;
   description: string;
   fields: IntegrationField[];
+  status: IntegrationStatus | null;
+  config: Record<string, string>;
+}
+
+export interface IntegrationStatusEntry {
+  name: string;
   status: IntegrationStatus;
   config: Record<string, string>;
 }
@@ -719,6 +726,13 @@ export interface IntegrationInfo {
 export async function getIntegrations(name: string): Promise<IntegrationInfo[]> {
   const r = await fetchJSON<{ integrations: IntegrationInfo[] }>(
     `/api/cogents/${name}/integrations`,
+  );
+  return r.integrations;
+}
+
+export async function getIntegrationStatuses(name: string): Promise<IntegrationStatusEntry[]> {
+  const r = await fetchJSON<{ integrations: IntegrationStatusEntry[] }>(
+    `/api/cogents/${name}/integrations/status`,
   );
   return r.integrations;
 }
@@ -753,6 +767,18 @@ export async function revealIntegrationField(
     `/api/cogents/${name}/integrations/${integrationName}/reveal/${fieldName}`,
   );
   return r.value;
+}
+
+export async function toggleIntegration(
+  name: string,
+  integrationName: string,
+): Promise<IntegrationInfo> {
+  const resp = await fetch(
+    `/api/cogents/${name}/integrations/${integrationName}/toggle`,
+    { method: "POST", headers: headers() },
+  );
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+  return resp.json();
 }
 
 export async function deleteIntegration(

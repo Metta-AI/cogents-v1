@@ -7,9 +7,12 @@ depend directly on AWS SDK calls.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 # ── Helper ───────────────────────────────────────────────────
 
@@ -192,6 +195,27 @@ class AwsSecretsProvider:
             for secret in page.get("SecretList", []):
                 keys.append(secret["Name"])
         return keys
+
+    def prefetch(self, prefix: str) -> None:
+        """Batch-load all secrets matching *prefix* into the cache."""
+        if self._sm_client is None:
+            self._sm_client = self._session.client("secretsmanager", region_name=self._region)
+        try:
+            paginator = self._sm_client.get_paginator("batch_get_secret_value")
+            for page in paginator.paginate(
+                Filters=[{"Key": "name", "Values": [prefix]}],
+            ):
+                for entry in page.get("SecretValues", []):
+                    name = entry.get("Name", "")
+                    value = entry.get("SecretString")
+                    if name and value is not None:
+                        self._cache[name] = value
+                for err in page.get("Errors", []):
+                    name = err.get("SecretId", "")
+                    if name:
+                        self._negative_cache.add(name)
+        except Exception:
+            logger.debug("prefetch(%s) failed, falling back to per-key fetch", prefix)
 
     def delete_secret(self, key: str) -> None:
         if self._sm_client is None:

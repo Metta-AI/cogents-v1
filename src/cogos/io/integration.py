@@ -115,9 +115,11 @@ class Integration(ABC):
         configured = bool(config)
         required_fields = [f.name for f in self.fields() if f.required]
         missing = [f for f in required_fields if not config.get(f)]
+        enabled = config.get("enabled", "true") != "false"
         return {
             "configured": configured and len(missing) == 0,
             "missing_fields": missing,
+            "enabled": enabled,
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -180,7 +182,8 @@ class NotificationsIntegration(Integration):
         has_discord = bool(config.get("discord_handle"))
         has_email = bool(config.get("email_address"))
         configured = has_discord or has_email
-        return {"configured": configured, "missing_fields": []}
+        enabled = config.get("enabled", "true") != "false"
+        return {"configured": configured, "missing_fields": [], "enabled": enabled}
 
 
 # ── Concrete integrations ────────────────────────────────────────
@@ -219,6 +222,12 @@ class DiscordIntegration(Integration):
             ),
         ]
 
+    def load_config(self, cogent_name: str, *, secrets_provider: object) -> dict[str, Any]:
+        config = super().load_config(cogent_name, secrets_provider=secrets_provider)
+        if not config.get("display_name"):
+            config["display_name"] = cogent_name
+        return config
+
     def status(
         self, cogent_name: str, *, secrets_provider: object, _config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -237,12 +246,13 @@ class DiscordIntegration(Integration):
             logger.warning("Discord bot token check failed: %s: %s", type(exc).__name__, exc)
         has_persona = bool(persona.get("display_name"))
         configured = bot_configured and has_persona
+        enabled = persona.get("enabled", "true") != "false"
         missing: list[str] = []
         if not bot_configured:
             missing.append("bot_token (shared)")
         if not has_persona:
             missing.append("display_name")
-        return {"configured": configured, "missing_fields": missing}
+        return {"configured": configured, "missing_fields": missing, "enabled": enabled}
 
 
 class GitHubIntegration(Integration):
@@ -273,40 +283,9 @@ class GitHubIntegration(Integration):
         return [
             FieldSpec(
                 name="access_token", label="Personal Access Token", field_type="secret",
-                required=False, help_text="GitHub PAT (ghp_...). Use this OR App credentials below.",
-            ),
-            FieldSpec(
-                name="app_id", label="App ID",
-                required=False, help_text="GitHub App ID (alternative to PAT).",
-            ),
-            FieldSpec(
-                name="private_key", label="Private Key", field_type="secret",
-                required=False, help_text="PEM-encoded private key for the GitHub App.",
-            ),
-            FieldSpec(
-                name="webhook_secret", label="Webhook Secret", field_type="secret",
-                required=False, help_text="Shared secret for webhook signature verification.",
-            ),
-            FieldSpec(
-                name="installation_id", label="Installation ID",
-                required=False, help_text="Installation ID if pre-configured.",
+                required=False, help_text="GitHub PAT (ghp_...).",
             ),
         ]
-
-    def status(
-        self, cogent_name: str, *, secrets_provider: object, _config: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        config = (
-            _config if _config is not None
-            else self.load_config(cogent_name, secrets_provider=secrets_provider)
-        )
-        has_pat = bool(config.get("access_token"))
-        has_app = bool(config.get("app_id") and config.get("private_key"))
-        configured = has_pat or has_app
-        missing: list[str] = []
-        if not configured:
-            missing.append("access_token or app_id+private_key")
-        return {"configured": configured, "missing_fields": missing}
 
 
 class AsanaIntegration(Integration):
@@ -335,14 +314,6 @@ class AsanaIntegration(Integration):
             FieldSpec(
                 name="access_token", label="Personal Access Token",
                 field_type="secret", help_text="Asana personal access token.",
-            ),
-            FieldSpec(
-                name="workspace_id", label="Workspace ID",
-                required=False, help_text="Asana workspace GID.",
-            ),
-            FieldSpec(
-                name="project_id", label="Project ID",
-                required=False, help_text="Default project GID for task operations.",
             ),
         ]
 
@@ -373,15 +344,7 @@ class EmailIntegration(Integration):
         return [
             FieldSpec(
                 name="address", label="Email Address", field_type="email",
-                required=False, help_text="Auto-configured as cogent-name@<your-domain>.",
-            ),
-            FieldSpec(
-                name="ses_region", label="SES Region", required=False,
-                placeholder="us-east-1", help_text="AWS region for SES.",
-            ),
-            FieldSpec(
-                name="ingest_url", label="Ingest URL", field_type="url",
-                required=False, help_text="CloudFlare worker URL for inbound mail.",
+                required=False, help_text="Derived from cogent name and email domain.",
             ),
         ]
 
@@ -395,16 +358,30 @@ class EmailIntegration(Integration):
     def _secret_key(self, cogent_name: str) -> str:
         return f"cogent/{cogent_name}/{self.name}"
 
+    def load_config(self, cogent_name: str, *, secrets_provider: object) -> dict[str, Any]:
+        config = super().load_config(cogent_name, secrets_provider=secrets_provider)
+        # Auto-populate address from domain secret if not explicitly set
+        if not config.get("address"):
+            domain = self._read_domain(secrets_provider)
+            address = self.address_for(cogent_name, domain)
+            if address:
+                config["address"] = address
+        return config
+
     def status(
         self, cogent_name: str, *, secrets_provider: object, _config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Email is configured when the cogtainer email domain secret is set."""
-        domain = self._read_domain(secrets_provider)
-        address = self.address_for(cogent_name, domain)
+        config = (
+            _config if _config is not None
+            else self.load_config(cogent_name, secrets_provider=secrets_provider)
+        )
+        address = config.get("address", "")
+        enabled = config.get("enabled", "true") != "false"
         return {
             "configured": bool(address),
             "missing_fields": [] if address else ["domain"],
-            "address": address,
+            "enabled": enabled,
         }
 
     @staticmethod
@@ -499,7 +476,12 @@ class WebIntegration(Integration):
     def status(
         self, cogent_name: str, *, secrets_provider: object, _config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return {"configured": True, "missing_fields": []}
+        config = (
+            _config if _config is not None
+            else self.load_config(cogent_name, secrets_provider=secrets_provider)
+        )
+        enabled = config.get("enabled", "true") != "false"
+        return {"configured": True, "missing_fields": [], "enabled": enabled}
 
 
 class GoogleIntegration(Integration):
@@ -521,8 +503,8 @@ class GoogleIntegration(Integration):
     def fields(self) -> list[FieldSpec]:
         return [
             FieldSpec(
-                name="share_email", label="Share With", field_type="text",
-                required=False, help_text="Share files/calendars with this email (read-only).",
+                name="service_account_key", label="Service Account Key", field_type="secret",
+                required=False, help_text="GCP service account JSON key.",
             ),
             FieldSpec(
                 name="drive_enabled", label="Google Drive", field_type="toggle",
@@ -541,28 +523,6 @@ class GoogleIntegration(Integration):
                 required=False, help_text="Enable access to Google Calendar.",
             ),
         ]
-
-    def status(
-        self,
-        cogent_name: str,
-        *,
-        secrets_provider: object,
-        _config: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Check whether the service account key has been provisioned."""
-        config = (
-            _config
-            if _config is not None
-            else self.load_config(cogent_name, secrets_provider=secrets_provider)
-        )
-        has_key = bool(config.get("private_key") or config.get("type") == "service_account")
-        group_email = config.get("group_email", "")
-        sa_email = config.get("service_account_email", "")
-        return {
-            "configured": has_key,
-            "missing_fields": [] if has_key else ["service_account_key"],
-            "share_email": group_email or sa_email,
-        }
 
 
 # ── Registry ─────────────────────────────────────────────────────

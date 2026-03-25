@@ -1986,7 +1986,10 @@ function ProcessFormEditor({
 /* ── Main Panel ── */
 
 export function ProcessesPanel({ processes, cogentName, onRefresh, resources, runs, files, capabilities, eventTypes, currentEpoch }: Props) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return localStorage.getItem("processes:selectedId") || null; } catch { return null; }
+  });
   const [editingId, setEditingId] = useState<string | null>(null); // "new" for create
   const [form, setForm] = useState<ProcessForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -2002,9 +2005,41 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
   const [detailIncludes, setDetailIncludes] = useState<Array<{ key: string; content: string }>>([]);
   const [detailHandlers, setDetailHandlers] = useState<Array<{ id: string; channel_name?: string; channel?: string; enabled: boolean }>>([]);
   const [editingFileKey, setEditingFileKey] = useState<string | null>(null);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<"tree" | "status">("tree");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try { const s = localStorage.getItem("processes:collapsedGroups"); return s ? new Set(JSON.parse(s) as string[]) : new Set(); } catch { return new Set(); }
+  });
+  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try { const s = localStorage.getItem("processes:collapsedNodes"); return s ? new Set(JSON.parse(s) as string[]) : new Set(); } catch { return new Set(); }
+  });
+  const [viewMode, setViewMode] = useState<"tree" | "status">(() => {
+    if (typeof window === "undefined") return "tree";
+    try { const s = localStorage.getItem("processes:viewMode"); return s === "status" ? "status" : "tree"; } catch { return "tree"; }
+  });
+  const [excludedStatuses, setExcludedStatuses] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set(["disabled"]);
+    try {
+      const stored = localStorage.getItem("processes:excludedStatuses");
+      if (stored) return new Set(JSON.parse(stored) as string[]);
+    } catch { /* ignore */ }
+    return new Set(["disabled"]);
+  });
+  useEffect(() => {
+    try { localStorage.setItem("processes:excludedStatuses", JSON.stringify([...excludedStatuses])); } catch { /* ignore */ }
+  }, [excludedStatuses]);
+  useEffect(() => {
+    try { localStorage.setItem("processes:selectedId", selectedId || ""); } catch { /* ignore */ }
+  }, [selectedId]);
+  useEffect(() => {
+    try { localStorage.setItem("processes:collapsedGroups", JSON.stringify([...collapsedGroups])); } catch { /* ignore */ }
+  }, [collapsedGroups]);
+  useEffect(() => {
+    try { localStorage.setItem("processes:collapsedNodes", JSON.stringify([...collapsedNodes])); } catch { /* ignore */ }
+  }, [collapsedNodes]);
+  useEffect(() => {
+    try { localStorage.setItem("processes:viewMode", viewMode); } catch { /* ignore */ }
+  }, [viewMode]);
   const [sessionLogRunId, setSessionLogRunId] = useState<string | null>(null);
 
   const resourceSuggestions = useMemo(() => resources.map((r) => r.name), [resources]);
@@ -2174,11 +2209,27 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
                 acc[p.status] = (acc[p.status] || 0) + 1;
                 return acc;
               }, {}),
-            ).map(([status, count]) => (
-              <Badge key={status} variant={STATUS_VARIANT[status] || "neutral"}>
-                {count} {status}
-              </Badge>
-            ))}
+            ).map(([status, count]) => {
+              const active = !excludedStatuses.has(status);
+              return (
+                <button
+                  key={status}
+                  onClick={() => setExcludedStatuses((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(status)) next.delete(status);
+                    else next.add(status);
+                    return next;
+                  })}
+                  className="border-0 p-0 cursor-pointer bg-transparent"
+                  style={{ opacity: active ? 1 : 0.4 }}
+                  title={active ? `Hide ${status}` : `Show ${status}`}
+                >
+                  <Badge variant={STATUS_VARIANT[status] || "neutral"}>
+                    {count} {status}
+                  </Badge>
+                </button>
+              );
+            })}
           </div>
           <button
             onClick={handleNew}
@@ -2234,11 +2285,13 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
       )}
 
       {(() => {
+        // Filter by selected statuses
+        const filteredProcesses = processes.filter((p) => !excludedStatuses.has(p.status));
         // Build parent→children map
-        const procById = new Map(processes.map((p) => [p.id, p]));
+        const procById = new Map(filteredProcesses.map((p) => [p.id, p]));
         const childrenByParent = new Map<string, CogosProcess[]>();
         const rootProcesses: CogosProcess[] = [];
-        for (const p of processes) {
+        for (const p of filteredProcesses) {
           if (p.parent_process && procById.has(p.parent_process)) {
             const siblings = childrenByParent.get(p.parent_process) || [];
             siblings.push(p);
@@ -2284,7 +2337,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
           // Status view: flat list grouped by status, with ancestor breadcrumbs
           grouped = STATUS_ORDER
             .map((status) => {
-              const matching = processes.filter((p) => p.status === status);
+              const matching = filteredProcesses.filter((p) => p.status === status);
               const entries: GroupEntry[] = matching.map((p) => ({
                 proc: p, depth: 0, ancestors: ancestorPath(p),
               }));
@@ -2292,7 +2345,7 @@ export function ProcessesPanel({ processes, cogentName, onRefresh, resources, ru
             })
             .filter((g) => g.entries.length > 0);
           const knownStatuses = new Set(STATUS_ORDER);
-          const extra = processes.filter((p) => !knownStatuses.has(p.status));
+          const extra = filteredProcesses.filter((p) => !knownStatuses.has(p.status));
           if (extra.length > 0) {
             grouped.push({ label: "other", variant: "neutral", entries: extra.map((p) => ({ proc: p, depth: 0, ancestors: ancestorPath(p) })) });
           }
