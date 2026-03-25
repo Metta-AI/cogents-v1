@@ -118,7 +118,8 @@ class ContextEngine:
             result.append({"key": key, "content": f"[not found: {key}]", "is_direct": key in direct_keys})
             return
 
-        content = self._get_content(key) or ""
+        content = self._get_content(key)
+        assert content is not None, f"content must exist for file {key}"
         for ref_key in self._extract_refs(content):
             self._collect_tree(ref_key, seen, result, direct_keys)
         result.append({"key": key, "content": content, "is_direct": key in direct_keys})
@@ -143,7 +144,8 @@ class ContextEngine:
 
     def _resolve_prompt_reference_keys(self, process: Process) -> list[str]:
         keys: list[str] = []
-        for key in extract_file_references(process.content or ""):
+        assert process.content is not None, "process.content must be set"
+        for key in extract_file_references(process.content):
             if self._can_process_read_key(process, key):
                 keys.append(key)
             else:
@@ -177,7 +179,8 @@ class ContextEngine:
             if not capability:
                 continue
 
-            cfg = grant.config or {}
+            assert isinstance(grant.config, dict), "grant.config must be a dict"
+            cfg = grant.config
             ops = cfg.get("ops")
             if isinstance(ops, list) and "read" not in ops:
                 continue
@@ -211,7 +214,8 @@ class ContextEngine:
             logger.warning("Included file not found: %s", key)
             return msg
 
-        content = self._get_content(key) or ""
+        content = self._get_content(key)
+        assert content is not None, f"content must exist for file {key}"
 
         header = f"--- {key} ---"
         return f"{header}\n{self._expand_text(content, visited=set(visited))}"
@@ -243,7 +247,8 @@ class ContextEngine:
     def _extract_refs(text: str) -> list[str]:
         seen: set[str] = set()
         refs: list[str] = []
-        for match in PROMPT_REF_RE.finditer(text or ""):
+        assert text is not None, "text must not be None"
+        for match in PROMPT_REF_RE.finditer(text):
             key = match.group(1).strip()
             if not key or key in seen:
                 continue

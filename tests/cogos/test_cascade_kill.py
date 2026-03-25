@@ -87,9 +87,9 @@ def _setup_with_procs(tmp_path):
                 "handler": "cogos.capabilities.procs:ProcsCapability",
                 "description": "",
                 "instructions": "",
-                "schema": None,
+                "schema": {},
                 "iam_role_arn": None,
-                "metadata": None,
+                "metadata": {},
             },
         ]
     )
@@ -159,7 +159,7 @@ def test_init_spawn_detached_does_not_crash(tmp_path):
     repo = SqliteRepository(str(tmp_path))
     spec = ImageSpec(capabilities=[
         {"name": "procs", "handler": "cogos.capabilities.procs:ProcsCapability",
-         "description": "", "instructions": "", "schema": None, "iam_role_arn": None, "metadata": None},
+         "description": "", "instructions": "", "schema": {}, "iam_role_arn": None, "metadata": {}},
     ])
     apply_image(spec, repo)
     init_proc = Process(name="init", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE)

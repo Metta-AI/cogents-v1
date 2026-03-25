@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -343,13 +344,15 @@ def get_process(name: str, process_id: str) -> dict:
             ch_name = ch.name if ch else str(h.channel)
         handler_list.append({"id": str(h.id), "channel": ch_name, "enabled": h.enabled})
 
+    capability_configs = {g["grant_name"]: g["config"] for g in cap_grants}
+
     return {
         "process": _detail(p).model_dump(),
         "runs": run_list,
         "resolved_prompt": resolved_prompt,
         "prompt_tree": prompt_tree,
         "capabilities": [g["grant_name"] for g in cap_grants],
-        "capability_configs": {g["grant_name"]: g["config"] or {} for g in cap_grants},
+        "capability_configs": capability_configs,
         "cap_grants": cap_grants,
         "includes": includes,
         "handlers": handler_list,
@@ -368,13 +371,13 @@ def create_process(name: str, body: ProcessCreate) -> ProcessDetail:
         status=ProcessStatus(body.status),
         parent_process=UUID(body.parent_process) if body.parent_process else None,
         model=body.model,
-        model_constraints=body.model_constraints or {},
+        model_constraints=body.model_constraints if body.model_constraints is not None else {},
         return_schema=body.return_schema,
         max_duration_ms=body.max_duration_ms,
         max_retries=body.max_retries,
         preemptible=body.preemptible,
         clear_context=body.clear_context,
-        metadata=body.metadata or {},
+        metadata=body.metadata if body.metadata is not None else {},
     )
     if body.output_events is not None:
         p.output_events = body.output_events
@@ -384,7 +387,7 @@ def create_process(name: str, body: ProcessCreate) -> ProcessDetail:
         _sync_capabilities_from_grants(p.id, body.cap_grants, repo)
     elif body.capabilities is not None:
         # Legacy: convert capabilities list to grants
-        configs = body.capability_configs or {}
+        configs = body.capability_configs if body.capability_configs is not None else {}
         grants = [CapGrantIn(grant_name=n, capability_name=n, config=configs.get(n)) for n in body.capabilities]
         _sync_capabilities_from_grants(p.id, grants, repo)
     if body.handlers is not None:
@@ -434,7 +437,7 @@ def update_process(name: str, process_id: str, body: ProcessUpdate) -> ProcessDe
     if body.cap_grants is not None:
         _sync_capabilities_from_grants(p.id, body.cap_grants, repo)
     elif body.capabilities is not None:
-        configs = body.capability_configs or {}
+        configs = body.capability_configs if body.capability_configs is not None else {}
         grants = [CapGrantIn(grant_name=n, capability_name=n, config=configs.get(n)) for n in body.capabilities]
         _sync_capabilities_from_grants(p.id, grants, repo)
     if body.handlers is not None:
@@ -492,8 +495,10 @@ def get_process_logs(
                 )
             )
 
-    # Sort by created_at
-    entries.sort(key=lambda e: e.created_at or "")
+    # Sort by created_at — assert guarantees non-None, cast for pyright
+    for e in entries:
+        assert e.created_at is not None
+    entries.sort(key=lambda e: cast(str, e.created_at))
 
     return ProcessLogsResponse(
         process_id=str(p.id),

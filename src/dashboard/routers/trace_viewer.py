@@ -129,7 +129,8 @@ def get_trace(name: str, trace_id: str) -> TraceOut:
         if span.status.value == "errored":
             error_count += 1
 
-        meta = span.metadata or {}
+        assert span.metadata is not None
+        meta = span.metadata
         total_tokens_in += meta.get("tokens_in", 0)
         total_tokens_out += meta.get("tokens_out", 0)
         total_cost += meta.get("cost_usd", 0.0)

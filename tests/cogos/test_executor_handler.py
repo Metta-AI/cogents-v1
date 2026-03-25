@@ -94,7 +94,7 @@ def test_executor_recreates_missing_dispatch_run(monkeypatch, tmp_path):
     monkeypatch.setattr(
         executor_handler,
         "execute_process",
-        lambda process, event_data, run, config, repo, **kwargs: run,
+        lambda process, event_data, run, config, repo, **kwargs: setattr(run, "model_version", "test") or run,
     )
     missing_run_id = uuid4()
 
@@ -145,7 +145,7 @@ def test_daemon_returns_to_runnable_when_more_deliveries_wait(monkeypatch, tmp_p
     monkeypatch.setattr(
         executor_handler,
         "execute_process",
-        lambda process, event_data, run, config, repo, **kwargs: run,
+        lambda process, event_data, run, config, repo, **kwargs: setattr(run, "model_version", "test") or run,
     )
 
     result = executor_handler.handler(
@@ -343,7 +343,9 @@ def test_daemon_not_suspended_if_success_breaks_streak(monkeypatch, tmp_path):
         fail_count["n"] += 1
         if fail_count["n"] == 2:
             # Second call succeeds
-            return args[2]  # return the run
+            run = args[2]
+            run.model_version = "test"
+            return run
         raise RuntimeError("boom")
 
     monkeypatch.setattr(executor_handler, "execute_process", _sometimes_fail)

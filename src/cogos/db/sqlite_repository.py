@@ -381,7 +381,9 @@ class SqliteRepository:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
-        self._conn.create_function("regexp", 2, lambda pattern, string: bool(re.search(pattern, string or "")))
+        self._conn.create_function(
+            "regexp", 2, lambda pattern, string: bool(re.search(pattern, string if string is not None else "")),
+        )
         self._conn.executescript(_SCHEMA_SQL)
         self._ingress_queue_url = ingress_queue_url
         self._nudge_callback = nudge_callback
@@ -420,6 +422,22 @@ class SqliteRepository:
         if s is None:
             return None
         return json.loads(s)
+
+    def _json_loads_dict(self, s: str | None) -> dict:
+        """Load JSON that must be a dict. Asserts type correctness."""
+        if s is None:
+            return {}
+        result = json.loads(s)
+        assert isinstance(result, dict), f"Expected dict from JSON, got {type(result).__name__}"
+        return result
+
+    def _json_loads_list(self, s: str | None) -> list:
+        """Load JSON that must be a list. Asserts type correctness."""
+        if s is None:
+            return []
+        result = json.loads(s)
+        assert isinstance(result, list), f"Expected list from JSON, got {type(result).__name__}"
+        return result
 
     # ── Nudge ─────────────────────────────────────────────────
 
@@ -461,15 +479,15 @@ class SqliteRepository:
             mode=ProcessMode(row["mode"]),
             content=row["content"],
             priority=row["priority"],
-            resources=self._json_loads(row["resources"]) or [],
-            required_tags=self._json_loads(row["required_tags"]) or [],
+            resources=self._json_loads_list(row["resources"]),
+            required_tags=self._json_loads_list(row["required_tags"]),
             executor=row["executor"],
             status=ProcessStatus(row["status"]),
             runnable_since=self._parse_dt(row.get("runnable_since")),
             parent_process=self._parse_uuid(row.get("parent_process")),
             preemptible=bool(row["preemptible"]),
             model=row.get("model"),
-            model_constraints=self._json_loads(row["model_constraints"]) or {},
+            model_constraints=self._json_loads_dict(row["model_constraints"]),
             return_schema=self._json_loads(row.get("return_schema")),
             idle_timeout_ms=row.get("idle_timeout_ms"),
             max_duration_ms=row.get("max_duration_ms"),
@@ -478,8 +496,8 @@ class SqliteRepository:
             retry_backoff_ms=row.get("retry_backoff_ms"),
             clear_context=bool(row["clear_context"]),
             tty=bool(row["tty"]),
-            metadata=self._json_loads(row["metadata"]) or {},
-            output_events=self._json_loads(row["output_events"]) or [],
+            metadata=self._json_loads_dict(row["metadata"]),
+            output_events=self._json_loads_list(row["output_events"]),
             schema_id=self._parse_uuid(row.get("schema_id")),
             created_at=self._parse_dt(row.get("created_at")),
             updated_at=self._parse_dt(row.get("updated_at")),
@@ -492,10 +510,10 @@ class SqliteRepository:
             description=row["description"],
             instructions=row["instructions"],
             handler=row["handler"],
-            schema=self._json_loads(row["schema"]) or {},
+            schema=self._json_loads_dict(row["schema"]),
             iam_role_arn=row.get("iam_role_arn"),
             enabled=bool(row["enabled"]),
-            metadata=self._json_loads(row["metadata"]) or {},
+            metadata=self._json_loads_dict(row["metadata"]),
             created_at=self._parse_dt(row.get("created_at")),
             updated_at=self._parse_dt(row.get("updated_at")),
         )
@@ -524,7 +542,7 @@ class SqliteRepository:
         return File(
             id=UUID(row["id"]),
             key=row["key"],
-            includes=self._json_loads(row["includes"]) or [],
+            includes=self._json_loads_list(row["includes"]),
             created_at=self._parse_dt(row.get("created_at")),
             updated_at=self._parse_dt(row.get("updated_at")),
         )
@@ -548,7 +566,7 @@ class SqliteRepository:
             name=row["name"],
             resource_type=ResourceType(row["resource_type"]),
             capacity=row["capacity"],
-            metadata=self._json_loads(row["metadata"]) or {},
+            metadata=self._json_loads_dict(row["metadata"]),
             created_at=self._parse_dt(row.get("created_at")),
         )
 
@@ -557,7 +575,7 @@ class SqliteRepository:
             id=UUID(row["id"]),
             expression=row["expression"],
             channel_name=row["channel_name"],
-            payload=self._json_loads(row["payload"]) or {},
+            payload=self._json_loads_dict(row["payload"]),
             enabled=bool(row["enabled"]),
             created_at=self._parse_dt(row.get("created_at")),
         )
@@ -590,7 +608,7 @@ class SqliteRepository:
             model_version=row.get("model_version"),
             result=self._json_loads(row.get("result")),
             snapshot=self._json_loads(row.get("snapshot")),
-            scope_log=self._json_loads(row["scope_log"]) or [],
+            scope_log=self._json_loads_list(row["scope_log"]),
             trace_id=self._parse_uuid(row.get("trace_id")),
             parent_trace_id=self._parse_uuid(row.get("parent_trace_id")),
             metadata=self._json_loads(row.get("metadata")),
@@ -602,7 +620,7 @@ class SqliteRepository:
         return Schema(
             id=UUID(row["id"]),
             name=row["name"],
-            definition=self._json_loads(row["definition"]) or {},
+            definition=self._json_loads_dict(row["definition"]),
             file_id=self._parse_uuid(row.get("file_id")),
             created_at=self._parse_dt(row.get("created_at")),
         )
@@ -625,7 +643,7 @@ class SqliteRepository:
             id=UUID(row["id"]),
             channel=UUID(row["channel"]),
             sender_process=self._parse_uuid(row.get("sender_process")),
-            payload=self._json_loads(row["payload"]) or {},
+            payload=self._json_loads_dict(row["payload"]),
             idempotency_key=row.get("idempotency_key"),
             trace_id=self._parse_uuid(row.get("trace_id")),
             trace_meta=self._json_loads(row.get("trace_meta")),
@@ -659,7 +677,7 @@ class SqliteRepository:
             id=UUID(row["id"]),
             epoch=row["epoch"],
             type=row["type"],
-            metadata=self._json_loads(row["metadata"]) or {},
+            metadata=self._json_loads_dict(row["metadata"]),
             created_at=self._parse_dt(row.get("created_at")),
         )
 
@@ -680,7 +698,7 @@ class SqliteRepository:
             name=row["name"],
             coglet=row.get("coglet"),
             status=SpanStatus(row["status"]),
-            metadata=self._json_loads(row["metadata"]) or {},
+            metadata=self._json_loads_dict(row["metadata"]),
             started_at=self._parse_dt(row.get("started_at")),
             ended_at=self._parse_dt(row.get("ended_at")),
         )
@@ -692,7 +710,7 @@ class SqliteRepository:
             event=row["event"],
             message=row.get("message"),
             timestamp=self._parse_dt(row.get("timestamp")),
-            metadata=self._json_loads(row["metadata"]) or {},
+            metadata=self._json_loads_dict(row["metadata"]),
         )
 
     def _row_to_executor(self, row: dict) -> Executor:
@@ -700,9 +718,9 @@ class SqliteRepository:
             id=UUID(row["id"]),
             executor_id=row["executor_id"],
             channel_type=row["channel_type"],
-            executor_tags=self._json_loads(row["executor_tags"]) or [],
+            executor_tags=self._json_loads_list(row["executor_tags"]),
             dispatch_type=row["dispatch_type"],
-            metadata=self._json_loads(row["metadata"]) or {},
+            metadata=self._json_loads_dict(row["metadata"]),
             status=ExecutorStatus(row["status"]),
             current_run_id=self._parse_uuid(row.get("current_run_id")),
             last_heartbeat_at=self._parse_dt(row.get("last_heartbeat_at")),
@@ -727,7 +745,7 @@ class SqliteRepository:
             process=self._parse_uuid(row.get("process")),
             type=WaitConditionType(row["type"]),
             status=WaitConditionStatus(row["status"]),
-            pending=self._json_loads(row["pending"]) or [],
+            pending=self._json_loads_list(row["pending"]),
             created_at=self._parse_dt(row.get("created_at")),
         )
 
@@ -735,8 +753,8 @@ class SqliteRepository:
         return Trace(
             id=UUID(row["id"]),
             run=UUID(row["run"]),
-            capability_calls=self._json_loads(row["capability_calls"]) or [],
-            file_ops=self._json_loads(row["file_ops"]) or [],
+            capability_calls=self._json_loads_list(row["capability_calls"]),
+            file_ops=self._json_loads_list(row["file_ops"]),
             model_version=row.get("model_version"),
             created_at=self._parse_dt(row.get("created_at")),
         )
@@ -748,7 +766,7 @@ class SqliteRepository:
             alert_type=row["alert_type"],
             source=row["source"],
             message=row["message"],
-            metadata=self._json_loads(row["metadata"]) or {},
+            metadata=self._json_loads_dict(row["metadata"]),
             acknowledged_at=self._parse_dt(row.get("acknowledged_at")),
             resolved_at=self._parse_dt(row.get("resolved_at")),
             created_at=self._parse_dt(row.get("created_at")),
@@ -1072,7 +1090,7 @@ class SqliteRepository:
         )
         if not row:
             return []
-        pending = self._json_loads(row["pending"]) or []
+        pending = self._json_loads_list(row["pending"])
         pending = [p for p in pending if p != child_pid]
         self._execute(
             "UPDATE cogos_wait_condition SET pending = :pending WHERE id = :id",
@@ -1457,7 +1475,11 @@ class SqliteRepository:
         sql += " ORDER BY f.key LIMIT :limit"
         params["limit"] = limit
         rows = self._query(sql, params)
-        return [(row["key"], row["content"] or "") for row in rows]
+        results = []
+        for row in rows:
+            assert row["content"] is not None
+            results.append((row["key"], row["content"]))
+        return results
 
     def glob_files(
         self, pattern: str, *, prefix: str | None = None, limit: int = 200,
@@ -1795,7 +1817,7 @@ class SqliteRepository:
         row = self._query_one("SELECT metadata FROM cogos_run WHERE id = :id", {"id": str(run_id)})
         if row is None:
             return
-        current = self._json_loads(row["metadata"]) or {}
+        current = self._json_loads_dict(row["metadata"])
         current.update(metadata)
         self._execute(
             "UPDATE cogos_run SET metadata = :metadata WHERE id = :id",
@@ -1949,7 +1971,7 @@ class SqliteRepository:
         if metadata:
             row = self._query_one("SELECT metadata FROM cogos_span WHERE id = :id", {"id": str(span_id)})
             if row:
-                current = self._json_loads(row["metadata"]) or {}
+                current = self._json_loads_dict(row["metadata"])
                 current.update(metadata)
                 return self._execute(
                     "UPDATE cogos_span SET status = :status, metadata = :metadata, ended_at = :now WHERE id = :id",
@@ -2400,7 +2422,7 @@ class SqliteRepository:
                 {"eid": executor_id},
             )
             if row:
-                meta = self._json_loads(row["metadata"]) or {}
+                meta = self._json_loads_dict(row["metadata"])
                 meta["resource_usage"] = resource_usage
                 return self._execute(
                     """UPDATE cogos_executor SET last_heartbeat_at = :now, status = :status,

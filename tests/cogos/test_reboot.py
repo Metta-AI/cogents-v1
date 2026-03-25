@@ -142,9 +142,9 @@ def test_spawn_with_multiple_subscribe(tmp_path):
                 "handler": "cogos.capabilities.procs:ProcsCapability",
                 "description": "",
                 "instructions": "",
-                "schema": None,
+                "schema": {},
                 "iam_role_arn": None,
-                "metadata": None,
+                "metadata": {},
             },
         ]
     )

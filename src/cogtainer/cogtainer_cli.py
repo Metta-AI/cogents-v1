@@ -146,8 +146,8 @@ def create(
 
     llm = LLMConfig(
         provider=llm_provider or "bedrock",
-        model=llm_model or "",
-        api_key_env=llm_api_key_env or "",
+        model=llm_model if llm_model is not None else "",
+        api_key_env=llm_api_key_env if llm_api_key_env is not None else "",
     )
 
     account_id = None
@@ -231,7 +231,7 @@ def _prompt_cogtainer_secrets(name: str, entry: CogtainerEntry) -> None:
         if entry.type == "aws":
             sp = AwsSecretsProvider(region=region)
         else:
-            data_dir = entry.data_dir or ""
+            data_dir = entry.data_dir if entry.data_dir is not None else ""
             sp = LocalSecretsProvider(str(Path(data_dir) / "secrets.json"))
 
         for key, value in secrets.items():

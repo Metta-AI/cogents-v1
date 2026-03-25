@@ -11,7 +11,7 @@ def test_snapshot_round_trips(tmp_path):
     original = ImageSpec(
         capabilities=[
             {"name": "dir", "handler": "cogos.capabilities.files.FilesCapability",
-             "description": "Directory access", "instructions": "", "schema": None, "iam_role_arn": None, "metadata": None},
+             "description": "Directory access", "instructions": "", "schema": {}, "iam_role_arn": None, "metadata": {}},
         ],
         resources=[],
         processes=[

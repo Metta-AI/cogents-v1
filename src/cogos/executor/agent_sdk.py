@@ -194,10 +194,10 @@ async def _execute_agent_sdk_process(
 
     async for msg in query(prompt=user_text, options=options):
         if isinstance(msg, ResultMessage):
-            usage = msg.usage or {}
-            run.tokens_in = usage.get("input_tokens", 0)
-            run.tokens_out = usage.get("output_tokens", 0)
-            run.cost_usd = Decimal(str(msg.total_cost_usd or 0))
+            assert msg.usage is not None, "ResultMessage.usage must be set"
+            run.tokens_in = msg.usage.get("input_tokens", 0)
+            run.tokens_out = msg.usage.get("output_tokens", 0)
+            run.cost_usd = Decimal(str(msg.total_cost_usd if msg.total_cost_usd is not None else 0))
             if msg.subtype == "success":
                 run.result = {"text": msg.result} if msg.result else None
             else:

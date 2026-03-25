@@ -32,7 +32,8 @@ def _load_process_lookups(repo) -> tuple[dict[UUID, str], dict[UUID, list[str]]]
             tags = r.get("required_tags")
             if isinstance(tags, str):
                 tags = _json.loads(tags)
-            runners[pid] = tags or []
+            assert tags is not None
+            runners[pid] = tags
         return names, runners
     except Exception:
         logger.debug("Slim process lookup failed, falling back to full query", exc_info=True)
@@ -133,7 +134,8 @@ _UNTYPED_MESSAGE_TYPE = "__untyped__"
 
 
 def _message_type(message: ChannelMessage) -> str | None:
-    payload = message.payload or {}
+    assert message.payload is not None
+    payload = message.payload
     for key in ("message_type", "type"):
         value = payload.get(key)
         if isinstance(value, str):
@@ -144,7 +146,8 @@ def _message_type(message: ChannelMessage) -> str | None:
 
 
 def _request_id(message: ChannelMessage) -> str | None:
-    payload = message.payload or {}
+    assert message.payload is not None
+    payload = message.payload
     value = payload.get("request_id")
     if isinstance(value, str):
         normalized = value.strip()
@@ -216,7 +219,7 @@ def _message_out(
         request_id=_request_id(message),
         sender_process=str(message.sender_process) if message.sender_process else None,
         sender_process_name=process_names.get(message.sender_process) if message.sender_process else None,
-        payload=message.payload or {},
+        payload=message.payload,
         created_at=_iso(message.created_at),
     )
 

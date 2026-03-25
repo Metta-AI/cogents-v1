@@ -111,7 +111,9 @@ def _artifact_timestamp(payload: Any, fallback: datetime | None) -> str:
             value = payload.get(field)
             if isinstance(value, str) and value:
                 return value
-    return _iso(fallback) or ""
+    result = _iso(fallback)
+    assert result is not None
+    return result
 
 
 def _artifact_message(kind: str, key: str, payload: Any) -> str:

@@ -253,8 +253,9 @@ def complete_run(
     }
     run_status = status_map.get(body.status, RunStatus.FAILED)
 
-    tokens_in = (body.tokens_used or {}).get("input", 0)
-    tokens_out = (body.tokens_used or {}).get("output", 0)
+    assert body.tokens_used is not None
+    tokens_in = body.tokens_used.get("input", 0)
+    tokens_out = body.tokens_used.get("output", 0)
 
     repo.complete_run(
         run_uuid,

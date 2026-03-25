@@ -256,8 +256,8 @@ class CogentStack(Stack):
         )
 
         # Lambda code — from S3 (CI uploads) or inline placeholder
-        lambda_s3_bucket = self.node.try_get_context("lambda_s3_bucket") or ""
-        lambda_s3_key = self.node.try_get_context("lambda_s3_key") or ""
+        lambda_s3_bucket = self.node.try_get_context("lambda_s3_bucket")
+        lambda_s3_key = self.node.try_get_context("lambda_s3_key")
 
         if lambda_s3_bucket and lambda_s3_key:
             code = lambda_.Code.from_bucket(

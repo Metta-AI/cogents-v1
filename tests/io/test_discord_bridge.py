@@ -844,7 +844,7 @@ class TestAlertingAndTimeout:
         bridge._get_repo = MagicMock(return_value=repo)
 
         # Should not raise
-        bridge._create_alert("test-bot", "critical", "test:alert", "boom")
+        bridge._create_alert("test-bot", "critical", "test:alert", "boom", {})
 
     def test_sweep_alerts_on_timeout(self):
         """_sweep_pending_dms should alert when DM exceeds timeout."""

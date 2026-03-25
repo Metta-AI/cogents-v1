@@ -26,9 +26,9 @@ def _setup(tmp_path):
                 "handler": "cogos.capabilities.procs:ProcsCapability",
                 "description": "",
                 "instructions": "",
-                "schema": None,
+                "schema": {},
                 "iam_role_arn": None,
-                "metadata": None,
+                "metadata": {},
             },
         ]
     )

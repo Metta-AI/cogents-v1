@@ -246,7 +246,7 @@ def _flush_dead_letters(repo) -> int:
         ))
 
         # Mark as reported to avoid duplicate dead-letters
-        run_meta = run.metadata or {}
+        run_meta = run.metadata if run.metadata is not None else {}
         run_meta["dead_letter_reported"] = True
         try:
             repo.update_run_metadata(run.id, run_meta)
