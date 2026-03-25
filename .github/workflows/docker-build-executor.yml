@@ -23,11 +23,17 @@ jobs:
       matrix: ${{ steps.targets.outputs.matrix }}
     steps:
       - uses: actions/checkout@v5
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Install dependencies
+        run: nix develop -c uv sync --frozen
+
       - name: Parse deploy targets
         id: targets
         run: |
-          pip install pyyaml -q
-          python -c "
+          nix develop -c python -c "
           import yaml, json
           with open('cogtainers.ci.yml') as f:
               cfg = yaml.safe_load(f) or {}
@@ -68,18 +74,13 @@ jobs:
           aws_region: ${{ matrix.region }}
           tag_prefix: executor
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Package Lambda zip
         run: |
           DEPS_DIR=$(mktemp -d)
-          uv pip install --target "$DEPS_DIR" --quiet --python 3.12 --python-platform linux \
+          nix develop -c uv pip install --target "$DEPS_DIR" --quiet --python 3.12 --python-platform linux \
             -r sandbox-requirements.txt
 
           cd src

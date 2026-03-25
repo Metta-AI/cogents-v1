@@ -9,22 +9,19 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Install dependencies
-        run: pip install boto3
+        run: nix develop -c uv sync --frozen
 
       - name: Validate CloudFormation template
         env:
           PYTHONPATH: ${{ github.workspace }}/src
         run: |
-          python -c "
+          nix develop -c python -c "
           import json
           from body.cfn.template import build_template
 

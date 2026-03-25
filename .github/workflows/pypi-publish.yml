@@ -14,14 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Build
-        run: |
-          pip install hatchling
-          python -m hatchling build
+        run: nix develop -c uv build
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
