@@ -15,10 +15,13 @@
     utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = import nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+        };
 
         packagesList = [
-          pkgs.graphite_cli
+          pkgs.graphite-cli
           pkgs.nodejs_20
           pkgs.sqlite # For inspecting the db
           pkgs.uv
