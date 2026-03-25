@@ -73,18 +73,30 @@ def get_rendered_memory(
 
         return RenderedPromptResponse(prompt=full_prompt, layers=layers)
 
-    # No process specified — return prompt-relevant files (single bulk query),
-    # excluding boot scripts which are code, not memory content.
-    try:
-        file_contents = file_store.list_files_with_content(
-            exclude_prefix="mnt/boot/", limit=5000,
-        )
-    except Exception as exc:
-        logger.exception("Failed to list files for memory/rendered")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list files from store: {type(exc).__name__}: {exc}",
-        )
+    # No process specified — query prompt-relevant file prefixes individually
+    # to stay within RDS Data API response size limits.
+    _MEMORY_PREFIXES = ["whoami/", "cogos/", "data/"]
+    file_contents: list[tuple[str, str]] = []
+    for pfx in _MEMORY_PREFIXES:
+        try:
+            file_contents.extend(
+                file_store.list_files_with_content(prefix=pfx, limit=500)
+            )
+        except Exception:
+            logger.warning("Failed to list files with prefix %s", pfx, exc_info=True)
+
+    if not file_contents:
+        # Fallback: try all files excluding boot (may fail on large cogents)
+        try:
+            file_contents = file_store.list_files_with_content(
+                exclude_prefix="mnt/boot/", limit=500,
+            )
+        except Exception as exc:
+            logger.exception("Failed to list files for memory/rendered")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to list files: {type(exc).__name__}: {exc}",
+            )
 
     layers = []
     sections: list[str] = []
