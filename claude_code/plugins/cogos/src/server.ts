@@ -43,6 +43,7 @@ interface ConnectionState {
   address: string;
   apiUrl: string;
   cogentName: string;
+  processName: string;
   token: string;
   connected: boolean;
   isExecutor: boolean;
@@ -57,6 +58,7 @@ const state: ConnectionState = {
   address: "",
   apiUrl: "",
   cogentName: "",
+  processName: "supervisor",
   token: "",
   connected: false,
   isExecutor: false,
@@ -159,7 +161,8 @@ function pythonTypeToJsonSchema(pyType: string): string {
 
 async function loadMemory(): Promise<string> {
   try {
-    const data = (await apiGet(`${apiBase()}/memory/rendered`)) as {
+    const url = `${apiBase()}/memory/rendered?process_name=${encodeURIComponent(state.processName)}`;
+    const data = (await apiGet(url)) as {
       prompt?: string;
     };
     return data.prompt || "(no memory found)";
@@ -301,13 +304,26 @@ async function browserAuthFlow(address: string): Promise<string> {
 // Address parsing
 // ---------------------------------------------------------------------------
 
-function parseAddress(address: string): { apiUrl: string; cogentName: string } {
-  const parts = address.split(".");
+function parseAddress(address: string): {
+  apiUrl: string;
+  cogentName: string;
+  processName: string;
+} {
+  // Support process@address syntax (e.g. "supervisor@alpha.softmax-cogents.com")
+  let processName = "supervisor";
+  let host = address;
+  const atIdx = address.indexOf("@");
+  if (atIdx > 0) {
+    processName = address.slice(0, atIdx);
+    host = address.slice(atIdx + 1);
+  }
+
+  const parts = host.split(".");
   if (parts.length >= 2) {
     const cogentName = parts[0];
-    return { apiUrl: `https://${address}`, cogentName };
+    return { apiUrl: `https://${host}`, cogentName, processName };
   }
-  return { apiUrl: `http://localhost:8100`, cogentName: address };
+  return { apiUrl: `http://localhost:8100`, cogentName: host, processName };
 }
 
 // ---------------------------------------------------------------------------
@@ -368,10 +384,11 @@ async function connect(address: string, token?: string): Promise<string> {
   // Disconnect existing connection first
   await disconnect();
 
-  const { apiUrl, cogentName } = parseAddress(address);
+  const { apiUrl, cogentName, processName } = parseAddress(address);
   state.address = address;
   state.apiUrl = apiUrl;
   state.cogentName = cogentName;
+  state.processName = processName;
 
   // Resolve token
   if (token) {
@@ -441,7 +458,7 @@ async function connect(address: string, token?: string): Promise<string> {
     // May not be ready
   }
 
-  return `Connected to cogent "${cogentName}" at ${apiUrl}. ${remoteTools.length} tools available. Use load_memory to get the cogent's instructions.`;
+  return `Connected to cogent "${cogentName}" (process: ${processName}) at ${apiUrl}. Use load_memory to get the cogent's instructions.`;
 }
 
 async function disconnect(): Promise<string> {
@@ -738,8 +755,8 @@ const mcpServer = new Server(
     },
     instructions:
       "CogOS plugin. Use the `connect` tool to connect to a cogent (e.g. connect with address 'alpha.softmax-cogents.com'). " +
-      "After connecting, use `load_memory` to get the cogent's full instructions. " +
-      "Use `disconnect` to switch to a different cogent without restarting.",
+      "Use 'process@address' to connect to a specific process (default: supervisor). " +
+      "After connecting, use `load_memory` to get the process's full instructions.",
   },
 );
 
@@ -750,7 +767,8 @@ const mcpServer = new Server(
 const CONNECT_TOOL = {
   name: "connect",
   description:
-    "Connect to a CogOS cogent. Provide the cogent address (e.g. 'alpha.softmax-cogents.com'). " +
+    "Connect to a CogOS cogent process. Use 'process@address' to connect to a specific process (default: supervisor). " +
+    "Examples: 'alpha.softmax-cogents.com', 'supervisor@alpha.softmax-cogents.com', 'discord@alpha'. " +
     "If no token is cached, opens a browser for authentication.",
   inputSchema: {
     type: "object" as const,
@@ -758,7 +776,7 @@ const CONNECT_TOOL = {
       address: {
         type: "string",
         description:
-          "Cogent address (e.g. 'alpha.softmax-cogents.com' or just 'alpha' for localhost)",
+          "Cogent address with optional process prefix (e.g. 'alpha.softmax-cogents.com', 'supervisor@alpha.softmax-cogents.com')",
       },
       token: {
         type: "string",
