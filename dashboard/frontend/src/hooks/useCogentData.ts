@@ -148,19 +148,8 @@ export function useCogentData(cogentName: string) {
     });
   }, [lastMessage, refresh]);
 
-  // Poll cogos-status every 5s to keep scheduler tick fresh
-  useEffect(() => {
-    const epochParam = showHistory ? "all" : undefined;
-    const id = setInterval(async () => {
-      try {
-        const cs = await api.getCogosStatus(cogentName, epochParam);
-        setData((prev) => ({ ...prev, cogosStatus: cs }));
-      } catch { /* ignore */ }
-    }, 5_000);
-    return () => clearInterval(id);
-  }, [cogentName, showHistory]);
-
-  // Auto-refresh every 30s — workaround until WS broadcast is wired up (#90)
+  // Auto-refresh via dashboard-init every 30s
+  // No separate cogos-status poll — the combined endpoint includes it
   useEffect(() => {
     const id = setInterval(() => { refresh(); }, 30_000);
     return () => clearInterval(id);
