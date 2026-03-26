@@ -1,12 +1,13 @@
 from pathlib import Path
 
 from cogos.db.models import Channel, ChannelType, Process, ProcessMode, ProcessStatus
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.runtime.reboot import reboot
 
 
 def test_reboot_clears_processes_and_creates_init(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     init_proc = Process(name="init", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED)
     repo.upsert_process(init_proc)
     child = Process(
@@ -28,7 +29,7 @@ def test_reboot_clears_processes_and_creates_init(tmp_path):
 def test_reboot_preserves_old_processes_in_previous_epoch(tmp_path):
     from cogos.db.models import ALL_EPOCHS, Run, RunStatus
 
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     old = Process(name="scheduler", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE)
     repo.upsert_process(old)
     run = Run(process=old.id, status=RunStatus.RUNNING)
@@ -61,7 +62,7 @@ def test_reboot_preserves_old_processes_in_previous_epoch(tmp_path):
 
 
 def test_reboot_logs_operation(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     repo.upsert_process(Process(name="init", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED))
 
     reboot(repo)
@@ -74,7 +75,7 @@ def test_reboot_logs_operation(tmp_path):
 
 
 def test_reboot_epoch_increments(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
 
     reboot(repo)
     assert repo.reboot_epoch == 1
@@ -90,7 +91,7 @@ def test_reboot_epoch_increments(tmp_path):
 def test_reboot_preserves_files(tmp_path):
     from cogos.files.store import FileStore
 
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     store = FileStore(repo)
     store.upsert("test/file.md", "hello", source="test")
 
@@ -100,7 +101,7 @@ def test_reboot_preserves_files(tmp_path):
 
 
 def test_reboot_with_no_existing_processes(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     _result = reboot(repo)
     procs = repo.list_processes()
     assert procs is not None
@@ -112,7 +113,7 @@ def test_image_declares_only_init_process(tmp_path):
     from cogos.image.apply import apply_image
     from cogos.image.spec import load_image
 
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     image_dir = Path(__file__).resolve().parents[2] / "images" / "cogos"
     spec = load_image(image_dir)
     apply_image(spec, repo)
@@ -134,7 +135,7 @@ def test_spawn_with_multiple_subscribe(tmp_path):
     from cogos.image.apply import apply_image
     from cogos.image.spec import ImageSpec
 
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     spec = ImageSpec(
         capabilities=[
             {
@@ -167,4 +168,5 @@ def test_spawn_with_multiple_subscribe(tmp_path):
     assert child is not None
     handlers = repo.list_handlers(process_id=child.id)
     assert handlers is not None
-    assert len(handlers) == 2
+    # 2 subscribe handlers + 1 auto-created stdin IO handler
+    assert len(handlers) == 3

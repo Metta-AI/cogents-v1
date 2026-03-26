@@ -9,11 +9,12 @@ from cogos.db.models import (
     Run,
     RunStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
-def _repo(tmp_path) -> SqliteRepository:
-    return SqliteRepository(str(tmp_path))
+def _repo(tmp_path) -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 def _daemon(name: str, *, status: ProcessStatus = ProcessStatus.WAITING) -> Process:
@@ -66,11 +67,11 @@ def test_is_throttle_cooldown_active_old_throttle(tmp_path):
     # Complete it as throttled, then backdate both timestamps in the DB
     repo.complete_run(run.id, status=RunStatus.THROTTLED, error="ThrottlingException")
     old_time = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-    repo._conn.execute(
+    repo._b._conn.execute(  # type: ignore[attr-defined]
         "UPDATE cogos_run SET created_at = ?, completed_at = ? WHERE id = ?",
         (old_time, old_time, str(run.id)),
     )
-    repo._conn.commit()
+    repo._b._conn.commit()  # type: ignore[attr-defined]
 
     assert _is_throttle_cooldown_active(repo) is False
 

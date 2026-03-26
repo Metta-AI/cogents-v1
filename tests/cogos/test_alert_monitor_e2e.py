@@ -3,11 +3,12 @@
 
 from cogos.capabilities.alert_monitor import AlertMonitorCapability
 from cogos.db.models import Channel, ChannelType, Process, ProcessStatus
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
 def _setup(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     proc = Process(name="alert-monitor", status=ProcessStatus.RUNNABLE, required_tags=["local"])
     proc_id = repo.upsert_process(proc)
 

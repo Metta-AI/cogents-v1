@@ -12,11 +12,12 @@ from cogos.db.models import (
     ProcessMode,
     ProcessStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
-def _repo(tmp_path) -> SqliteRepository:
-    return SqliteRepository(str(tmp_path))
+def _repo(tmp_path) -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 def _daemon(name: str, *, status: ProcessStatus = ProcessStatus.WAITING) -> Process:

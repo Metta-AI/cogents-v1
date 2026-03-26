@@ -15,7 +15,8 @@ from cogos.db.models import (
     ProcessMode,
     ProcessStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.runtime.local_ingress_queue import LocalIngressQueue
 
 # ── Unit tests ──────────────────────────────────────────────
@@ -88,16 +89,16 @@ def test_wait_for_nudge_clears_event():
 
 
 @pytest.fixture
-def repo(tmp_path) -> SqliteRepository:
-    return SqliteRepository(data_dir=str(tmp_path))
+def repo(tmp_path) -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(data_dir=str(tmp_path)))
 
 
-def test_channel_message_nudges_ingress(tmp_path):
+def test_channel_message_nudges_ingress(tmp_path, monkeypatch):
     """When a channel message wakes a WAITING process, the local ingress queue gets nudged."""
+    monkeypatch.setenv("COGOS_INGRESS_QUEUE_URL", "local://ingress")
     q = LocalIngressQueue()
-    repo = SqliteRepository(
-        data_dir=str(tmp_path),
-        ingress_queue_url="local://ingress",
+    repo = UnifiedRepository(
+        SqliteBackend(data_dir=str(tmp_path)),
         nudge_callback=q.send,
     )
 
@@ -127,12 +128,12 @@ def test_channel_message_nudges_ingress(tmp_path):
     assert nudges[0]["source"] == "channel_message"
 
 
-def test_no_nudge_when_already_runnable(tmp_path):
+def test_no_nudge_when_already_runnable(tmp_path, monkeypatch):
     """A process already RUNNABLE should not be nudged again."""
+    monkeypatch.setenv("COGOS_INGRESS_QUEUE_URL", "local://ingress")
     q = LocalIngressQueue()
-    repo = SqliteRepository(
-        data_dir=str(tmp_path),
-        ingress_queue_url="local://ingress",
+    repo = UnifiedRepository(
+        SqliteBackend(data_dir=str(tmp_path)),
         nudge_callback=q.send,
     )
 

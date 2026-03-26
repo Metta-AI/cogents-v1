@@ -137,9 +137,10 @@ def apply_cogos_sql_migrations(
     Returns the number of SQL statements successfully applied (not migration files).
     Skips for SqliteRepository which manages its own schema.
     """
-    from cogos.db.sqlite_repository import SqliteRepository
+    from cogos.db.sqlite_repository import SqliteBackend
+    from cogos.db.unified_repository import UnifiedRepository
 
-    if isinstance(repo, SqliteRepository):
+    if isinstance(repo, UnifiedRepository) and isinstance(repo._b, SqliteBackend):
         return 0
 
     if not COGOS_MIGRATIONS_DIR.is_dir():

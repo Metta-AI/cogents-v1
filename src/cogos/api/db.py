@@ -32,15 +32,18 @@ def get_repo() -> Any:
             logger.info("USE_LOCAL_DB=1, using runtime repository for %s/%s", ct_name, cogent_name)
             return runtime.get_repository(cogent_name)
         except Exception:
-            from cogos.db.sqlite_repository import SqliteRepository
+            from cogos.db.sqlite_repository import SqliteBackend
+            from cogos.db.unified_repository import UnifiedRepository
 
             data_dir = str(Path.home() / ".cogos" / "local")
             logger.info("USE_LOCAL_DB=1, falling back to default local repository at %s", data_dir)
-            return SqliteRepository(data_dir)
+            return UnifiedRepository(SqliteBackend(data_dir))
 
     import boto3
 
-    from cogos.db.repository import RdsDataApiRepository
+    from cogos.db.repository import RdsBackend
+    from cogos.db.unified_repository import UnifiedRepository
     region = os.environ.get("AWS_REGION", "us-east-1")
     client = boto3.client("rds-data", region_name=region)
-    return RdsDataApiRepository.create(client=client)
+    backend = RdsBackend.create(client=client)
+    return UnifiedRepository(backend)

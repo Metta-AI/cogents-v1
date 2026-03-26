@@ -1,11 +1,12 @@
 """Tests for shell command dispatch."""
 
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.shell.commands import CommandRegistry, ShellState
 
 
 def test_registry_dispatches_known_command(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     state = ShellState(cogent_name="test", repo=repo, cwd="")
     reg = CommandRegistry()
 
@@ -17,7 +18,7 @@ def test_registry_dispatches_known_command(tmp_path):
 
 
 def test_registry_returns_error_for_unknown_command(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     state = ShellState(cogent_name="test", repo=repo, cwd="")
     reg = CommandRegistry()
     result = reg.dispatch(state, "nosuchcmd foo")
@@ -26,14 +27,14 @@ def test_registry_returns_error_for_unknown_command(tmp_path):
 
 
 def test_registry_handles_empty_input(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     state = ShellState(cogent_name="test", repo=repo, cwd="")
     reg = CommandRegistry()
     assert reg.dispatch(state, "") == ""
 
 
 def test_registry_handles_alias(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     state = ShellState(cogent_name="test", repo=repo, cwd="")
     reg = CommandRegistry()
 

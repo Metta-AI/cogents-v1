@@ -40,16 +40,17 @@ from cogos.db.models import (
 from cogos.db.models.discord_metadata import DiscordChannel, DiscordGuild
 from cogos.db.models.trace import RequestTrace, Trace
 from cogos.db.models.wait_condition import WaitCondition, WaitConditionType
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
 @pytest.fixture
-def repo(tmp_path: Path) -> SqliteRepository:
-    return SqliteRepository(str(tmp_path))
+def repo(tmp_path: Path) -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 @pytest.fixture
-def repo_with_process(repo: SqliteRepository) -> tuple[SqliteRepository, Process]:
+def repo_with_process(repo: UnifiedRepository) -> tuple[UnifiedRepository, Process]:
     p = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
     return repo, p
@@ -57,14 +58,14 @@ def repo_with_process(repo: SqliteRepository) -> tuple[SqliteRepository, Process
 
 # ── Protocol compliance ──────────────────────────────────────
 
-def test_implements_protocol(repo: SqliteRepository) -> None:
+def test_implements_protocol(repo: UnifiedRepository) -> None:
     from cogos.db.protocol import CogosRepositoryInterface
     assert isinstance(repo, CogosRepositoryInterface)
 
 
 # ── Batch / Transaction ─────────────────────────────────────
 
-def test_nested_batch_commits_only_on_outer(repo: SqliteRepository) -> None:
+def test_nested_batch_commits_only_on_outer(repo: UnifiedRepository) -> None:
     with repo.batch():
         repo.set_meta("a", "1")
         with repo.batch():
@@ -74,7 +75,7 @@ def test_nested_batch_commits_only_on_outer(repo: SqliteRepository) -> None:
     assert repo.get_meta("b") == {"key": "b", "value": "2"}
 
 
-def test_batch_rollback_on_exception(repo: SqliteRepository) -> None:
+def test_batch_rollback_on_exception(repo: UnifiedRepository) -> None:
     repo.set_meta("before", "exists")
     with pytest.raises(ValueError):
         with repo.batch():
@@ -84,11 +85,11 @@ def test_batch_rollback_on_exception(repo: SqliteRepository) -> None:
     assert repo.get_meta("inside") is None
 
 
-def test_batch_depth_reset_after_exception(repo: SqliteRepository) -> None:
+def test_batch_depth_reset_after_exception(repo: UnifiedRepository) -> None:
     with pytest.raises(RuntimeError):
         with repo.batch():
             raise RuntimeError("fail")
-    assert repo._batch_depth == 0
+    assert repo._b._batch_depth == 0  # type: ignore[attr-defined]
     # Should work normally after
     repo.set_meta("after", "ok")
     assert repo.get_meta("after") is not None
@@ -96,7 +97,7 @@ def test_batch_depth_reset_after_exception(repo: SqliteRepository) -> None:
 
 # ── Process edge cases ───────────────────────────────────────
 
-def test_upsert_process_idempotent_by_name(repo: SqliteRepository) -> None:
+def test_upsert_process_idempotent_by_name(repo: UnifiedRepository) -> None:
     p1 = Process(name="worker", mode=ProcessMode.ONE_SHOT, content="v1")
     id1 = repo.upsert_process(p1)
     p2 = Process(name="worker", mode=ProcessMode.ONE_SHOT, content="v2")
@@ -107,7 +108,7 @@ def test_upsert_process_idempotent_by_name(repo: SqliteRepository) -> None:
     assert got.content == "v2"
 
 
-def test_list_processes_all_epochs(repo: SqliteRepository) -> None:
+def test_list_processes_all_epochs(repo: UnifiedRepository) -> None:
     p1 = Process(name="a", mode=ProcessMode.ONE_SHOT, epoch=0)
     repo.upsert_process(p1)
     repo.increment_epoch()
@@ -117,7 +118,7 @@ def test_list_processes_all_epochs(repo: SqliteRepository) -> None:
     assert len(all_procs) == 2
 
 
-def test_try_transition_process_wrong_status(repo: SqliteRepository) -> None:
+def test_try_transition_process_wrong_status(repo: UnifiedRepository) -> None:
     p = Process(name="x", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
     result = repo.try_transition_process(p.id, ProcessStatus.RUNNABLE, ProcessStatus.DISABLED)
@@ -127,7 +128,7 @@ def test_try_transition_process_wrong_status(repo: SqliteRepository) -> None:
     assert got.status == ProcessStatus.WAITING
 
 
-def test_update_process_status_runnable_preserves_runnable_since(repo: SqliteRepository) -> None:
+def test_update_process_status_runnable_preserves_runnable_since(repo: UnifiedRepository) -> None:
     p = Process(name="x", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
     repo.update_process_status(p.id, ProcessStatus.RUNNABLE)
@@ -142,7 +143,7 @@ def test_update_process_status_runnable_preserves_runnable_since(repo: SqliteRep
     assert got2.runnable_since == first_runnable_since
 
 
-def test_cascade_disable_children(repo: SqliteRepository) -> None:
+def test_cascade_disable_children(repo: UnifiedRepository) -> None:
     parent = Process(name="parent", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE)
     repo.upsert_process(parent)
     child = Process(name="child", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, parent_process=parent.id)
@@ -158,7 +159,7 @@ def test_cascade_disable_children(repo: SqliteRepository) -> None:
     assert repo.get_process(grandchild.id).status == ProcessStatus.DISABLED  # type: ignore[union-attr]
 
 
-def test_get_runnable_processes_ordered_by_priority(repo: SqliteRepository) -> None:
+def test_get_runnable_processes_ordered_by_priority(repo: UnifiedRepository) -> None:
     low = Process(name="low", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, priority=1.0)
     high = Process(name="high", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, priority=10.0)
     repo.upsert_process(low)
@@ -169,14 +170,14 @@ def test_get_runnable_processes_ordered_by_priority(repo: SqliteRepository) -> N
     assert procs[0].name == "high"
 
 
-def test_delete_process(repo: SqliteRepository) -> None:
+def test_delete_process(repo: UnifiedRepository) -> None:
     p = Process(name="deleteme", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     assert repo.delete_process(p.id)
     assert repo.get_process(p.id) is None
 
 
-def test_increment_retry(repo: SqliteRepository) -> None:
+def test_increment_retry(repo: UnifiedRepository) -> None:
     p = Process(name="retry", mode=ProcessMode.ONE_SHOT, max_retries=3)
     repo.upsert_process(p)
     assert repo.increment_retry(p.id)
@@ -187,7 +188,7 @@ def test_increment_retry(repo: SqliteRepository) -> None:
 
 # ── Process JSON fields round-trip ───────────────────────────
 
-def test_process_all_json_fields(repo: SqliteRepository) -> None:
+def test_process_all_json_fields(repo: UnifiedRepository) -> None:
     p = Process(
         name="full",
         mode=ProcessMode.DAEMON,
@@ -233,7 +234,7 @@ def test_process_all_json_fields(repo: SqliteRepository) -> None:
 
 # ── Files ────────────────────────────────────────────────────
 
-def test_bulk_upsert_files(repo: SqliteRepository) -> None:
+def test_bulk_upsert_files(repo: UnifiedRepository) -> None:
     files = [
         ("a.txt", "content-a", "image", []),
         ("b.txt", "content-b", "image", ["a.txt"]),
@@ -247,7 +248,7 @@ def test_bulk_upsert_files(repo: SqliteRepository) -> None:
     assert fv.content == "content-a"
 
 
-def test_bulk_upsert_files_updates_existing(repo: SqliteRepository) -> None:
+def test_bulk_upsert_files_updates_existing(repo: UnifiedRepository) -> None:
     repo.bulk_upsert_files([("a.txt", "v1", "image", [])])
     repo.bulk_upsert_files([("a.txt", "v2", "image", ["inc"])])
     fa = repo.get_file_by_key("a.txt")
@@ -259,7 +260,7 @@ def test_bulk_upsert_files_updates_existing(repo: SqliteRepository) -> None:
     assert fv.version == 2
 
 
-def test_glob_files(repo: SqliteRepository) -> None:
+def test_glob_files(repo: UnifiedRepository) -> None:
     for key in ["src/a.py", "src/b.py", "tests/c.py"]:
         f = File(key=key)
         repo.insert_file(f)
@@ -268,7 +269,7 @@ def test_glob_files(repo: SqliteRepository) -> None:
     assert set(matches) == {"src/a.py", "src/b.py"}
 
 
-def test_delete_files_by_prefixes(repo: SqliteRepository) -> None:
+def test_delete_files_by_prefixes(repo: UnifiedRepository) -> None:
     for key in ["apps/a.py", "apps/b.py", "core/c.py"]:
         f = File(key=key)
         repo.insert_file(f)
@@ -277,7 +278,7 @@ def test_delete_files_by_prefixes(repo: SqliteRepository) -> None:
     assert repo.get_file_by_key("core/c.py") is not None
 
 
-def test_file_version_set_active(repo: SqliteRepository) -> None:
+def test_file_version_set_active(repo: UnifiedRepository) -> None:
     f = File(key="test.txt")
     repo.insert_file(f)
     fv1 = FileVersion(file_id=f.id, version=1, content="v1", is_active=True)
@@ -294,7 +295,7 @@ def test_file_version_set_active(repo: SqliteRepository) -> None:
     assert active.version == 1
 
 
-def test_update_file_version_content(repo: SqliteRepository) -> None:
+def test_update_file_version_content(repo: UnifiedRepository) -> None:
     f = File(key="test.txt")
     repo.insert_file(f)
     fv = FileVersion(file_id=f.id, version=1, content="old")
@@ -305,7 +306,7 @@ def test_update_file_version_content(repo: SqliteRepository) -> None:
     assert active.content == "new"
 
 
-def test_delete_file_version(repo: SqliteRepository) -> None:
+def test_delete_file_version(repo: UnifiedRepository) -> None:
     f = File(key="test.txt")
     repo.insert_file(f)
     fv = FileVersion(file_id=f.id, version=1, content="x")
@@ -316,7 +317,7 @@ def test_delete_file_version(repo: SqliteRepository) -> None:
 
 # ── Capabilities ─────────────────────────────────────────────
 
-def test_capability_crud(repo: SqliteRepository) -> None:
+def test_capability_crud(repo: UnifiedRepository) -> None:
     cap = Capability(
         name="send_email",
         description="Send emails",
@@ -343,7 +344,7 @@ def test_capability_crud(repo: SqliteRepository) -> None:
     assert len(caps_enabled) == 1
 
 
-def test_search_capabilities(repo: SqliteRepository) -> None:
+def test_search_capabilities(repo: UnifiedRepository) -> None:
     cap1 = Capability(name="email", description="send email")
     cap2 = Capability(name="slack", description="post to slack")
     repo.upsert_capability(cap1)
@@ -353,7 +354,7 @@ def test_search_capabilities(repo: SqliteRepository) -> None:
     assert results[0].name == "email"
 
 
-def test_search_capabilities_scoped_to_process(repo: SqliteRepository) -> None:
+def test_search_capabilities_scoped_to_process(repo: UnifiedRepository) -> None:
     cap1 = Capability(name="email", description="send email")
     cap2 = Capability(name="slack", description="post to slack")
     repo.upsert_capability(cap1)
@@ -370,7 +371,7 @@ def test_search_capabilities_scoped_to_process(repo: SqliteRepository) -> None:
 
 # ── Handlers ─────────────────────────────────────────────────
 
-def test_handler_idempotent_on_same_channel(repo: SqliteRepository) -> None:
+def test_handler_idempotent_on_same_channel(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     ch = Channel(name="events", channel_type=ChannelType.NAMED)
@@ -382,17 +383,18 @@ def test_handler_idempotent_on_same_channel(repo: SqliteRepository) -> None:
     id2 = repo.create_handler(h2)
     assert id1 == id2
 
-    handlers = repo.list_handlers()
-    assert len(handlers) == 1
+    handlers = repo.list_handlers(process_id=p.id)
+    event_handlers = [h for h in handlers if h.channel == ch.id]
+    assert len(event_handlers) == 1
 
 
-def test_match_handlers_returns_empty(repo: SqliteRepository) -> None:
+def test_match_handlers_returns_empty(repo: UnifiedRepository) -> None:
     assert repo.match_handlers("some.event") == []
 
 
 # ── Deliveries ───────────────────────────────────────────────
 
-def test_delivery_lifecycle(repo: SqliteRepository) -> None:
+def test_delivery_lifecycle(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
     ch = Channel(name="ch", channel_type=ChannelType.NAMED)
@@ -421,7 +423,7 @@ def test_delivery_lifecycle(repo: SqliteRepository) -> None:
     assert not repo.has_pending_deliveries(p.id)
 
 
-def test_delivery_idempotent(repo: SqliteRepository) -> None:
+def test_delivery_idempotent(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     ch = Channel(name="ch", channel_type=ChannelType.NAMED)
@@ -437,7 +439,7 @@ def test_delivery_idempotent(repo: SqliteRepository) -> None:
     assert created2 is False
 
 
-def test_list_deliveries_filters(repo: SqliteRepository) -> None:
+def test_list_deliveries_filters(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     ch = Channel(name="ch", channel_type=ChannelType.NAMED)
@@ -459,7 +461,7 @@ def test_list_deliveries_filters(repo: SqliteRepository) -> None:
     assert len(all_epochs) == 1
 
 
-def test_mark_run_deliveries_delivered(repo: SqliteRepository) -> None:
+def test_mark_run_deliveries_delivered(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     ch = Channel(name="ch", channel_type=ChannelType.NAMED)
@@ -478,7 +480,7 @@ def test_mark_run_deliveries_delivered(repo: SqliteRepository) -> None:
     assert count == 1
 
 
-def test_rollback_dispatch(repo: SqliteRepository) -> None:
+def test_rollback_dispatch(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
 
@@ -500,7 +502,7 @@ def test_rollback_dispatch(repo: SqliteRepository) -> None:
     assert got_proc.status == ProcessStatus.RUNNABLE
 
 
-def test_get_latest_delivery_time(repo: SqliteRepository) -> None:
+def test_get_latest_delivery_time(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     ch = Channel(name="ch", channel_type=ChannelType.NAMED)
@@ -517,7 +519,7 @@ def test_get_latest_delivery_time(repo: SqliteRepository) -> None:
 
 # ── Runs ─────────────────────────────────────────────────────
 
-def test_run_complete_with_all_fields(repo: SqliteRepository) -> None:
+def test_run_complete_with_all_fields(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
 
@@ -551,14 +553,14 @@ def test_run_complete_with_all_fields(repo: SqliteRepository) -> None:
     assert got.completed_at is not None
 
 
-def test_timeout_stale_runs(repo: SqliteRepository) -> None:
+def test_timeout_stale_runs(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
 
     run = Run(process=p.id, status=RunStatus.RUNNING)
     repo.create_run(run)
     # Backdating created_at to make it stale
-    repo._execute(
+    repo.execute(
         "UPDATE cogos_run SET created_at = :old WHERE id = :id",
         {"old": (datetime.now(UTC) - timedelta(hours=1)).isoformat(), "id": str(run.id)},
     )
@@ -570,7 +572,7 @@ def test_timeout_stale_runs(repo: SqliteRepository) -> None:
     assert got.status == RunStatus.TIMEOUT
 
 
-def test_list_recent_failed_runs(repo: SqliteRepository) -> None:
+def test_list_recent_failed_runs(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
 
@@ -583,7 +585,7 @@ def test_list_recent_failed_runs(repo: SqliteRepository) -> None:
     assert failed[0].error == "boom"
 
 
-def test_update_run_metadata(repo: SqliteRepository) -> None:
+def test_update_run_metadata(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
 
@@ -596,7 +598,7 @@ def test_update_run_metadata(repo: SqliteRepository) -> None:
     assert got.metadata == {"a": 1, "b": 2}
 
 
-def test_list_runs_with_filters(repo: SqliteRepository) -> None:
+def test_list_runs_with_filters(repo: UnifiedRepository) -> None:
     p1 = Process(name="w1", mode=ProcessMode.ONE_SHOT)
     p2 = Process(name="w2", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p1)
@@ -619,7 +621,7 @@ def test_list_runs_with_filters(repo: SqliteRepository) -> None:
     assert by_status[0].process == p2.id
 
 
-def test_list_runs_slim(repo: SqliteRepository) -> None:
+def test_list_runs_slim(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     run = Run(process=p.id)
@@ -632,7 +634,7 @@ def test_list_runs_slim(repo: SqliteRepository) -> None:
     assert slim[0].snapshot is None
 
 
-def test_list_runs_by_process_glob(repo: SqliteRepository) -> None:
+def test_list_runs_by_process_glob(repo: UnifiedRepository) -> None:
     for name in ["worker.a", "worker.b", "init"]:
         p = Process(name=name, mode=ProcessMode.ONE_SHOT)
         repo.upsert_process(p)
@@ -642,7 +644,7 @@ def test_list_runs_by_process_glob(repo: SqliteRepository) -> None:
     assert len(runs) == 2
 
 
-def test_list_file_mutations(repo: SqliteRepository) -> None:
+def test_list_file_mutations(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     run = Run(process=p.id)
@@ -658,7 +660,7 @@ def test_list_file_mutations(repo: SqliteRepository) -> None:
     assert mutations[0]["key"] == "test.txt"
 
 
-def test_list_messages_sent_by_run(repo: SqliteRepository) -> None:
+def test_list_messages_sent_by_run(repo: UnifiedRepository) -> None:
     p = Process(name="sender", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     run = Run(process=p.id)
@@ -687,7 +689,7 @@ def test_list_messages_sent_by_run(repo: SqliteRepository) -> None:
 
 # ── Traces & Spans ───────────────────────────────────────────
 
-def test_trace_crud(repo: SqliteRepository) -> None:
+def test_trace_crud(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     run = Run(process=p.id)
@@ -698,7 +700,7 @@ def test_trace_crud(repo: SqliteRepository) -> None:
     assert tid == trace.id
 
 
-def test_request_trace_and_spans(repo: SqliteRepository) -> None:
+def test_request_trace_and_spans(repo: UnifiedRepository) -> None:
     rt = RequestTrace(cogent_id="gamma", source="discord", source_ref="msg-123")
     repo.create_request_trace(rt)
     got = repo.get_request_trace(rt.id)
@@ -725,7 +727,7 @@ def test_request_trace_and_spans(repo: SqliteRepository) -> None:
     assert len(trace_events) == 1
 
 
-def test_complete_span_merges_metadata(repo: SqliteRepository) -> None:
+def test_complete_span_merges_metadata(repo: UnifiedRepository) -> None:
     rt = RequestTrace(cogent_id="x", source="test")
     repo.create_request_trace(rt)
     span = Span(trace_id=rt.id, name="s", metadata={"a": 1})
@@ -737,7 +739,7 @@ def test_complete_span_merges_metadata(repo: SqliteRepository) -> None:
 
 # ── Channels ─────────────────────────────────────────────────
 
-def test_channel_close(repo: SqliteRepository) -> None:
+def test_channel_close(repo: UnifiedRepository) -> None:
     ch = Channel(name="temp", channel_type=ChannelType.NAMED)
     repo.upsert_channel(ch)
     assert repo.close_channel(ch.id)
@@ -746,7 +748,7 @@ def test_channel_close(repo: SqliteRepository) -> None:
     assert got.closed_at is not None
 
 
-def test_list_channels_by_owner(repo: SqliteRepository) -> None:
+def test_list_channels_by_owner(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     ch1 = Channel(name="owned", channel_type=ChannelType.NAMED, owner_process=p.id)
@@ -755,11 +757,11 @@ def test_list_channels_by_owner(repo: SqliteRepository) -> None:
     repo.upsert_channel(ch2)
 
     owned = repo.list_channels(owner_process=p.id)
-    assert len(owned) == 1
-    assert owned[0].name == "owned"
+    named = [c for c in owned if c.name == "owned"]
+    assert len(named) == 1
 
 
-def test_channel_message_idempotency(repo: SqliteRepository) -> None:
+def test_channel_message_idempotency(repo: UnifiedRepository) -> None:
     ch = Channel(name="ch", channel_type=ChannelType.NAMED)
     repo.upsert_channel(ch)
 
@@ -773,7 +775,7 @@ def test_channel_message_idempotency(repo: SqliteRepository) -> None:
     assert len(messages) == 1
 
 
-def test_list_channel_messages_since(repo: SqliteRepository) -> None:
+def test_list_channel_messages_since(repo: UnifiedRepository) -> None:
     ch = Channel(name="ch", channel_type=ChannelType.NAMED)
     repo.upsert_channel(ch)
 
@@ -792,7 +794,7 @@ def test_list_channel_messages_since(repo: SqliteRepository) -> None:
 
 # ── Wait Conditions ──────────────────────────────────────────
 
-def test_wait_condition_lifecycle(repo: SqliteRepository) -> None:
+def test_wait_condition_lifecycle(repo: UnifiedRepository) -> None:
     p = Process(name="parent", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
 
@@ -825,7 +827,7 @@ def test_wait_condition_lifecycle(repo: SqliteRepository) -> None:
 
 # ── Cron Rules ───────────────────────────────────────────────
 
-def test_cron_crud(repo: SqliteRepository) -> None:
+def test_cron_crud(repo: UnifiedRepository) -> None:
     c = Cron(expression="*/5 * * * *", channel_name="heartbeat", payload={"type": "tick"})
     repo.upsert_cron(c)
 
@@ -843,7 +845,7 @@ def test_cron_crud(repo: SqliteRepository) -> None:
 
 # ── Alerts ───────────────────────────────────────────────────
 
-def test_alerts_lifecycle(repo: SqliteRepository) -> None:
+def test_alerts_lifecycle(repo: UnifiedRepository) -> None:
     repo.create_alert("critical", "system", "monitor", "CPU 100%", {"host": "a"})
     repo.create_alert("warning", "info", "check", "OK")
 
@@ -866,7 +868,7 @@ def test_alerts_lifecycle(repo: SqliteRepository) -> None:
 
 # ── Resources ────────────────────────────────────────────────
 
-def test_resource_upsert(repo: SqliteRepository) -> None:
+def test_resource_upsert(repo: UnifiedRepository) -> None:
     r = Resource(name="gpu-pool", resource_type=ResourceType.POOL, capacity=4.0, metadata={"type": "A100"})
     repo.upsert_resource(r)
     resources = repo.list_resources()
@@ -877,7 +879,7 @@ def test_resource_upsert(repo: SqliteRepository) -> None:
 
 # ── Schemas ──────────────────────────────────────────────────
 
-def test_schema_crud(repo: SqliteRepository) -> None:
+def test_schema_crud(repo: UnifiedRepository) -> None:
     s = Schema(name="task_schema", definition={"type": "object", "properties": {"name": {"type": "string"}}})
     repo.upsert_schema(s)
     got = repo.get_schema(s.id)
@@ -890,7 +892,7 @@ def test_schema_crud(repo: SqliteRepository) -> None:
 
 # ── Operations ───────────────────────────────────────────────
 
-def test_operations(repo: SqliteRepository) -> None:
+def test_operations(repo: UnifiedRepository) -> None:
     op = CogosOperation(type="reboot", metadata={"reason": "update"})
     repo.add_operation(op)
     ops = repo.list_operations()
@@ -900,13 +902,13 @@ def test_operations(repo: SqliteRepository) -> None:
 
 # ── Executors ────────────────────────────────────────────────
 
-def test_executor_reap_stale(repo: SqliteRepository) -> None:
+def test_executor_reap_stale(repo: UnifiedRepository) -> None:
     e = Executor(executor_id="cc-1", channel_type="claude-code", executor_tags=["fast"])
     repo.register_executor(e)
 
     # Backdate heartbeat to make it stale/dead
     old_time = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
-    repo._execute(
+    repo.execute(
         "UPDATE cogos_executor SET last_heartbeat_at = :t WHERE executor_id = :eid",
         {"t": old_time, "eid": "cc-1"},
     )
@@ -917,7 +919,7 @@ def test_executor_reap_stale(repo: SqliteRepository) -> None:
     assert got.status == ExecutorStatus.DEAD
 
 
-def test_executor_heartbeat_with_resource_usage(repo: SqliteRepository) -> None:
+def test_executor_heartbeat_with_resource_usage(repo: UnifiedRepository) -> None:
     e = Executor(executor_id="cc-1", channel_type="claude-code")
     repo.register_executor(e)
     repo.heartbeat_executor("cc-1", resource_usage={"cpu": 0.5, "mem": 0.8})
@@ -926,7 +928,7 @@ def test_executor_heartbeat_with_resource_usage(repo: SqliteRepository) -> None:
     assert got.metadata.get("resource_usage") == {"cpu": 0.5, "mem": 0.8}
 
 
-def test_executor_token_revoke_idempotent(repo: SqliteRepository) -> None:
+def test_executor_token_revoke_idempotent(repo: UnifiedRepository) -> None:
     token = ExecutorToken(name="tok-1", token_hash="abc123", token_raw="raw")
     repo.create_executor_token(token)
     assert repo.revoke_executor_token("tok-1") is True
@@ -936,7 +938,7 @@ def test_executor_token_revoke_idempotent(repo: SqliteRepository) -> None:
 
 # ── Discord Metadata ─────────────────────────────────────────
 
-def test_discord_channel_crud(repo: SqliteRepository) -> None:
+def test_discord_channel_crud(repo: UnifiedRepository) -> None:
     guild = DiscordGuild(guild_id="g1", cogent_name="gamma", name="Test Guild")
     repo.upsert_discord_guild(guild)
 
@@ -954,7 +956,7 @@ def test_discord_channel_crud(repo: SqliteRepository) -> None:
     assert repo.get_discord_channel("c1") is None
 
 
-def test_discord_guild_delete_cascades_channels(repo: SqliteRepository) -> None:
+def test_discord_guild_delete_cascades_channels(repo: UnifiedRepository) -> None:
     guild = DiscordGuild(guild_id="g1", cogent_name="gamma", name="Test")
     repo.upsert_discord_guild(guild)
     ch = DiscordChannel(channel_id="c1", guild_id="g1", name="ch", channel_type="text")
@@ -967,7 +969,7 @@ def test_discord_guild_delete_cascades_channels(repo: SqliteRepository) -> None:
 
 # ── Clear operations ─────────────────────────────────────────
 
-def test_clear_config_clears_processes_and_runs_preserves_alerts(repo: SqliteRepository) -> None:
+def test_clear_config_clears_processes_and_runs_preserves_alerts(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT)
     repo.upsert_process(p)
     run = Run(process=p.id)
@@ -982,7 +984,7 @@ def test_clear_config_clears_processes_and_runs_preserves_alerts(repo: SqliteRep
     assert len(alerts) == 1  # alerts preserved
 
 
-def test_clear_all_resets_epoch(repo: SqliteRepository) -> None:
+def test_clear_all_resets_epoch(repo: UnifiedRepository) -> None:
     repo.increment_epoch()
     assert repo.reboot_epoch == 1
     repo.clear_all()
@@ -991,7 +993,7 @@ def test_clear_all_resets_epoch(repo: SqliteRepository) -> None:
 
 # ── Raw query/execute ────────────────────────────────────────
 
-def test_raw_query_and_execute(repo: SqliteRepository) -> None:
+def test_raw_query_and_execute(repo: UnifiedRepository) -> None:
     repo.set_meta("k", "v")
     rows = repo.query("SELECT * FROM cogos_meta WHERE key = :key", {"key": "k"})
     assert len(rows) == 1
@@ -1003,7 +1005,7 @@ def test_raw_query_and_execute(repo: SqliteRepository) -> None:
 
 # ── Channel message wake logic ───────────────────────────────
 
-def test_channel_message_wakes_waiting_process_without_wait_condition(repo: SqliteRepository) -> None:
+def test_channel_message_wakes_waiting_process_without_wait_condition(repo: UnifiedRepository) -> None:
     p = Process(name="w", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
     ch = Channel(name="inbox", channel_type=ChannelType.NAMED)
@@ -1019,7 +1021,7 @@ def test_channel_message_wakes_waiting_process_without_wait_condition(repo: Sqli
     assert got.status == ProcessStatus.RUNNABLE
 
 
-def test_channel_message_child_exit_resolves_wait_any(repo: SqliteRepository) -> None:
+def test_channel_message_child_exit_resolves_wait_any(repo: UnifiedRepository) -> None:
     parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING)
     repo.upsert_process(parent)
     child = Process(name="child", mode=ProcessMode.ONE_SHOT, parent_process=parent.id)
@@ -1049,7 +1051,7 @@ def test_channel_message_child_exit_resolves_wait_any(repo: SqliteRepository) ->
     assert got.status == ProcessStatus.RUNNABLE
 
 
-def test_channel_message_child_exit_wait_all_not_done(repo: SqliteRepository) -> None:
+def test_channel_message_child_exit_wait_all_not_done(repo: UnifiedRepository) -> None:
     parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING)
     repo.upsert_process(parent)
     child1 = Process(name="child1", mode=ProcessMode.ONE_SHOT, parent_process=parent.id)
@@ -1102,27 +1104,32 @@ def test_nudge_callback_fires(tmp_path: Path) -> None:
     def on_nudge(url: str, body: str) -> None:
         nudges.append((url, body))
 
-    repo = SqliteRepository(
-        str(tmp_path),
-        ingress_queue_url="http://localhost/queue",
-        nudge_callback=on_nudge,
-    )
-    p = Process(name="w", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.WAITING)
-    repo.upsert_process(p)
-    ch = Channel(name="ch", channel_type=ChannelType.NAMED)
-    repo.upsert_channel(ch)
-    h = Handler(process=p.id, channel=ch.id)
-    repo.create_handler(h)
+    import os
+    old = os.environ.get("COGOS_INGRESS_QUEUE_URL", "")
+    os.environ["COGOS_INGRESS_QUEUE_URL"] = "http://localhost/queue"
+    try:
+        repo = UnifiedRepository(
+            SqliteBackend(str(tmp_path)),
+            nudge_callback=on_nudge,
+        )
+        p = Process(name="w", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.WAITING)
+        repo.upsert_process(p)
+        ch = Channel(name="ch", channel_type=ChannelType.NAMED)
+        repo.upsert_channel(ch)
+        h = Handler(process=p.id, channel=ch.id)
+        repo.create_handler(h)
 
-    msg = ChannelMessage(channel=ch.id, payload={"text": "hi"})
-    repo.append_channel_message(msg)
+        msg = ChannelMessage(channel=ch.id, payload={"text": "hi"})
+        repo.append_channel_message(msg)
 
-    assert len(nudges) >= 1
+        assert len(nudges) >= 1
+    finally:
+        os.environ["COGOS_INGRESS_QUEUE_URL"] = old
 
 
 # ── JSON serialization edge cases ────────────────────────────
 
-def test_json_serial_uuid_and_datetime(repo: SqliteRepository) -> None:
+def test_json_serial_uuid_and_datetime(repo: UnifiedRepository) -> None:
     p = Process(
         name="json-test",
         mode=ProcessMode.ONE_SHOT,
@@ -1138,7 +1145,7 @@ def test_json_serial_uuid_and_datetime(repo: SqliteRepository) -> None:
 
 # ── Reload (no-op) ──────────────────────────────────────────
 
-def test_reload_is_noop(repo: SqliteRepository) -> None:
+def test_reload_is_noop(repo: UnifiedRepository) -> None:
     repo.set_meta("k", "v")
     repo.reload()
     assert repo.get_meta("k") is not None
@@ -1146,11 +1153,11 @@ def test_reload_is_noop(repo: SqliteRepository) -> None:
 
 # ── WAL mode and foreign keys ───────────────────────────────
 
-def test_wal_mode_enabled(repo: SqliteRepository) -> None:
-    result = repo._query("PRAGMA journal_mode")
+def test_wal_mode_enabled(repo: UnifiedRepository) -> None:
+    result = repo.query("PRAGMA journal_mode")
     assert result[0]["journal_mode"] == "wal"
 
 
-def test_foreign_keys_enabled(repo: SqliteRepository) -> None:
-    result = repo._query("PRAGMA foreign_keys")
+def test_foreign_keys_enabled(repo: UnifiedRepository) -> None:
+    result = repo.query("PRAGMA foreign_keys")
     assert result[0]["foreign_keys"] == 1

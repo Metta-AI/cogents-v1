@@ -13,11 +13,12 @@ from cogos.db.models import (
     RunStatus,
 )
 from cogos.db.models.wait_condition import WaitCondition, WaitConditionType
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
-def _fresh_repo() -> SqliteRepository:
-    return SqliteRepository(data_dir=tempfile.mkdtemp())
+def _fresh_repo() -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(data_dir=tempfile.mkdtemp()))
 
 
 def _setup_parent_child(repo, *, num_children=1, with_handlers=False):
@@ -45,7 +46,7 @@ def _setup_parent_child(repo, *, num_children=1, with_handlers=False):
     return parent, run, children
 
 
-def _get(repo: SqliteRepository, pid) -> Process:
+def _get(repo: UnifiedRepository, pid) -> Process:
     p = repo.get_process(pid)
     assert p is not None
     return p

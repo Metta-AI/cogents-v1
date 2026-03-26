@@ -6,13 +6,14 @@ from uuid import uuid4
 import pytest
 
 from cogos.capabilities.cog_registry import CogProxy, CogRegistryCapability
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.files.store import FileStore
 
 
 @pytest.fixture
 def repo(tmp_path):
-    return SqliteRepository(str(tmp_path))
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 @pytest.fixture

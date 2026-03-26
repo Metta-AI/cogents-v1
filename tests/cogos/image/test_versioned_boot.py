@@ -2,7 +2,8 @@
 import json
 from pathlib import Path
 
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.files.store import FileStore
 from cogos.image.apply import apply_image
 from cogos.image.spec import load_image
@@ -16,7 +17,7 @@ from cogos.image.versions import (
 
 def test_boot_writes_versions(tmp_path):
     """Full boot writes versions.json to FileStore."""
-    repo = SqliteRepository(tmp_path / "data.json")
+    repo = UnifiedRepository(SqliteBackend(tmp_path / "data.json"))
 
     # Load real image
     repo_root = Path(__file__).resolve().parents[3]

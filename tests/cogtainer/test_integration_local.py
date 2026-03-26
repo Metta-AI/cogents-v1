@@ -57,11 +57,11 @@ def test_full_local_flow(_mock_gsa, tmp_path: Path, monkeypatch):
     cogents = runtime.list_cogents()
     assert "agent-alpha" in cogents
 
-    # 6. Get repository, verify it's a SqliteRepository
+    # 6. Get repository, verify it's a UnifiedRepository
     repo = runtime.get_repository("agent-alpha")
-    from cogos.db.sqlite_repository import SqliteRepository
+    from cogos.db.unified_repository import UnifiedRepository
 
-    assert isinstance(repo, SqliteRepository)
+    assert isinstance(repo, UnifiedRepository)
 
     # 7. Put + get file roundtrip
     content = b"hello cogtainer world"

@@ -1,13 +1,14 @@
 """Tests for shell channel commands."""
 
 from cogos.db.models import Channel, ChannelMessage, ChannelType
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.shell.commands import CommandRegistry, ShellState
 from cogos.shell.commands.channels import register
 
 
 def _setup(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     ch = Channel(name="events", channel_type=ChannelType.NAMED)
     repo.upsert_channel(ch)
     repo.append_channel_message(
@@ -37,7 +38,7 @@ def test_ch_send(tmp_path):
     assert ch is not None
     msgs = repo.list_channel_messages(ch.id)
     assert len(msgs) == 2
-    assert msgs[-1].payload["type"] == "ping"
+    assert msgs[0].payload["type"] == "ping"
 
 
 def test_ch_log(tmp_path):

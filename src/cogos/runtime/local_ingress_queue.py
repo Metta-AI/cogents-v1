@@ -11,8 +11,8 @@ near-instant dispatch for event-driven workloads.
 Usage:
     queue = LocalIngressQueue()
 
-    repo = SqliteRepository(
-        data_dir=...,
+    repo = UnifiedRepository(
+        SqliteBackend(data_dir=...),
         ingress_queue_url="local://ingress",
         nudge_callback=queue.send,
     )

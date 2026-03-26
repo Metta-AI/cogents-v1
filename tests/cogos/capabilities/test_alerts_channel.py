@@ -2,11 +2,12 @@
 
 from cogos.capabilities.alerts import AlertError, AlertsCapability
 from cogos.db.models import Channel, ChannelType, Process, ProcessStatus
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
 def _setup(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     proc = Process(name="test-proc", status=ProcessStatus.RUNNABLE, required_tags=["local"])
     proc_id = repo.upsert_process(proc)
 
@@ -59,7 +60,7 @@ def test_error_publishes_to_channel(tmp_path):
 
 def test_alert_without_channel_still_works(tmp_path):
     """If system:alerts channel doesn't exist, alert still goes to DB."""
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     proc = Process(name="test-proc", status=ProcessStatus.RUNNABLE, required_tags=["local"])
     proc_id = repo.upsert_process(proc)
 

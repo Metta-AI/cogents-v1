@@ -10,11 +10,12 @@ from cogos.db.models import (
     ProcessMode,
     ProcessStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
-def _repo(tmp_path) -> SqliteRepository:
-    return SqliteRepository(str(tmp_path))
+def _repo(tmp_path) -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 def test_child_receives_delivery_on_fine_grained_channel(tmp_path):

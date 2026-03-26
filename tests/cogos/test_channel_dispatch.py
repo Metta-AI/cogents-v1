@@ -17,12 +17,13 @@ from cogos.db.models import (
     ProcessStatus,
     RunStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
 @pytest.fixture
 def repo(tmp_path):
-    return SqliteRepository(str(tmp_path))
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 @pytest.fixture
@@ -207,11 +208,11 @@ class TestReapStaleExecutors:
         _register_executor(repo, executor_id="exec-old")
         from datetime import UTC, datetime, timedelta
         old_time = (datetime.now(UTC) - timedelta(seconds=600)).isoformat()
-        repo._conn.execute(
+        repo._b._conn.execute(
             "UPDATE cogos_executor SET last_heartbeat_at = ? WHERE executor_id = ?",
             (old_time, "exec-old"),
         )
-        repo._conn.commit()
+        repo._b._conn.commit()
 
         count = scheduler.reap_stale_executors(heartbeat_interval_s=30)
         assert count == 1

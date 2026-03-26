@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.files.store import FileStore
 from cogos.image.apply import apply_image
 from cogos.image.spec import load_image
@@ -73,7 +74,7 @@ def test_cogent_v1_newsfromthefront_cog_apply(tmp_path):
     import json
 
     spec = load_image(Path("images/cogos"))
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     apply_image(spec, repo)
 
     store = FileStore(repo)

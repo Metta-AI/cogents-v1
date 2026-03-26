@@ -1,5 +1,3 @@
-"""Repository selection helpers for local and remote CogOS runtimes."""
-
 from __future__ import annotations
 
 import os
@@ -16,21 +14,22 @@ def create_repository(
     client: Any | None = None,
     nudge_callback: Any | None = None,
 ) -> Any:
-    """Create the active repository implementation for the current environment."""
+    from cogos.db.unified_repository import UnifiedRepository
+
     if os.environ.get("USE_LOCAL_DB") == "1":
-        from cogos.db.sqlite_repository import SqliteRepository
+        from cogos.db.sqlite_repository import SqliteBackend
 
         if data_dir is None:
             raise ValueError("data_dir is required for local SQLite repository")
-        return SqliteRepository(data_dir, nudge_callback=nudge_callback)
+        return UnifiedRepository(SqliteBackend(data_dir), nudge_callback=nudge_callback)
 
-    from cogos.db.repository import RdsDataApiRepository
+    from cogos.db.repository import RdsBackend
 
-    return RdsDataApiRepository.create(
+    backend = RdsBackend.create(
         resource_arn=resource_arn,
         secret_arn=secret_arn,
         database=database,
         region=region,
         client=client,
-        nudge_callback=nudge_callback,
     )
+    return UnifiedRepository(backend, nudge_callback=nudge_callback)

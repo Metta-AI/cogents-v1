@@ -13,7 +13,8 @@ from cogos.db.models import (
     ProcessMode,
     ProcessStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.executor.handler import _publish_process_io
 
 # ── Process tty field ─────────────────────────────────────────
@@ -25,7 +26,7 @@ def test_process_tty_defaults_false():
 
 
 def test_process_tty_persists(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     p = Process(name="test", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, tty=True)
     repo.upsert_process(p)
     got = repo.get_process_by_name("test")
@@ -37,7 +38,7 @@ def test_process_tty_persists(tmp_path):
 
 
 def _spawn_setup(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     cap = Capability(name="procs", handler="cogos.capabilities.procs.ProcsCapability", enabled=True)
     repo.upsert_capability(cap)
     parent = Process(name="parent", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE)
@@ -65,7 +66,7 @@ def test_spawn_with_tty(tmp_path):
 
 
 def _me_setup(tmp_path, *, tty=False):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     proc = Process(name="worker", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, tty=tty)
     repo.upsert_process(proc)
     for stream in ("stdin", "stdout", "stderr"):
@@ -129,7 +130,7 @@ def test_me_stdout_no_tty_no_forward(tmp_path):
 
 
 def _handle_setup(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     parent = Process(name="parent", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE)
     repo.upsert_process(parent)
     child = Process(name="child", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, parent_process=parent.id)
@@ -146,7 +147,7 @@ def _handle_setup(tmp_path):
 def test_handle_stdin_writes(tmp_path):
     repo, handle = _handle_setup(tmp_path)
     handle.stdin("hello child")
-    ch = repo.get_channel_by_name("process:child:stdin")
+    ch = repo.get_channel_by_name("io:stdin:child")
     assert ch is not None
     assert repo.list_channel_messages(ch.id)[0].payload["text"] == "hello child"
 
@@ -168,7 +169,7 @@ def test_handle_stdout_empty(tmp_path):
 
 
 def _pio_setup(tmp_path, *, tty=False):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     proc = Process(name="test-proc", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, tty=tty)
     repo.upsert_process(proc)
     for stream in ("stdout", "stderr"):

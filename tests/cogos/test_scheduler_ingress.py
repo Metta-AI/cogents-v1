@@ -15,14 +15,15 @@ from cogos.db.models import (
     ProcessStatus,
     RunStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.runtime.ingress import dispatch_ready_processes
 from cogos.runtime.schedule import apply_scheduled_messages
 from cogtainer.lambdas.dispatcher.handler import _apply_system_ticks
 
 
-def _repo(tmp_path) -> SqliteRepository:
-    return SqliteRepository(str(tmp_path))
+def _repo(tmp_path) -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 def _daemon(name: str, *, status: ProcessStatus = ProcessStatus.WAITING) -> Process:

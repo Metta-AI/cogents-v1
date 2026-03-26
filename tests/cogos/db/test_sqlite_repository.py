@@ -1,13 +1,14 @@
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
 def test_creates_db_file(tmp_path):
-    _repo = SqliteRepository(str(tmp_path))
+    _repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     assert (tmp_path / "cogos.db").exists()
 
 
 def test_tables_created(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     tables = repo.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     table_names = [t["name"] for t in tables]
     assert "cogos_process" in table_names
@@ -16,19 +17,19 @@ def test_tables_created(tmp_path):
 
 
 def test_epoch_starts_at_zero(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     assert repo.reboot_epoch == 0
 
 
 def test_increment_epoch(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     assert repo.increment_epoch() == 1
     assert repo.increment_epoch() == 2
     assert repo.reboot_epoch == 2
 
 
 def test_batch_is_transactional(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     repo.set_meta("key1", "val1")
     try:
         with repo.batch():
@@ -41,14 +42,14 @@ def test_batch_is_transactional(tmp_path):
 
 
 def test_meta_set_and_get(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     repo.set_meta("foo", "bar")
     result = repo.get_meta("foo")
     assert result == {"key": "foo", "value": "bar"}
 
 
 def test_clear_all(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     repo.set_meta("key", "val")
     repo.clear_all()
     assert repo.get_meta("key") is None
@@ -56,7 +57,7 @@ def test_clear_all(tmp_path):
 
 def test_upsert_and_get_process(tmp_path):
     from cogos.db.models import Process, ProcessMode, ProcessStatus
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     p = Process(name="test", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING)
     pid = repo.upsert_process(p)
     result = repo.get_process(pid)
@@ -66,7 +67,7 @@ def test_upsert_and_get_process(tmp_path):
 
 def test_get_process_by_name(tmp_path):
     from cogos.db.models import Process, ProcessMode, ProcessStatus
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     p = Process(name="named", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
     result = repo.get_process_by_name("named")
@@ -75,7 +76,7 @@ def test_get_process_by_name(tmp_path):
 
 def test_process_cascade_disable(tmp_path):
     from cogos.db.models import Process, ProcessMode, ProcessStatus
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING)
     repo.upsert_process(parent)
     child = Process(name="child", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING, parent_process=parent.id)
@@ -88,7 +89,7 @@ def test_process_cascade_disable(tmp_path):
 
 def test_process_round_trip_json_fields(tmp_path):
     from cogos.db.models import Process, ProcessMode, ProcessStatus
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     p = Process(name="rt", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING,
                 metadata={"key": "val"}, required_tags=["gpu"])
     repo.upsert_process(p)
@@ -102,7 +103,7 @@ def test_process_round_trip_json_fields(tmp_path):
 
 def test_file_insert_and_get_by_key(tmp_path):
     from cogos.db.models import File, FileVersion
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     f = File(key="vsm/test.py")
     repo.insert_file(f)
     fv = FileVersion(file_id=f.id, version=1, content="print('hi')", source="user")
@@ -119,7 +120,7 @@ def test_file_insert_and_get_by_key(tmp_path):
 
 def test_grep_files(tmp_path):
     from cogos.db.models import File, FileVersion
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     f1 = File(key="src/a.py")
     repo.insert_file(f1)
     repo.insert_file_version(FileVersion(file_id=f1.id, version=1, content="def foo():\n    return 42"))
@@ -138,7 +139,7 @@ def test_delivery_create_and_mark_delivered(tmp_path):
     from uuid import uuid4
 
     from cogos.db.models import DeliveryStatus
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     from cogos.db.models import Channel, ChannelType, Handler, Process, ProcessMode, ProcessStatus
     p = Process(name="dlv_proc", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
@@ -162,7 +163,7 @@ def test_delivery_create_and_mark_delivered(tmp_path):
 
 def test_channel_message_wakes_process(tmp_path):
     from cogos.db.models import Channel, ChannelMessage, ChannelType, Handler, Process, ProcessMode, ProcessStatus
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     p = Process(name="wake_proc", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
     ch = Channel(name="wake_ch", channel_type=ChannelType.NAMED)
@@ -182,7 +183,7 @@ def test_run_create_and_complete(tmp_path):
     from decimal import Decimal
 
     from cogos.db.models import Process, ProcessMode, ProcessStatus, Run, RunStatus
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     p = Process(name="run_proc", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING)
     repo.upsert_process(p)
     run = Run(process=p.id, status=RunStatus.RUNNING)
@@ -203,7 +204,7 @@ def test_run_create_and_complete(tmp_path):
 
 def test_executor_register_and_select(tmp_path):
     from cogos.db.models import Executor
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     e1 = Executor(executor_id="exec-gpu-1", executor_tags=["gpu", "large"])
     repo.register_executor(e1)
     e2 = Executor(executor_id="exec-cpu-1", executor_tags=["cpu"])
@@ -219,7 +220,7 @@ def test_executor_register_and_select(tmp_path):
 
 def test_discord_guild_crud(tmp_path):
     from cogos.db.models.discord_metadata import DiscordGuild
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     guild = DiscordGuild(guild_id="g1", cogent_name="test-bot", name="Test Guild")
     repo.upsert_discord_guild(guild)
     got = repo.get_discord_guild("g1")

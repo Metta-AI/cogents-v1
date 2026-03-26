@@ -11,7 +11,8 @@ from pathlib import Path
 
 from cogos.capabilities.base import Capability
 from cogos.capabilities.procs import ProcessError, ProcsCapability
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.image.apply import apply_image
 from cogos.image.spec import load_image
 
@@ -30,7 +31,7 @@ DELEGATABLE_CAPS = [
 def _boot_cogent_v1(tmp_path):
     repo_root = Path(__file__).resolve().parents[2]
     image_dir = repo_root / "images" / "cogos"
-    repo = SqliteRepository(str(tmp_path / "db"))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path / "db")))
     spec = load_image(image_dir)
     apply_image(spec, repo)
     return repo
