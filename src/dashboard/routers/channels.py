@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -198,8 +199,20 @@ def list_channels(
     return ChannelsResponse(count=len(out), channels=out)
 
 
+_channel_detail_semaphore = threading.Semaphore(2)
+
+
 @router.get("/channels/{channel_id}", response_model=ChannelDetail)
 def get_channel(name: str, channel_id: str, limit: int = Query(50)) -> ChannelDetail:
+    if not _channel_detail_semaphore.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="Too many concurrent channel detail requests")
+    try:
+        return _get_channel_impl(name, channel_id, limit)
+    finally:
+        _channel_detail_semaphore.release()
+
+
+def _get_channel_impl(name: str, channel_id: str, limit: int) -> ChannelDetail:
     repo = get_repo()
     ch = repo.get_channel(UUID(channel_id))
     if not ch:
