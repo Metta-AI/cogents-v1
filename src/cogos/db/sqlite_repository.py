@@ -1585,11 +1585,14 @@ class SqliteRepository:
         )
         return row["max_v"] if row and row["max_v"] is not None else 0
 
-    def list_file_versions(self, file_id: UUID) -> list[FileVersion]:
-        rows = self._query(
-            "SELECT * FROM cogos_file_version WHERE file_id = :fid ORDER BY version",
-            {"fid": str(file_id)},
-        )
+    def list_file_versions(self, file_id: UUID, *, limit: int | None = None) -> list[FileVersion]:
+        if limit is not None:
+            sql = "SELECT * FROM cogos_file_version WHERE file_id = :fid ORDER BY version DESC LIMIT :lim"
+            params: dict[str, Any] = {"fid": str(file_id), "lim": limit}
+        else:
+            sql = "SELECT * FROM cogos_file_version WHERE file_id = :fid ORDER BY version"
+            params = {"fid": str(file_id)}
+        rows = self._query(sql, params)
         return [self._row_to_file_version(r) for r in rows]
 
     def set_active_file_version(self, file_id: UUID, version: int) -> None:

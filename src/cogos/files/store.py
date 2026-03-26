@@ -161,11 +161,11 @@ class FileStore:
             prefix=prefix, exclude_prefix=exclude_prefix, limit=limit,
         )
 
-    def history(self, key: str) -> list[FileVersion]:
+    def history(self, key: str, *, limit: int | None = None) -> list[FileVersion]:
         f = self._repo.get_file_by_key(key)
         if f is None:
             return []
-        return self._repo.list_file_versions(f.id)
+        return self._repo.list_file_versions(f.id, limit=limit)
 
     def delete(self, key: str) -> None:
         f = self._repo.get_file_by_key(key)

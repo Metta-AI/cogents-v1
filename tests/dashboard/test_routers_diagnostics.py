@@ -46,14 +46,14 @@ def test_diagnostics_history_returns_parsed_versions():
         patch("dashboard.routers.diagnostics.get_repo", return_value=mock),
         patch("dashboard.routers.diagnostics.FileStore") as MockFS,
     ):
-        MockFS.return_value.history.return_value = [v1, v2]
+        MockFS.return_value.history.return_value = [v2, v1]  # DB returns DESC
         client = _client()
         resp = client.get("/api/cogents/test/diagnostics/history?limit=10")
 
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["runs"]) == 2
-    # Newest first
+    # Newest first (DB returns DESC order)
     assert data["runs"][0]["timestamp"] == "2026-03-02T00:00:00Z"
     assert data["runs"][1]["timestamp"] == "2026-03-01T00:00:00Z"
 
@@ -95,13 +95,16 @@ def test_diagnostics_history_respects_limit():
         patch("dashboard.routers.diagnostics.get_repo", return_value=mock),
         patch("dashboard.routers.diagnostics.FileStore") as MockFS,
     ):
-        MockFS.return_value.history.return_value = versions
+        # DB applies limit, so mock returns only 3 newest (DESC order)
+        MockFS.return_value.history.return_value = list(reversed(versions))[:3]
         client = _client()
         resp = client.get("/api/cogents/test/diagnostics/history?limit=3")
 
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["runs"]) == 3
+    # Verify history was called with limit
+    MockFS.return_value.history.assert_called_once_with("mnt/disk/diagnostics/current.json", limit=3)
 
 
 

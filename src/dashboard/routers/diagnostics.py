@@ -38,13 +38,11 @@ def get_diagnostics(name: str) -> dict:
 def get_diagnostics_history(name: str, limit: int = 10) -> dict:
     """Return the last N diagnostic runs from file versions of current.json."""
     store = FileStore(get_repo())
-    versions = store.history(_DIAG_KEY)
+    versions = store.history(_DIAG_KEY, limit=limit)
     if not versions:
         return {"runs": []}
-    # Sort descending by version number (newest first), take last N
-    versions.sort(key=lambda v: v.version, reverse=True)
     runs = []
-    for v in versions[:limit]:
+    for v in versions:
         try:
             data = json.loads(v.content)
             runs.append(data)

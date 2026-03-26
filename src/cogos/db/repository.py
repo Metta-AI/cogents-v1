@@ -1429,11 +1429,14 @@ class RdsDataApiRepository:
         row = self._first_row(response)
         return row["max_v"] if row else 0
 
-    def list_file_versions(self, file_id: UUID) -> list[FileVersion]:
-        response = self._execute(
-            "SELECT * FROM cogos_file_version WHERE file_id = :file_id ORDER BY version",
-            [self._param("file_id", file_id)],
-        )
+    def list_file_versions(self, file_id: UUID, *, limit: int | None = None) -> list[FileVersion]:
+        if limit is not None:
+            sql = "SELECT * FROM cogos_file_version WHERE file_id = :file_id ORDER BY version DESC LIMIT :lim"
+            params = [self._param("file_id", file_id), self._param("lim", limit)]
+        else:
+            sql = "SELECT * FROM cogos_file_version WHERE file_id = :file_id ORDER BY version"
+            params = [self._param("file_id", file_id)]
+        response = self._execute(sql, params)
         return [self._file_version_from_row(r) for r in self._rows_to_dicts(response)]
 
     def set_active_file_version(self, file_id: UUID, version: int) -> None:
