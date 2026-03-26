@@ -8,11 +8,12 @@ from cogos.db.models import (
     Run,
     RunStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
-def _repo(tmp_path) -> SqliteRepository:
-    return SqliteRepository(str(tmp_path))
+def _repo(tmp_path) -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 def test_flush_dead_letters_writes_failed_runs(tmp_path):

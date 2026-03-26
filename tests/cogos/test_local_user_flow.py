@@ -17,7 +17,8 @@ from cogos.db.models import (
     ProcessStatus,
     RunStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.image.apply import apply_image
 from cogos.image.spec import load_image
 from cogos.runtime.local import run_local_tick
@@ -32,8 +33,8 @@ def _noop_execute(process, event_data, run, config, repo, **kwargs):
     return run
 
 
-def _boot(tmp_path) -> SqliteRepository:
-    repo = SqliteRepository(str(tmp_path / "db"))
+def _boot(tmp_path) -> UnifiedRepository:
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path / "db")))
     spec = load_image(IMAGE_DIR)
     apply_image(spec, repo, clean=True)
     return repo

@@ -1679,16 +1679,17 @@ def executor_daemon(ctx, executor_id: str | None, tags: str, poll_s: float, hear
 
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
 
-    # Try cogtainer runtime first, fall back to SqliteRepository
+    # Try cogtainer runtime first, fall back to SqliteBackend
     assert ctx.obj is not None, "CLI context object must be set"
     runtime = ctx.obj.get("runtime")
     cogent_name = ctx.obj.get("cogent_name", "")
     if runtime:
         repo = runtime.get_repository(cogent_name)
     else:
-        from cogos.db.sqlite_repository import SqliteRepository
+        from cogos.db.sqlite_repository import SqliteBackend
+        from cogos.db.unified_repository import UnifiedRepository
         data_dir = str(Path.home() / ".cogos" / "local")
-        repo = SqliteRepository(data_dir)
+        repo = UnifiedRepository(SqliteBackend(data_dir))
 
     config = get_config()
 

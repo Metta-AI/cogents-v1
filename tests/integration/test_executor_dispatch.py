@@ -21,13 +21,14 @@ from cogos.db.models import (
     ProcessStatus,
     RunStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.runtime.dispatch import build_dispatch_event
 
 
 def test_local_daemon_dispatch(tmp_path):
     """Process with no tags dispatches to local-daemon executor."""
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
 
     # Register local daemon executor (what run_loop does on boot)
     daemon = Executor(
@@ -103,7 +104,7 @@ def test_local_daemon_dispatch(tmp_path):
 
 def test_claude_code_executor_dispatch(tmp_path):
     """Process with ['claude-code'] tags dispatches to claude-code executor."""
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
 
     # Register claude-code executor (what channel server does)
     cc_executor = Executor(
@@ -228,7 +229,7 @@ def test_claude_code_executor_dispatch(tmp_path):
 
 def test_tag_routing(tmp_path):
     """Processes route to correct executors by tags."""
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
 
     # Register two executors
     repo.register_executor(Executor(
@@ -280,7 +281,7 @@ def test_tag_routing(tmp_path):
 
 def test_lambda_pool_dispatch(tmp_path):
     """Lambda pool executor stays idle after dispatch (fire-and-forget)."""
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
 
     repo.register_executor(Executor(
         executor_id="lambda-pool",

@@ -13,12 +13,13 @@ from cogos.db.models import (
     Run,
     RunStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.runtime.local import run_and_complete, run_local_tick
 
 
-def _repo(tmp_path) -> SqliteRepository:
-    return SqliteRepository(str(tmp_path))
+def _repo(tmp_path) -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 def _make_process(repo, *, mode=ProcessMode.ONE_SHOT, max_retries=0) -> Process:

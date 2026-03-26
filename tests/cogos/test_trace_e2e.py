@@ -15,12 +15,13 @@ from cogos.db.models import (
     ProcessMode,
     ProcessStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.runtime.dispatch import build_dispatch_event
 
 
 def _fresh_repo():
-    return SqliteRepository(data_dir=tempfile.mkdtemp())
+    return UnifiedRepository(SqliteBackend(data_dir=tempfile.mkdtemp()))
 
 
 def _setup_repo_with_traced_message():

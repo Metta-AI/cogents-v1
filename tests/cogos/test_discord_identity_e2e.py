@@ -19,7 +19,8 @@ from cogos.db.models import (
     ProcessMode,
     ProcessStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.files.context_engine import ContextEngine
 from cogos.files.store import FileStore
 from cogos.image.apply import apply_image
@@ -30,7 +31,7 @@ from cogos.image.spec import load_image
 
 @pytest.fixture
 def repo(tmp_path):
-    return SqliteRepository(str(tmp_path))
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 @pytest.fixture
@@ -100,7 +101,7 @@ def test_boot_image_init_uses_capability_profiles(tmp_path):
     image_dir = repo_root / "images" / "cogos"
     assert image_dir.is_dir()
 
-    repo = SqliteRepository(str(tmp_path / "db"))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path / "db")))
     spec = load_image(image_dir)
     apply_image(spec, repo)
 
@@ -119,7 +120,7 @@ def test_handler_prompt_has_identity_filtering_instructions(tmp_path):
     repo_root = Path(__file__).resolve().parents[2]
     image_dir = repo_root / "images" / "cogos"
 
-    repo = SqliteRepository(str(tmp_path / "db"))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path / "db")))
     spec = load_image(image_dir)
     apply_image(spec, repo)
 
@@ -142,7 +143,7 @@ def test_handler_prompt_expansion_includes_full_identity(tmp_path):
     repo_root = Path(__file__).resolve().parents[2]
     image_dir = repo_root / "images" / "cogos"
 
-    repo = SqliteRepository(str(tmp_path / "db"))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path / "db")))
     spec = load_image(image_dir)
     apply_image(spec, repo)
 

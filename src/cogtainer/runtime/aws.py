@@ -72,7 +72,8 @@ class AwsRuntime(CogtainerRuntime):
     # ── Repository ───────────────────────────────────────────
 
     def get_repository(self, cogent_name: str) -> Any:
-        from cogos.db.repository import RdsDataApiRepository
+        from cogos.db.repository import RdsBackend
+        from cogos.db.unified_repository import UnifiedRepository
 
         db_info = self._get_db_info()
         cluster_arn = db_info.get("cluster_arn") or os.environ["DB_CLUSTER_ARN"]
@@ -91,14 +92,14 @@ class AwsRuntime(CogtainerRuntime):
                 MessageDeduplicationId=str(int(_time.time())),
             )
 
-        return RdsDataApiRepository(
+        backend = RdsBackend(
             client=client,
             resource_arn=cluster_arn,
             secret_arn=secret_arn,
             database=db_name,
             region=self._region,
-            nudge_callback=_nudge,
         )
+        return UnifiedRepository(backend, nudge_callback=_nudge)
 
     # ── LLM ──────────────────────────────────────────────────
 

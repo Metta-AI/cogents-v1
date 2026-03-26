@@ -1,4 +1,5 @@
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.image.apply import apply_image
 from cogos.image.snapshot import snapshot_image
 from cogos.image.spec import ImageSpec, load_image
@@ -6,7 +7,7 @@ from cogos.image.spec import ImageSpec, load_image
 
 def test_snapshot_round_trips(tmp_path):
     """Apply an image, snapshot it, load the snapshot — should match."""
-    repo = SqliteRepository(str(tmp_path / "db"))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path / "db")))
 
     original = ImageSpec(
         capabilities=[
@@ -42,5 +43,6 @@ def test_snapshot_round_trips(tmp_path):
     assert restored.processes[0]["name"] == "scheduler"
     assert restored.processes[0]["content"] == "@{cogos/scheduler.md}"
     assert "dir" in restored.processes[0]["capabilities"]
-    assert restored.processes[0]["handlers"] == []
+    # upsert_process auto-creates an io:stdin handler
+    assert restored.processes[0]["handlers"] == ["io:stdin:scheduler"]
     assert restored.files["mnt/boot/cogos/scheduler.md"] == "You are the scheduler."

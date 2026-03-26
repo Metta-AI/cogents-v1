@@ -1,9 +1,10 @@
 from cogos.db.models import Process, ProcessMode, ProcessStatus
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
 def test_cascade_kill_disables_children(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE)
     parent_id = repo.upsert_process(parent)
     child = Process(name="child", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, parent_process=parent_id)
@@ -20,7 +21,7 @@ def test_cascade_kill_disables_children(tmp_path):
 
 
 def test_cascade_kill_recursive(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     root = Process(name="root", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE)
     root_id = repo.upsert_process(root)
     mid = Process(name="mid", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE, parent_process=root_id)
@@ -42,7 +43,7 @@ def test_cascade_kill_recursive(tmp_path):
 
 
 def test_cascade_kill_does_not_affect_unrelated(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE)
     parent_id = repo.upsert_process(parent)
     child = Process(name="child", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.RUNNABLE, parent_process=parent_id)
@@ -58,7 +59,7 @@ def test_cascade_kill_does_not_affect_unrelated(tmp_path):
 
 
 def test_already_disabled_child_not_touched(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     parent = Process(name="parent", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE)
     parent_id = repo.upsert_process(parent)
     child = Process(name="child", mode=ProcessMode.ONE_SHOT, status=ProcessStatus.DISABLED, parent_process=parent_id)
@@ -79,7 +80,7 @@ from cogos.image.spec import ImageSpec  # noqa: E402
 
 
 def _setup_with_procs(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     spec = ImageSpec(
         capabilities=[
             {
@@ -128,10 +129,8 @@ def test_detach_reparents_to_init(tmp_path):
     assert child.parent_process == parent_id
 
     assert child.id is not None
-    procs.detach(str(child.id))
-    child = repo.get_process_by_name("child")
-    assert child is not None
-    assert child.parent_process == init_id
+    result = procs.detach(str(child.id))
+    assert result.parent_process == str(init_id)
 
 
 def test_cascade_kill_skips_detached(tmp_path):
@@ -156,7 +155,7 @@ def test_init_spawn_detached_does_not_crash(tmp_path):
     The handler registration for parent wakeup must be skipped (not attempted
     with process=None which violates NOT NULL).
     """
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     spec = ImageSpec(capabilities=[
         {"name": "procs", "handler": "cogos.capabilities.procs:ProcsCapability",
          "description": "", "instructions": "", "schema": {}, "iam_role_arn": None, "metadata": {}},

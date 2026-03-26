@@ -20,12 +20,13 @@ from cogos.db.models import (
     ProcessMode,
     ProcessStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.runtime.local import run_local_tick
 
 
-def _repo(tmp_path) -> SqliteRepository:
-    return SqliteRepository(str(tmp_path / "db"))
+def _repo(tmp_path) -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(str(tmp_path / "db")))
 
 
 def _dm_payload(author_id: str = "42", content: str = "hello") -> dict:
@@ -42,7 +43,7 @@ def _dm_payload(author_id: str = "42", content: str = "hello") -> dict:
     }
 
 
-def _simulate_bridge_dm(repo: SqliteRepository, payload: dict) -> None:
+def _simulate_bridge_dm(repo: UnifiedRepository, payload: dict) -> None:
     """Simulate what the bridge does: write to catch-all + fine-grained channel."""
     author_id = payload["author_id"]
 

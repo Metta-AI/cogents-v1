@@ -19,7 +19,8 @@ from cogos.db.models import (
     Run,
     RunStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.executor import handler as executor_handler
 from cogos.files.store import FileStore
 from cogos.runtime.local import run_and_complete
@@ -30,11 +31,11 @@ def _set_cogent_env(monkeypatch):
     monkeypatch.setenv("COGENT", "test")
 
 
-def _repo(tmp_path) -> SqliteRepository:
-    return SqliteRepository(str(tmp_path))
+def _repo(tmp_path) -> UnifiedRepository:
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
-def _make_run(repo: SqliteRepository, process: Process) -> Run:
+def _make_run(repo: UnifiedRepository, process: Process) -> Run:
     run = Run(process=process.id, status=RunStatus.RUNNING)
     repo.create_run(run)
     return run

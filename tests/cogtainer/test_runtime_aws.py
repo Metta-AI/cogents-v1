@@ -92,9 +92,9 @@ def test_aws_runtime_get_repository_uses_db_info_fallback(aws_runtime: AwsRuntim
 
     repo = aws_runtime.get_repository("my.cogent")
     # DB name should be derived from cogent name
-    assert repo._database == "cogent_my_cogent"
-    assert repo._resource_arn == "arn:rds:from-stack"
-    assert repo._secret_arn == "arn:secret:from-stack"
+    assert repo._b._database == "cogent_my_cogent"
+    assert repo._b._resource_arn == "arn:rds:from-stack"
+    assert repo._b._secret_arn == "arn:secret:from-stack"
 
 
 def test_aws_runtime_get_repository_env_overrides_db_info(aws_runtime: AwsRuntime, monkeypatch):
@@ -107,9 +107,9 @@ def test_aws_runtime_get_repository_env_overrides_db_info(aws_runtime: AwsRuntim
     aws_runtime._db_info_cache = {"cluster_arn": "", "secret_arn": ""}
 
     repo = aws_runtime.get_repository("alpha")
-    assert repo._resource_arn == "arn:rds:from-env"
-    assert repo._secret_arn == "arn:secret:from-env"
-    assert repo._database == "custom_db"
+    assert repo._b._resource_arn == "arn:rds:from-env"
+    assert repo._b._secret_arn == "arn:secret:from-env"
+    assert repo._b._database == "custom_db"
 
 
 def test_aws_runtime_get_repository_db_name_derived_from_cogent(aws_runtime: AwsRuntime, monkeypatch):
@@ -122,7 +122,7 @@ def test_aws_runtime_get_repository_db_name_derived_from_cogent(aws_runtime: Aws
 
     repo = aws_runtime.get_repository("dr.alpha")
     # _safe replaces . with -, then replace - with _ for db name
-    assert repo._database == "cogent_dr_alpha"
+    assert repo._b._database == "cogent_dr_alpha"
 
 
 # ── put_file / get_file ─────────────────────────────────────

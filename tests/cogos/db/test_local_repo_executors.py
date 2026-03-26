@@ -11,12 +11,13 @@ from cogos.db.models import (
     ExecutorStatus,
     ExecutorToken,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
 @pytest.fixture
 def repo(tmp_path):
-    return SqliteRepository(str(tmp_path))
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 class TestExecutorCRUD:
@@ -150,11 +151,11 @@ class TestExecutorReaping:
         repo.register_executor(Executor(executor_id="exec-old"))
         # Set last_heartbeat far in the past via direct DB update
         old_time = (datetime.now(UTC) - timedelta(seconds=600)).isoformat()
-        repo._conn.execute(
+        repo._b._conn.execute(
             "UPDATE cogos_executor SET last_heartbeat_at = ? WHERE executor_id = ?",
             (old_time, "exec-old"),
         )
-        repo._conn.commit()
+        repo._b._conn.commit()
         dead_count = repo.reap_stale_executors(heartbeat_interval_s=30)
         assert dead_count == 1
         got = repo.get_executor("exec-old")
@@ -164,11 +165,11 @@ class TestExecutorReaping:
         repo.register_executor(Executor(executor_id="exec-slow"))
         # Stale threshold = 3 * 30 = 90s
         stale_time = (datetime.now(UTC) - timedelta(seconds=100)).isoformat()
-        repo._conn.execute(
+        repo._b._conn.execute(
             "UPDATE cogos_executor SET last_heartbeat_at = ? WHERE executor_id = ?",
             (stale_time, "exec-slow"),
         )
-        repo._conn.commit()
+        repo._b._conn.commit()
         repo.reap_stale_executors(heartbeat_interval_s=30)
         got = repo.get_executor("exec-slow")
         assert got.status == ExecutorStatus.STALE

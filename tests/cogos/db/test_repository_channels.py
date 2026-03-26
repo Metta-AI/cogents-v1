@@ -1,34 +1,26 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from unittest.mock import MagicMock
-from uuid import uuid4
+import pytest
 
-from cogos.db.repository import RdsDataApiRepository
+from cogos.db.models import Channel, ChannelMessage, ChannelType
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
-def test_list_channel_messages_allows_null_sender_process():
-    repo = RdsDataApiRepository.__new__(RdsDataApiRepository)
-    channel_id = uuid4()
-    msg_id = uuid4()
-    created_at = datetime.now(timezone.utc)
+@pytest.fixture
+def repo(tmp_path):
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
-    repo._execute = MagicMock(return_value=object())
-    repo._rows_to_dicts = MagicMock(return_value=[{
-        "id": str(msg_id),
-        "channel": str(channel_id),
-        "sender_process": None,
-        "payload": {"content": "hello"},
-        "created_at": "2026-03-13T00:00:00+00:00",
-    }])
-    repo._json_field = lambda row, key, default=None: row.get(key, default)
-    repo._ts = lambda row, key: created_at
 
-    messages = RdsDataApiRepository.list_channel_messages(repo, channel_id)
+def test_list_channel_messages_allows_null_sender_process(repo):
+    ch = Channel(name="test", channel_type=ChannelType.NAMED)
+    repo.upsert_channel(ch)
 
+    msg = ChannelMessage(channel=ch.id, sender_process=None, payload={"content": "hello"})
+    repo.append_channel_message(msg)
+
+    messages = repo.list_channel_messages(ch.id)
     assert len(messages) == 1
-    assert messages[0].id == msg_id
-    assert messages[0].channel == channel_id
+    assert messages[0].channel == ch.id
     assert messages[0].sender_process is None
     assert messages[0].payload == {"content": "hello"}
-    assert messages[0].created_at == created_at

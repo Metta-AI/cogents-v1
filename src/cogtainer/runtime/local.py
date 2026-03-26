@@ -48,13 +48,15 @@ class LocalRuntime(CogtainerRuntime):
     # ── Repository ───────────────────────────────────────────
 
     def get_repository(self, cogent_name: str) -> Any:
-        from cogos.db.sqlite_repository import SqliteRepository
+        from cogos.db.sqlite_repository import SqliteBackend
+        from cogos.db.unified_repository import UnifiedRepository
 
         cogent_dir = self._data_dir / cogent_name
         cogent_dir.mkdir(parents=True, exist_ok=True)
-        return SqliteRepository(
-            data_dir=str(cogent_dir),
-            ingress_queue_url="local://ingress",
+        import os
+        os.environ.setdefault("COGOS_INGRESS_QUEUE_URL", "local://ingress")
+        return UnifiedRepository(
+            SqliteBackend(data_dir=str(cogent_dir)),
             nudge_callback=self._ingress_queue.send,
         )
 

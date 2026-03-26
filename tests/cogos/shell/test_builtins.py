@@ -1,12 +1,13 @@
 """Tests for shell builtins."""
 
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.shell.commands import CommandRegistry, ShellState
 from cogos.shell.commands.builtins import register
 
 
 def _setup(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     state = ShellState(cogent_name="test", repo=repo, cwd="")
     reg = CommandRegistry()
     register(reg)

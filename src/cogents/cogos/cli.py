@@ -26,8 +26,9 @@ import click
 
 
 def _repo():
-    from cogos.db.repository import RdsDataApiRepository
-    return RdsDataApiRepository.create()
+    from cogos.db.repository import RdsBackend
+    from cogos.db.unified_repository import UnifiedRepository
+    return UnifiedRepository(RdsBackend.create())
 
 
 def _output(data, *, use_json: bool = False) -> None:

@@ -6,13 +6,14 @@ from cogos.capabilities.alerts import AlertsCapability
 from cogos.capabilities.channels import ChannelsCapability
 from cogos.db.models import Channel, ChannelType, Process, ProcessStatus
 from cogos.db.models.alert import Alert, AlertSeverity
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.lib.alert_dispatcher import dispatch_actions
 from cogos.lib.alert_rules import Action
 
 
 def _setup(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     proc = Process(name="alert-monitor", status=ProcessStatus.RUNNABLE, required_tags=["local"])
     proc_id = repo.upsert_process(proc)
 

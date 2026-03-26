@@ -1,13 +1,14 @@
 """Tests for shell process commands."""
 
 from cogos.db.models import Process, ProcessMode, ProcessStatus
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.shell.commands import CommandRegistry, ShellState
 from cogos.shell.commands.procs import register
 
 
 def _setup(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     repo.upsert_process(Process(name="init", mode=ProcessMode.DAEMON, status=ProcessStatus.WAITING, required_tags=[]))
     repo.upsert_process(
         Process(name="scheduler", mode=ProcessMode.DAEMON, status=ProcessStatus.RUNNABLE, required_tags=[])

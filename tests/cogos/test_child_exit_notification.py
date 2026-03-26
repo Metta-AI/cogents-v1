@@ -10,7 +10,8 @@ from cogos.db.models import (
     Run,
     RunStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.executor.handler import ExecutorConfig
 from cogos.image.apply import apply_image
 from cogos.image.spec import ImageSpec
@@ -18,7 +19,7 @@ from cogos.runtime.local import run_and_complete
 
 
 def _setup(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     spec = ImageSpec(
         capabilities=[
             {

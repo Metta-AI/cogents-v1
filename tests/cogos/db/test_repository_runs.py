@@ -1,28 +1,31 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-from uuid import uuid4
+import pytest
 
-from cogos.db.models import RunStatus
-from cogos.db.repository import RdsDataApiRepository
+from cogos.db.models import Process, ProcessMode, Run, RunStatus
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 
 
-def test_complete_run_updates_snapshot_when_provided():
-    repo = RdsDataApiRepository.__new__(RdsDataApiRepository)
-    repo._execute = MagicMock(return_value={"numberOfRecordsUpdated": 1})
+@pytest.fixture
+def repo(tmp_path):
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
-    result = RdsDataApiRepository.complete_run(
-        repo,
-        uuid4(),
+
+def test_complete_run_updates_snapshot_when_provided(repo):
+    p = Process(name="w", mode=ProcessMode.ONE_SHOT)
+    repo.upsert_process(p)
+    run = Run(process=p.id)
+    repo.create_run(run)
+
+    result = repo.complete_run(
+        run.id,
         status=RunStatus.COMPLETED,
         snapshot={"final_key": "/proc/x/final.json"},
     )
-
     assert result is True
 
-    sql = repo._execute.call_args.args[0]
-    params = repo._execute.call_args.args[1]
-
-    assert "snapshot = COALESCE(:snapshot::jsonb, snapshot)" in sql
-    snapshot_param = next(param for param in params if param["name"] == "snapshot")
-    assert snapshot_param["value"]["stringValue"] == '{"final_key": "/proc/x/final.json"}'
+    got = repo.get_run(run.id)
+    assert got is not None
+    assert got.status == RunStatus.COMPLETED
+    assert got.snapshot == {"final_key": "/proc/x/final.json"}

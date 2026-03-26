@@ -5,13 +5,14 @@ import pytest
 
 from cogos.db.models import Channel, ChannelMessage
 from cogos.db.models.channel import ChannelType
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.io.discord.preprocessor import enrich_discord_payload
 
 
 @pytest.fixture
 def repo(tmp_path):
-    repo = SqliteRepository(data_dir=str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(data_dir=str(tmp_path)))
     return repo
 
 

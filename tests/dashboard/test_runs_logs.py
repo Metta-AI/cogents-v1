@@ -7,13 +7,14 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from cogos.db.models import Process, ProcessMode, ProcessStatus, Run, RunStatus
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.files.store import FileStore
 from dashboard.app import create_app
 
 
 def test_run_logs_endpoint_prefers_session_artifacts(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     process = Process(
         id=uuid4(),
         name="alpha.worker",
@@ -163,7 +164,7 @@ def test_run_logs_endpoint_prefers_session_artifacts(tmp_path):
 
 
 def test_run_logs_endpoint_without_session_artifacts_returns_empty(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     process = Process(
         id=uuid4(),
         name="alpha.worker",
@@ -193,7 +194,7 @@ def test_run_logs_endpoint_without_session_artifacts_returns_empty(tmp_path):
 
 
 def test_run_logs_endpoint_surfaces_python_executor_output(tmp_path):
-    repo = SqliteRepository(str(tmp_path))
+    repo = UnifiedRepository(SqliteBackend(str(tmp_path)))
     process = Process(
         id=uuid4(),
         name="init",

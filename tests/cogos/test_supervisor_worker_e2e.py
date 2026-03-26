@@ -25,7 +25,8 @@ from cogos.db.models import (
     ProcessStatus,
     RunStatus,
 )
-from cogos.db.sqlite_repository import SqliteRepository
+from cogos.db.sqlite_repository import SqliteBackend
+from cogos.db.unified_repository import UnifiedRepository
 from cogos.files.store import FileStore
 from cogos.runtime.local import run_local_tick
 
@@ -34,7 +35,7 @@ from cogos.runtime.local import run_local_tick
 
 @pytest.fixture
 def repo(tmp_path):
-    return SqliteRepository(str(tmp_path))
+    return UnifiedRepository(SqliteBackend(str(tmp_path)))
 
 
 @pytest.fixture
