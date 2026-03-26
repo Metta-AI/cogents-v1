@@ -470,9 +470,10 @@ class CogentStack(Stack):
             health_check=elbv2.HealthCheck(
                 path="/healthz",
                 healthy_http_codes="200",
-                interval=Duration.seconds(10),
+                interval=Duration.seconds(15),
+                timeout=Duration.seconds(10),
                 healthy_threshold_count=2,
-                unhealthy_threshold_count=3,
+                unhealthy_threshold_count=5,
             ),
         )
 
@@ -692,6 +693,7 @@ class CogentStack(Stack):
             assign_public_ip=True,
             security_groups=[sg],
             vpc_subnets=public_subnets,
+            health_check_grace_period=Duration.seconds(90),
         )
 
         target_group.add_target(service)
