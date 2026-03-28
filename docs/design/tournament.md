@@ -76,12 +76,10 @@ class PlayerCoglet(Coglet, TickLet):
     @on_message("score")
     def handle_score(self, data):
         self.history.append(data)
-        self.transmit("score", data)
 
     @on_message("replay")
     def handle_replay(self, data):
         self.history.append(data)
-        self.transmit("replay", data)
 
     @on_message("logs")
     def handle_logs(self, data):
