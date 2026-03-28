@@ -102,10 +102,9 @@ class PlayerCoglet(Coglet, GitLet):
         self.guide(self.policy, Command("commit", patch))
 ```
 
-### PolicyCoglet (User, CodeLet)
+### PolicyCoglet — Combined (User, CodeLet)
 
-Executes policy functions and improves them. Functions live in a dict,
-LLM rewrites them every 10 ticks based on inventory changes.
+Simplest form: execution and improvement in one Coglet.
 
 ```python
 class PolicyCoglet(Coglet, CodeLet):
@@ -128,20 +127,75 @@ class PolicyCoglet(Coglet, CodeLet):
             self.inventory = new_inventory
 
     @on_enact("register")
-    def handle_register(self, funcs: dict[str, Callable]):
+    def register(self, funcs: dict[str, Callable]):
         self.functions.update(funcs)
 
     @every(10, "ticks")
     def improve(self):
-        # LLM reviews inventory changes and rewrites functions
         new_funcs = self.llm.improve_functions(self.inventory_history, self.functions)
         self.functions.update(new_funcs)
         self.inventory_history = []
+```
+
+### PolicyCoglet — Split (User, COG + LET)
+
+Alternative: separate the COG (improvement) from the LET (execution).
+PolicyCog owns the LLM and vends PolicyLets for parallel episodes.
+
+```python
+class PolicyCog(Coglet, CodeLet):
+    def on_start(self):
+        self.functions: dict[str, Callable] = {}
+        self.llm = self.config.llm
+        self.inventory_history = []
+
+    def vend(self) -> PolicyLet:
+        # create a PolicyLet bound to this COG's function table
+        return self.create(PolicyLetConfig(functions=self.functions))
+
+    @on_message("inventory")
+    def handle_inventory(self, data):
+        self.inventory_history.append(data)
+
+    @on_enact("register")
+    def register(self, funcs: dict[str, Callable]):
+        self.functions.update(funcs)
+        # push updated functions to all vended PolicyLets
+        for let in self.children:
+            self.guide(let, Command("register", funcs))
+
+    @every(10, "ticks")
+    def improve(self):
+        new_funcs = self.llm.improve_functions(self.inventory_history, self.functions)
+        self.register(new_funcs)
+        self.inventory_history = []
+
+
+class PolicyLet(Coglet, CodeLet):
+    def on_start(self):
+        self.functions = dict(self.config.functions)
+        self.inventory = {}
+        self.tick = 0
+
+    @on_message("obs")
+    def step(self, obs):
+        action = self.functions["step"](obs)
+        self.transmit("action", action)
+        self.tick += 1
+
+        new_inventory = obs.get("inventory", {})
+        if new_inventory != self.inventory:
+            self.transmit("inventory", new_inventory)
+            self.inventory = new_inventory
 
     @on_enact("register")
     def register(self, funcs: dict[str, Callable]):
         self.functions.update(funcs)
 ```
+
+The split form is useful when the same policy plays in multiple concurrent
+episodes — `vend()` creates lightweight PolicyLets that share the COG's
+function table and receive updates when the COG improves.
 
 ### Coach (Claude Code Prompt)
 
