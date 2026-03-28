@@ -17,9 +17,9 @@ Coach (Claude Code prompt — not a Coglet)
 ├── analyzes performance, writes patches
 └── calls player.enact(patch) to improve
 
-PlayerCoglet (COG — LLM patches git repo on_tick)
-└── PolicyCoglet (COG, GitLet — LLM rewrites functions on_tick)
-    └── map[str, PythonFunc] — named functions loaded from repo
+PlayerCoglet (COG, GitLet — LLM patches repo on @every)
+└── PolicyCog (COG, GitLet — LLM rewrites functions on @every)
+    └── PolicyLet (LET — map[str, PythonFunc], fast execution)
 
 Softmax side:
 
@@ -104,45 +104,65 @@ class PlayerCoglet(Coglet, GitLet):
 
 ```
 
-### PolicyCoglet (User, LLM COG over map[str, PythonFunc])
+### PolicyCog (User, LLM COG over PolicyLet)
 
-The policy is a named map of Python functions. The LLM is the COG —
-it observes execution traces and rewrites individual functions to improve them.
+The LLM observes execution traces and rewrites individual functions
+in the PolicyLet to improve them.
 
 ```python
-class PolicyCoglet(Coglet, GitLet, TickLet):
+class PolicyCog(Coglet, GitLet, TickLet):
     def on_start(self):
-        self.functions: dict[str, Callable] = {}
+        self.policy_let = self.create(PolicyLetConfig(repo=self.config.repo))
         self.llm = self.config.llm
         self.traces = []
+
+    @on_message("trace")
+    def handle_trace(self, data):
+        self.traces.append(data)
+
+    def on_enact(self, command):
+        if command.type == "step":
+            self.guide(self.policy_let, Command("step", command.data))
+
+        if command.type == "commit":
+            self.git_apply(command.patch)
+            self.guide(self.policy_let, Command("reload"))
+
+    @every(10, "m")
+    def improve(self):
+        # LLM reviews traces and rewrites individual functions
+        if self.traces:
+            for name, new_code in self.llm.improve_functions(self.traces):
+                self.repo.write_function(name, new_code)
+            self.git_commit("improve functions")
+            self.guide(self.policy_let, Command("reload"))
+            self.traces = []
+```
+
+### PolicyLet (User, LET — map[str, PythonFunc])
+
+The fast execution layer. A named map of Python functions loaded from the repo.
+No LLM — just executes functions and emits traces.
+
+```python
+class PolicyLet(Coglet):
+    def on_start(self):
+        self.functions: dict[str, Callable] = {}
         self.load_from_repo()
 
     def load_from_repo(self):
-        # load all Python functions from the git repo
         for name, func in self.repo.load_functions().items():
             self.functions[name] = func
 
     def on_enact(self, command):
         if command.type == "step":
-            # execute the policy: call functions by name
             obs = command.data
             action = self.functions["decide"](obs)
             self.transmit("action", action)
-            self.traces.append({"obs": obs, "action": action})
+            self.transmit("trace", {"obs": obs, "action": action})
 
-        if command.type == "commit":
-            # apply patch from PlayerCoglet, reload functions
-            self.git_apply(command.patch)
+        if command.type == "reload":
             self.load_from_repo()
-
-    def on_tick(self, elapsed):
-        # LLM reviews traces and rewrites individual functions
-        if self.traces:
-            for name, new_code in self.llm.improve_functions(self.traces, self.functions):
-                self.repo.write_function(name, new_code)
-            self.git_commit("improve functions")
-            self.load_from_repo()
-            self.traces = []
 ```
 
 ### Coach (Claude Code Prompt)
