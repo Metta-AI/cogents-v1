@@ -18,8 +18,7 @@ Coach (Claude Code prompt — not a Coglet)
 └── calls player.enact(patch) to improve
 
 PlayerCoglet (COG, GitLet — LLM patches repo on @every)
-└── PolicyCogletlet (COG, CodeLet — LLM rewrites functions on @every)
-    └── PolicyLet (LET — map[str, PythonFunc], fast execution)
+└── PolicyCoglet (CodeLet — LLM rewrites functions on @every, executes them)
 
 Softmax side:
 
@@ -103,50 +102,18 @@ class PlayerCoglet(Coglet, GitLet):
         self.guide(self.policy, Command("commit", patch))
 ```
 
-### PolicyCoglet (User, LLM COG over PolicyLet)
+### PolicyCoglet (User, CodeLet)
 
-The LLM observes execution traces and rewrites individual functions
-in the PolicyLet to improve them. Uses CodeLet — functions are registered
-in a dict, not a git repo.
+Executes policy functions and improves them. Functions live in a dict,
+LLM rewrites them every 10 ticks based on inventory changes.
 
 ```python
 class PolicyCoglet(Coglet, CodeLet):
     def on_start(self):
-        self.policy_let = self.create(PolicyLetConfig())
-        self.llm = self.config.llm
-        self.inventory_history = []
-        self.ticks = 0
-
-    @on_message("inventory")
-    def handle_inventory(self, data):
-        self.inventory_history.append(data)
-
-    @on_message("tick")
-    def handle_tick(self, data):
-        self.ticks = data
-
-    @on_enact("register")
-    def handle_register(self, funcs: dict[str, Callable]):
-        self.guide(self.policy_let, Command("register", funcs))
-
-    @every(10, "ticks")
-    def improve(self):
-        # LLM reviews inventory changes and rewrites functions
-        new_funcs = self.llm.improve_functions(self.inventory_history, self.functions)
-        self.guide(self.policy_let, Command("register", new_funcs))
-        self.inventory_history = []
-```
-
-### PolicyLet (User, LET — map[str, PythonFunc])
-
-The fast execution layer. A named map of Python functions.
-No LLM — just executes functions, transmits inventory changes and ticks.
-
-```python
-class PolicyLet(Coglet):
-    def on_start(self):
         self.functions: dict[str, Callable] = {}
+        self.llm = self.config.llm
         self.inventory = {}
+        self.inventory_history = []
         self.tick = 0
 
     @on_message("obs")
@@ -154,12 +121,22 @@ class PolicyLet(Coglet):
         action = self.functions["step"](obs)
         self.transmit("action", action)
         self.tick += 1
-        self.transmit("tick", self.tick)
 
         new_inventory = obs.get("inventory", {})
         if new_inventory != self.inventory:
-            self.transmit("inventory", new_inventory)
+            self.inventory_history.append(new_inventory)
             self.inventory = new_inventory
+
+    @on_enact("register")
+    def handle_register(self, funcs: dict[str, Callable]):
+        self.functions.update(funcs)
+
+    @every(10, "ticks")
+    def improve(self):
+        # LLM reviews inventory changes and rewrites functions
+        new_funcs = self.llm.improve_functions(self.inventory_history, self.functions)
+        self.functions.update(new_funcs)
+        self.inventory_history = []
 
     @on_enact("register")
     def register(self, funcs: dict[str, Callable]):
