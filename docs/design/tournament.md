@@ -114,11 +114,16 @@ class PolicyCog(Coglet, CodeLet):
     def on_start(self):
         self.policy_let = self.create(PolicyLetConfig())
         self.llm = self.config.llm
-        self.traces = []
+        self.inventory_history = []
+        self.ticks = 0
 
-    @on_message("trace")
-    def handle_trace(self, data):
-        self.traces.append(data)
+    @on_message("inventory")
+    def handle_inventory(self, data):
+        self.inventory_history.append(data)
+
+    @on_message("tick")
+    def handle_tick(self, data):
+        self.ticks = data
 
     @on_enact("register")
     def handle_register(self, funcs: dict[str, Callable]):
@@ -126,27 +131,35 @@ class PolicyCog(Coglet, CodeLet):
 
     @every(10, "ticks")
     def improve(self):
-        # LLM reviews traces and rewrites individual functions
-        new_funcs = self.llm.improve_functions(self.traces, self.functions)
+        # LLM reviews inventory changes and rewrites functions
+        new_funcs = self.llm.improve_functions(self.inventory_history, self.functions)
         self.guide(self.policy_let, Command("register", new_funcs))
-        self.traces = []
+        self.inventory_history = []
 ```
 
 ### PolicyLet (User, LET — map[str, PythonFunc])
 
 The fast execution layer. A named map of Python functions.
-No LLM — just executes functions and emits traces.
+No LLM — just executes functions, transmits inventory changes and ticks.
 
 ```python
 class PolicyLet(Coglet):
     def on_start(self):
         self.functions: dict[str, Callable] = {}
+        self.inventory = {}
+        self.tick = 0
 
     @on_message("obs")
     def step(self, obs):
         action = self.functions["step"](obs)
         self.transmit("action", action)
-        self.transmit("trace", {"obs": obs, "action": action})
+        self.tick += 1
+        self.transmit("tick", self.tick)
+
+        new_inventory = obs.get("inventory", {})
+        if new_inventory != self.inventory:
+            self.transmit("inventory", new_inventory)
+            self.inventory = new_inventory
 
     @on_enact("register")
     def register(self, funcs: dict[str, Callable]):
