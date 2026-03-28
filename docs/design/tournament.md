@@ -97,11 +97,10 @@ class PlayerCoglet(Coglet, GitLet):
             self.guide(self.policy, Command("commit", patch))
             self.history = []
 
-    def on_enact(self, command):
+    @on_enact("patch")
+    def handle_patch(self, patch):
         # Coach (Claude Code) can direct improvements via patches
-        if command.type == "patch":
-            self.guide(self.policy, Command("commit", command.patch))
-
+        self.guide(self.policy, Command("commit", patch))
 ```
 
 ### PolicyCog (User, LLM COG over PolicyLet)
@@ -110,7 +109,7 @@ The LLM observes execution traces and rewrites individual functions
 in the PolicyLet to improve them.
 
 ```python
-class PolicyCog(Coglet, GitLet, TickLet):
+class PolicyCog(Coglet, GitLet):
     def on_start(self):
         self.policy_let = self.create(PolicyLetConfig(repo=self.config.repo))
         self.llm = self.config.llm
@@ -120,13 +119,10 @@ class PolicyCog(Coglet, GitLet, TickLet):
     def handle_trace(self, data):
         self.traces.append(data)
 
-    def on_enact(self, command):
-        if command.type == "step":
-            self.guide(self.policy_let, Command("step", command.data))
-
-        if command.type == "commit":
-            self.git_apply(command.patch)
-            self.guide(self.policy_let, Command("reload"))
+    @on_enact("commit")
+    def handle_commit(self, patch):
+        self.git_apply(patch)
+        self.guide(self.policy_let, Command("reload"))
 
     @every(10, "m")
     def improve(self):
@@ -154,15 +150,15 @@ class PolicyLet(Coglet):
         for name, func in self.repo.load_functions().items():
             self.functions[name] = func
 
-    def on_enact(self, command):
-        if command.type == "step":
-            obs = command.data
-            action = self.functions["decide"](obs)
-            self.transmit("action", action)
-            self.transmit("trace", {"obs": obs, "action": action})
+    @on_message("obs")
+    def step(self, obs):
+        action = self.functions["step"](obs)
+        self.transmit("action", action)
+        self.transmit("trace", {"obs": obs, "action": action})
 
-        if command.type == "reload":
-            self.load_from_repo()
+    @on_enact("reload")
+    def reload(self):
+        self.load_from_repo()
 ```
 
 ### Coach (Claude Code Prompt)
@@ -208,7 +204,8 @@ class TournamentCoglet(Coglet):
         self.players.append(policy_config)
         return CogletHandle(observe=["score", "replay", "round_end"])
 
-    def on_tick(self):
+    @every(1, "round")
+    def run_round(self):
         for round in self.format.rounds(self.players):
             matchups = self.format.matchups(round, self.players)
 
@@ -295,12 +292,12 @@ class EnvCoglet(Coglet):
         obs = self.env.reset()
         self.transmit("obs", obs)
 
-    def on_enact(self, command):
-        if command.type == "step":
-            obs, rewards, done, info = self.env.step(command.actions)
-            self.transmit("obs", obs)
-            if done:
-                self.transmit("done", Scores(rewards))
+    @on_enact("step")
+    def step(self, actions):
+        obs, rewards, done, info = self.env.step(actions)
+        self.transmit("obs", obs)
+        if done:
+            self.transmit("done", Scores(rewards))
 ```
 
 ### MulLet (players)
