@@ -11,11 +11,12 @@ Two independent hierarchies meet at an interface boundary. Softmax controls the 
 ```
 User side:
 
-Coach (COG — improvement loop)
-├── PlayerPolicy (LET — the policy being improved)
+Coach (COG — improvement loop between rounds)
+├── PlayerPolicy (COG — LLM improves policy on_tick)
+│   └── FastPolicy (GitLet LET — executes from HEAD)
 ├── registers into Tournament + PlayGround
 ├── observes scores/replays between rounds
-└── guides PlayerPolicy to improve before next round
+└── guides PlayerPolicy between rounds
 
 Softmax side:
 
@@ -59,17 +60,52 @@ async for score in coach.observe("score"):
 
 ## 4. Coglet Pseudocode
 
-### PlayerPolicy (User, LET)
+### PlayerPolicy (User, COG over GitLet)
 
 ```python
-class PlayerPolicy(Coglet):
-    def on_message(self, channel, obs):
-        action = self.model.forward(obs)
-        self.transmit("action", action)
+class PlayerPolicy(Coglet, TickLet):
+    def on_start(self):
+        self.policy = self.create(GitLetConfig(repo=self.config.repo))
+        self.llm = self.config.llm
+        self.history = []
 
+    def on_message(self, channel, data):
+        if channel == "obs":
+            # forward observations to the GitLet policy
+            self.guide(self.policy, Command("step", data))
+
+        if channel == "action":
+            # policy produced an action, re-transmit
+            self.transmit("action", data)
+
+        if channel == "score":
+            self.history.append(data)
+
+    def on_tick(self, elapsed):
+        # LLM reviews performance and patches the policy
+        if self.should_improve():
+            patch = self.llm.generate_patch(self.history)
+            self.guide(self.policy, Command("commit", patch))
+            self.history = []
+
+    def should_improve(self):
+        # enough data to make a meaningful improvement?
+        ...
+```
+
+### FastPolicy (User, GitLet LET)
+
+```python
+class FastPolicy(Coglet, GitLet):
     def on_enact(self, command):
-        if command.type == "update_weights":
-            self.model.load(command.weights)
+        if command.type == "step":
+            action = self.model.forward(command.data)
+            self.transmit("action", action)
+
+        if command.type == "commit":
+            # GitLet handles: commit patch, pull, reload model
+            self.git_apply(command.patch)
+            self.model = self.reload()
 ```
 
 ### Coach (User, COG)
