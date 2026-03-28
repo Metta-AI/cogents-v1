@@ -22,11 +22,22 @@ Event-driven. The framework owns the channels and dispatches to the Coglet.
 
 | Method | Caller | Purpose |
 |---|---|---|
-| `on_message(channel, event)` | framework | Handle an incoming event on a named channel |
+| `@on_message(channel)` | framework | Decorator: register a handler for a named channel |
 | `on_enact(command)` | COG (via framework) | Apply a control plane directive — fire-and-forget |
 | `transmit(channel, result)` | self | Push output to a named channel |
 
-`on_message` is the data plane. `on_enact` is the control plane. `transmit` is the only outbound call.
+`@on_message` is the data plane. `on_enact` is the control plane. `transmit` is the only outbound call.
+
+```python
+class MyCoglet(Coglet):
+    @on_message("obs")
+    def handle_obs(self, data):
+        self.transmit("action", self.decide(data))
+
+    @on_message("score")
+    def handle_score(self, data):
+        self.history.append(data)
+```
 
 
 ## 3. COG Interface

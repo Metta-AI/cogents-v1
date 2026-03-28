@@ -73,15 +73,17 @@ class PlayerCoglet(Coglet, TickLet):
         self.llm = self.config.llm
         self.history = []
 
-    def on_message(self, channel, data):
-        if channel == "obs":
-            self.guide(self.policy, Command("step", data))
+    @on_message("obs")
+    def handle_obs(self, data):
+        self.guide(self.policy, Command("step", data))
 
-        if channel == "action":
-            self.transmit("action", data)
+    @on_message("action")
+    def handle_action(self, data):
+        self.transmit("action", data)
 
-        if channel == "score":
-            self.history.append(data)
+    @on_message("score")
+    def handle_score(self, data):
+        self.history.append(data)
 
     def on_enact(self, command):
         # COG above (Coach) can direct high-level strategy changes
@@ -147,18 +149,18 @@ class Coach(Coglet):
         self.arena = self.tournament or self.playground
         self.player = self.arena.register(self.policy_config)
 
-    def on_message(self, channel, result):
-        # receives score/replay events from arena
-        if channel == "score":
-            self.scores.append(result)
-            self.transmit("score", result)
+    @on_message("score")
+    def handle_score(self, result):
+        self.scores.append(result)
+        self.transmit("score", result)
 
-        if channel == "round_end":
-            improved_weights = self.improve(self.scores)
-            self.guide(self.policy, Command("update_weights", improved_weights))
-            self.arena.register(self.policy_config)  # re-register with updated policy
-            self.transmit("policy", self.policy_config)
-            self.scores = []
+    @on_message("round_end")
+    def handle_round_end(self, result):
+        improved_weights = self.improve(self.scores)
+        self.guide(self.policy, Command("update_weights", improved_weights))
+        self.arena.register(self.policy_config)  # re-register with updated policy
+        self.transmit("policy", self.policy_config)
+        self.scores = []
 
     def improve(self, scores):
         # pluggable improvement strategy
@@ -210,10 +212,9 @@ class GameCoglet(Coglet):
                 env=self.config.env
             ))
 
-    def on_message(self, channel, result):
-        if channel == "score":
-            self.scores.append(result)
-
+    @on_message("score")
+    def handle_score(self, result):
+        self.scores.append(result)
         if len(self.scores) == self.config.episodes_per_game:
             aggregate = self.aggregate(self.scores)
             self.transmit("score", aggregate)
@@ -238,20 +239,22 @@ class EpisodeCoglet(Coglet):
         # wire env → players → env
         # env transmits observations, players transmit actions
 
-    def on_message(self, channel, data):
-        if channel == "obs":
-            # env produced observations, route to players
-            self.guide(self.players, Command("step", data))
-            self.replay.append(data)
+    @on_message("obs")
+    def handle_obs(self, data):
+        # env produced observations, route to players
+        self.guide(self.players, Command("step", data))
+        self.replay.append(data)
 
-        if channel == "action":
-            # players produced actions, route to env
-            self.guide(self.env, Command("step", data))
-            self.replay.append(data)
+    @on_message("action")
+    def handle_action(self, data):
+        # players produced actions, route to env
+        self.guide(self.env, Command("step", data))
+        self.replay.append(data)
 
-        if channel == "done":
-            self.transmit("score", data.scores)
-            self.transmit("replay", self.replay)
+    @on_message("done")
+    def handle_done(self, data):
+        self.transmit("score", data.scores)
+        self.transmit("replay", self.replay)
 ```
 
 ### EnvCoglet (Softmax, LET)
