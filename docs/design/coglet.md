@@ -6,12 +6,14 @@
 
 **Coglet** = **COG** (control) + **LET** (execution)
 
-- **LET** — fast, reactive, executes tasks
 - **COG** — slow, reflective, supervises and adapts LETs
+- **LET** — fast, reactive, executes tasks
 
 Recursive composition: a COG is itself a LET under a higher COG. The system forms a temporal hierarchy where layers share a uniform interface and differ only in cadence and scope.
 
 The boundary between COG and LET is an interface contract, not a deployment topology. They may share a process, span processes, or run on different machines — the protocol is the same.
+
+![Coglet Hierarchy](img/coglet-hierarchy.png)
 
 ## 2. LET Interface
 
@@ -26,6 +28,8 @@ Event-driven. The framework owns the channels and dispatches to the Coglet.
 | `transmit(result)` | self | Push output to the environment |
 
 `on_message` is the data plane. `on_enact` is the control plane. `transmit` is the only outbound call.
+
+![LET Interface](img/let-interface.png)
 
 ## 3. COG Interface
 
@@ -117,3 +121,5 @@ Manages N identical LETs as a single logical unit. The parent COG sees one Cogle
 | `reduce(results) → Result` | Aggregate child outputs into one transmission |
 
 Distribution policies (round-robin, broadcast, hash) are configured via `map`. The parent COG observes one reduced stream and guides one unit — the fan-out is internal.
+
+![MulLet Fan-out / Reduce](img/mullet-fanout.png)
