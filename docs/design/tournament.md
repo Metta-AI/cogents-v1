@@ -124,7 +124,7 @@ class PolicyCog(Coglet, CodeLet):
     def handle_register(self, funcs: dict[str, Callable]):
         self.guide(self.policy_let, Command("register", funcs))
 
-    @every(10, "trace")
+    @every(10, "ticks")
     def improve(self):
         # LLM reviews traces and rewrites individual functions
         new_funcs = self.llm.improve_functions(self.traces, self.functions)
