@@ -20,11 +20,11 @@
           config.allowUnfree = true;
         };
 
-        packagesList = [
-          pkgs.graphite-cli
-          pkgs.nodejs_20
-          pkgs.sqlite # For inspecting the db
-          pkgs.uv
+        packagesList = with pkgs; [
+          graphite-cli
+          nodejs_20
+          sqlite # For inspecting the db
+          uv
         ];
       in
       {
