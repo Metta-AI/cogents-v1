@@ -135,24 +135,16 @@ Three CLI tools:
 ## Quick Start — Local
 
 ```bash
-# 1. Install
-uv sync
+# 1. Install nix if you don't have it already
+https://docs.determinate.systems/determinate-nix/
 
-# 2. Create a local cogtainer
-uv run cogtainer create dev --type local --llm-provider bedrock --llm-model us.anthropic.claude-sonnet-4-20250514-v1:0
+# 2. Drop into a nix shell
+nix develop
 
-# 3. Create a cogent
-uv run cogent create alpha
+# 3. Start everything using tilt
+tilt up
 
-# 4. Start (boots image, runs init via dispatcher)
-uv run cogos start
-
-# 5. Check status
-uv run cogos status
-
-# 6. Start the dashboard
-(cd dashboard/frontend && npm ci)
-uv run cogos dashboard start
+# 4. Tilt will log a url for its dashboard. From there, you can find the dashboard-frontend and open its endpoint to see the cogos dashboard
 ```
 
 ### LLM Providers
