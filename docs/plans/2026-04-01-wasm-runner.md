@@ -68,191 +68,484 @@ The Wasm runner fills the gap: shell affordance at Lambda-class density.
 
 ---
 
-## Implementation Phases
+## Methodology: Stubs → Tests → Implementation
 
-### Phase 1 — POSIX Shim Layer (TypeScript)
+We follow a strict **contract-first, test-driven** approach:
 
-**Goal:** A JS/TS module that implements a fake POSIX surface, delegating every call to typed host functions.
+1. **Phase 1 — Interfaces & Stubs**: Define every public API surface with typed stubs that raise `NotImplementedError`. This locks the contracts before any logic is written.
+2. **Phase 2 — Exhaustive Test Suite**: Write all tests against the stubs. Tests run fast (no real Wasm runtime), use in-memory fakes, and cover happy paths, edge cases, security boundaries, and concurrency. Every test fails (red) at this point.
+3. **Phase 3 — Implementation**: Fill in the stubs until all tests pass (green). No test is added during this phase — if a gap is found, it goes back into Phase 2 first.
 
-**Files to create:**
+This means the test harness is **always runnable** and gives immediate signal on every change.
+
+---
+
+## Phase 1 — Interfaces & Stubs
+
+**Goal:** Define every public contract. All stubs raise `NotImplementedError`. Nothing executes real Wasm yet.
+
+### 1a. Directory structure
 
 ```
 src/wasm_runner/
+├── __init__.py
+├── types.py              # shared types / dataclasses
 ├── shim/
-│   ├── fs.ts          # readFile, writeFile, readdir, stat, unlink, mkdir
-│   ├── net.ts         # fetch wrapper, TCP stub
-│   ├── process.ts     # env, argv, exit, spawn (sub-isolate)
-│   ├── child_process.ts  # exec, execSync → sub-isolate or deny
-│   └── index.ts       # assembles shim into globalThis / WASI imports
+│   ├── __init__.py
+│   ├── fs.py             # VirtualFS interface
+│   ├── net.py            # NetworkGate interface
+│   ├── process.py        # ProcessShim interface
+│   └── child_process.py  # ChildProcessShim interface
 ├── bridge/
-│   ├── host.ts        # host function definitions (called by shim)
-│   └── client.py      # Python HTTP client for CogOS capability API
+│   ├── __init__.py
+│   ├── capability_bridge.py   # CapabilityBridge ABC
+│   └── audit.py               # AuditLogger ABC
 ├── runtime/
-│   ├── isolate.py     # manages a single Wasm isolate lifecycle
-│   ├── pool.py        # pool of isolates on a single host
-│   └── handler.py     # Lambda/local handler entry point
-└── tests/
-    ├── test_shim.ts
-    ├── test_bridge.py
-    └── test_isolate.py
+│   ├── __init__.py
+│   ├── isolate.py        # WasmIsolate ABC
+│   ├── pool.py           # IsolatePool ABC
+│   └── handler.py        # handler(event) stub
+└── dispatch/
+    ├── __init__.py
+    └── wasm_dispatch.py  # register_wasm_executor(), dispatch_wasm()
 ```
 
-**Key design decisions:**
+### 1b. Key interfaces
 
-| POSIX call | Shim behavior | CogOS capability |
-|------------|--------------|-----------------|
-| `fs.readFile(path)` | Translate path to key, call host `files_read` | `files.read` |
-| `fs.writeFile(path, data)` | Translate path to key, call host `files_write` | `files.write` |
-| `fs.readdir(path)` | Call host `files_search` with prefix | `files.search` |
-| `fs.stat(path)` | Check existence via `files_read`, synthesize stat | `files.read` |
-| `fs.unlink(path)` | Call host `files_delete` | `files.write` (delete op) |
-| `fetch(url)` | Call host `web_fetch` | `web_fetch` capability |
-| `child_process.exec(cmd)` | Parse cmd, spawn sub-isolate or deny | `procs.spawn` |
-| `process.env` | Read-only env from capability config | Injected at init |
-| `process.exit(code)` | Signal host to terminate isolate | Lifecycle |
-| Anything unmapped | `throw new Error("EPERM")` | — |
+**`types.py`** — Shared value objects:
+```python
+@dataclass(frozen=True)
+class SyscallEvent:
+    op: str               # "fs.readFile", "fetch", "process.spawn", ...
+    args: dict[str, Any]
+    process_id: str
+    timestamp_ms: int
+    result: str           # "ok" | "EPERM" | "error"
 
-**Path translation:** The isolate sees a virtual filesystem rooted at `/`. Paths are translated to CogOS file keys:
-- `/home/agent/workspace/foo.txt` → `workspace/foo.txt` (prefix = process file namespace)
-- `/tmp/*` → ephemeral in-memory Map (no persistence)
+@dataclass(frozen=True)
+class IsolateConfig:
+    process_id: str
+    run_id: str
+    memory_limit_mb: int = 128
+    timeout_s: float = 30.0
+    max_child_isolates: int = 4
+    env: dict[str, str] = field(default_factory=dict)
 
-### Phase 2 — Isolate Runtime (Python)
+@dataclass(frozen=True)
+class IsolateResult:
+    exit_code: int
+    stdout: str
+    stderr: str
+    syscall_log: list[SyscallEvent]
+    memory_peak_mb: float
+    duration_ms: float
+```
 
-**Goal:** Python code that boots a Wasm isolate, injects the shim, and bridges host function calls to the CogOS capability API.
+**`shim/fs.py`** — Virtual filesystem interface:
+```python
+class VirtualFS(ABC):
+    @abstractmethod
+    async def read_file(self, path: str) -> bytes: ...
+    @abstractmethod
+    async def write_file(self, path: str, data: bytes) -> None: ...
+    @abstractmethod
+    async def readdir(self, path: str) -> list[str]: ...
+    @abstractmethod
+    async def stat(self, path: str) -> StatResult: ...
+    @abstractmethod
+    async def unlink(self, path: str) -> None: ...
+    @abstractmethod
+    async def mkdir(self, path: str) -> None: ...
+    @abstractmethod
+    def translate_path(self, virtual_path: str) -> str: ...
+        """Map /home/agent/workspace/x → cogos file key workspace/x"""
+```
 
-**Files to modify:**
+**`bridge/capability_bridge.py`** — Maps POSIX ops to CogOS capabilities:
+```python
+class CapabilityBridge(ABC):
+    @abstractmethod
+    async def files_read(self, key: str) -> bytes: ...
+    @abstractmethod
+    async def files_write(self, key: str, data: bytes) -> None: ...
+    @abstractmethod
+    async def files_search(self, prefix: str) -> list[str]: ...
+    @abstractmethod
+    async def files_delete(self, key: str) -> None: ...
+    @abstractmethod
+    async def web_fetch(self, url: str, method: str = "GET", ...) -> FetchResult: ...
+    @abstractmethod
+    async def process_spawn(self, command: str, args: list[str]) -> SpawnResult: ...
+    @abstractmethod
+    async def channel_send(self, channel: str, message: str) -> None: ...
+```
+
+**`runtime/isolate.py`** — Single isolate lifecycle:
+```python
+class WasmIsolate(ABC):
+    @abstractmethod
+    async def boot(self, config: IsolateConfig, bridge: CapabilityBridge) -> None: ...
+    @abstractmethod
+    async def execute(self, code: str, entrypoint: str = "main") -> IsolateResult: ...
+    @abstractmethod
+    async def terminate(self) -> None: ...
+    @abstractmethod
+    def memory_usage_mb(self) -> float: ...
+    @abstractmethod
+    def is_alive(self) -> bool: ...
+```
+
+**`runtime/pool.py`** — Multi-tenant isolate pool:
+```python
+class IsolatePool(ABC):
+    @abstractmethod
+    async def acquire(self, config: IsolateConfig, bridge: CapabilityBridge) -> WasmIsolate: ...
+    @abstractmethod
+    async def release(self, isolate: WasmIsolate) -> None: ...
+    @abstractmethod
+    def active_count(self) -> int: ...
+    @abstractmethod
+    def capacity(self) -> int: ...
+```
+
+**`dispatch/wasm_dispatch.py`** — Executor registration and dispatch:
+```python
+def register_wasm_executor(repo) -> Executor: ...
+    """Register the wasm-pool executor. Returns the Executor record."""
+
+async def dispatch_wasm(repo, process_id: str, run_id: str) -> dict: ...
+    """Build and fire a wasm dispatch event. Returns the event payload."""
+```
+
+### 1c. Existing files to modify (stubs only)
 
 | File | Change |
 |------|--------|
-| `src/cogos/db/models/executor.py` | Add `"wasm"` as valid `dispatch_type` |
-| `src/cogos/capabilities/scheduler.py` | Handle `dispatch_type == "wasm"` in dispatch logic |
-| `src/cogtainer/local_dispatcher.py` | Add wasm dispatch path in `_dispatch_to_matched_executor()` |
-| `src/cogos/runtime/dispatch.py` | Build dispatch event for wasm (same shape, new type) |
+| `src/cogos/db/models/executor.py` | Add `"wasm"` to `dispatch_type` docstring/validation |
+| `src/cogos/capabilities/scheduler.py` | Add `elif result.dispatch_type == "wasm":` branch (stub) |
+| `src/cogtainer/local_dispatcher.py` | Add `"wasm"` to dispatch type handling (stub) |
 
-**Files to create:**
+---
 
-| File | Purpose |
-|------|---------|
-| `src/wasm_runner/runtime/isolate.py` | `WasmIsolate` class — boots V8/wasm runtime, loads shim, exposes host functions |
-| `src/wasm_runner/runtime/pool.py` | `IsolatePool` — manages N isolates per host, lifecycle, memory limits |
-| `src/wasm_runner/runtime/handler.py` | Lambda handler entry point: receive dispatch event → boot isolate → run → return |
-| `src/wasm_runner/bridge/client.py` | HTTP client that calls CogOS capability API with `X-Process-Id` header |
+## Phase 2 — Exhaustive Test Suite
 
-**Isolate lifecycle:**
-1. Receive dispatch event (process_id, run_id, capabilities)
-2. Boot isolate with memory limit (default 128 MB)
-3. Inject POSIX shim with host function bindings
-4. Load and execute agent code (from `files.read` of process cog)
-5. On completion or timeout → destroy isolate, report result
+**Goal:** Complete test coverage written against Phase 1 stubs. All tests **fail** (red) until Phase 3. Tests must be fast — no real Wasm runtime, no network, no database.
 
-**Runtime choice (Phase 2 scope):** Start with [pywasm](https://github.com/aspect-build/aspect-cli) or [wasmtime-py](https://github.com/bytecodealliance/wasmtime-py) for the Python host. V8 isolates (via workers or wasm-bindgen) is a Phase 3 optimization for production density.
+### Test runner setup
 
-### Phase 3 — Executor Registration & Dispatch Integration
+```
+tests/wasm_runner/
+├── conftest.py              # shared fixtures: FakeBridge, FakeRepo, FakeAuditLogger
+├── test_path_translation.py # virtual path → CogOS key mapping
+├── test_virtual_fs.py       # VirtualFS operations via FakeBridge
+├── test_network_gate.py     # fetch proxy, URL allowlist, deny-by-default
+├── test_child_process.py    # exec → sub-isolate, cap on children, deny
+├── test_process_shim.py     # env, argv, exit behavior
+├── test_capability_bridge.py# bridge ↔ capability API contract
+├── test_security.py         # EPERM paths, scope enforcement, no escape
+├── test_audit_logging.py    # every syscall produces SyscallEvent
+├── test_isolate_lifecycle.py# boot → execute → terminate, timeout, OOM
+├── test_pool.py             # acquire/release, capacity, concurrent isolates
+├── test_dispatch.py         # executor registration, tag matching, event shape
+├── test_resource_limits.py  # memory cap, CPU fuel, child isolate cap
+└── test_concurrency.py      # N parallel isolates, no cross-contamination
+```
 
-**Goal:** Wire the Wasm runner into the existing dispatch system so `required_tags: ["wasm"]` routes to it.
+### Test categories and coverage targets
 
-**Changes:**
+#### 2a. Path translation (`test_path_translation.py`)
+```python
+# Happy paths
+("/home/agent/workspace/foo.txt", "workspace/foo.txt")
+("/home/agent/workspace/sub/dir/bar.py", "workspace/sub/dir/bar.py")
 
-1. **Register wasm executor** — In dispatcher startup (`src/cogtainer/lambdas/dispatcher/handler.py`), seed a wasm-pool executor:
-   ```python
-   wasm_executor = Executor(
-       executor_id="wasm-pool",
-       channel_type="wasm",
-       executor_tags=["wasm", "python", "javascript"],
-       dispatch_type="wasm",
-       metadata={"pool": True, "max_isolates": 64},
-   )
-   repo.register_executor(wasm_executor)
-   ```
+# /tmp is ephemeral
+("/tmp/scratch.txt", None)  # returns EPHEMERAL sentinel
 
-2. **Dispatch path** — In scheduler, handle `dispatch_type == "wasm"` similar to lambda (fire-and-forget, stays IDLE):
-   ```python
-   # scheduler.py dispatch_to_executor()
-   if result.dispatch_type == "wasm":
-       # Invoke wasm pool Lambda (or local subprocess)
-       # Pool stays IDLE (multi-tenant)
-   ```
+# Traversal attacks
+("/../../../etc/passwd", PermissionError)
+("/home/agent/../../etc/shadow", PermissionError)
+("workspace/../../../secret", PermissionError)
 
-3. **CDK stack** — Add Wasm Pool Lambda to `cogent_stack.py`:
-   - Runtime: Python 3.12 (hosts wasmtime-py)
-   - Memory: 512 MB (fits ~4 isolates at 128 MB each)
-   - Timeout: 5 min (matches executor Lambda)
-   - Layers: wasmtime-py, prebuilt POSIX shim .wasm
+# Edge cases
+("/home/agent/workspace/", "workspace/")          # trailing slash
+("/home/agent/workspace", "workspace")             # no trailing slash
+("/home/agent/workspace/a/b/../c", "workspace/a/c")  # normalized
+("", PermissionError)                              # empty
+("/", PermissionError)                             # root
+```
 
-4. **Cog config** — Authors opt in:
-   ```python
-   config = CogConfig(
-       executor="wasm",
-       required_tags=["wasm"],
-       capabilities=["files", "web_fetch"],
-   )
-   ```
+#### 2b. Virtual filesystem (`test_virtual_fs.py`)
+```python
+# CRUD cycle
+async def test_write_then_read(): ...
+async def test_readdir_lists_written_files(): ...
+async def test_stat_existing_file(): ...
+async def test_stat_nonexistent_raises_ENOENT(): ...
+async def test_unlink_removes_file(): ...
+async def test_mkdir_creates_prefix(): ...
 
-### Phase 4 — Capability Bridge Hardening
+# /tmp ephemeral layer
+async def test_tmp_write_read_is_memory_only(): ...
+async def test_tmp_not_persisted_to_bridge(): ...
 
-**Goal:** Ensure the POSIX shim correctly enforces CogOS capability scoping.
+# Scoping enforcement
+async def test_read_outside_prefix_raises_EPERM(): ...
+async def test_write_outside_prefix_raises_EPERM(): ...
 
-**Key concerns:**
+# Edge cases
+async def test_read_empty_file(): ...
+async def test_write_overwrite_existing(): ...
+async def test_readdir_empty_directory(): ...
+async def test_binary_data_roundtrip(): ...
+async def test_large_file_write(size=10_MB): ...
+```
 
-1. **Scope propagation** — The bridge must pass the process's capability scope to every API call. The shim cannot bypass scoping by crafting raw HTTP.
-   - Host functions receive `process_id` at init time; API enforces scope server-side
-   - Shim has no direct network access (all `fetch` goes through host)
+#### 2c. Network gate (`test_network_gate.py`)
+```python
+# Allowed fetch
+async def test_fetch_allowed_url(): ...
+async def test_fetch_returns_status_and_body(): ...
 
-2. **Deny by default** — Any POSIX call not in the mapping table returns EPERM:
-   ```typescript
-   // shim/index.ts
-   const handler = {
-     get(target, prop) {
-       if (prop in target) return target[prop];
-       return () => { throw new Error(`EPERM: ${prop} not available`); };
-     }
-   };
-   ```
+# Blocked fetch
+async def test_fetch_denied_url_raises_EPERM(): ...
+async def test_fetch_private_ip_raises_EPERM(): ...     # SSRF protection
+async def test_fetch_localhost_raises_EPERM(): ...
 
-3. **Audit logging** — Every host function call emits a CogOS event:
-   ```python
-   # bridge/client.py
-   async def files_read(self, key: str) -> bytes:
-       self._emit_event("wasm.syscall", {"op": "fs.readFile", "key": key})
-       return await self._capability_api("files", "read", key=key)
-   ```
+# No direct socket access
+async def test_raw_tcp_raises_EPERM(): ...
+async def test_raw_udp_raises_EPERM(): ...
+```
 
-4. **Resource limits:**
-   - Memory: configurable per isolate (default 128 MB)
-   - CPU: isolate timeout (default 30s per execution, configurable)
-   - File writes: rate limit via capability config
-   - Network: URL allowlist in `web_fetch` capability scope
+#### 2d. Security boundary tests (`test_security.py`)
+```python
+# Unmapped syscalls
+async def test_unmapped_posix_call_returns_EPERM(): ...
 
-### Phase 5 — Cogames Integration & Testing
+# Capability scope cannot widen
+async def test_bridge_enforces_file_prefix_scope(): ...
+async def test_bridge_enforces_read_only_ops(): ...
 
-**Goal:** Validate with a real use case — concurrent game-playing agents.
+# No ambient capabilities
+async def test_isolate_cannot_access_other_process_files(): ...
+async def test_isolate_cannot_forge_process_id(): ...
 
-1. **Test cogent** — Create a test cog that uses `runner: wasm`:
-   - Writes strategy code to filesystem
+# Resource exhaustion attacks
+async def test_infinite_loop_hits_fuel_limit(): ...
+async def test_memory_bomb_hits_limit(): ...
+async def test_fork_bomb_hits_child_cap(): ...
+
+# Path traversal (redundant with 2a but tested at VirtualFS level)
+async def test_dotdot_traversal_blocked(): ...
+async def test_symlink_escape_blocked(): ...
+async def test_null_byte_in_path_blocked(): ...
+```
+
+#### 2e. Audit logging (`test_audit_logging.py`)
+```python
+async def test_every_fs_call_emits_syscall_event(): ...
+async def test_every_fetch_emits_syscall_event(): ...
+async def test_denied_calls_logged_with_EPERM_result(): ...
+async def test_syscall_event_has_required_fields(): ...
+async def test_syscall_log_ordering_matches_execution(): ...
+```
+
+#### 2f. Isolate lifecycle (`test_isolate_lifecycle.py`)
+```python
+async def test_boot_execute_terminate_happy_path(): ...
+async def test_execute_returns_stdout_stderr(): ...
+async def test_execute_captures_exit_code(): ...
+async def test_execute_timeout_kills_isolate(): ...
+async def test_execute_oom_kills_isolate(): ...
+async def test_terminated_isolate_not_alive(): ...
+async def test_double_terminate_is_noop(): ...
+async def test_execute_after_terminate_raises(): ...
+```
+
+#### 2g. Pool management (`test_pool.py`)
+```python
+async def test_acquire_returns_isolate(): ...
+async def test_release_decrements_active_count(): ...
+async def test_acquire_at_capacity_blocks_or_raises(): ...
+async def test_concurrent_acquire_release(n=16): ...
+async def test_isolate_crash_does_not_leak_slot(): ...
+async def test_pool_tracks_active_count_accurately(): ...
+```
+
+#### 2h. Dispatch integration (`test_dispatch.py`)
+```python
+def test_register_wasm_executor_creates_record(): ...
+def test_wasm_executor_has_correct_tags(): ...
+def test_wasm_dispatch_type_recognized_by_scheduler(): ...
+def test_wasm_pool_stays_idle_after_dispatch(): ...
+def test_dispatch_event_shape_matches_schema(): ...
+def test_process_with_wasm_tag_routes_to_wasm_pool(): ...
+def test_process_without_wasm_tag_does_not_route_to_wasm(): ...
+```
+
+#### 2i. Concurrency (`test_concurrency.py`)
+```python
+async def test_16_parallel_isolates_no_cross_contamination(): ...
+    """Each isolate writes a unique file, reads it back, verifies isolation."""
+
+async def test_concurrent_fs_writes_to_different_keys(): ...
+async def test_concurrent_fetches(): ...
+async def test_pool_under_load_respects_capacity(): ...
+```
+
+### Test fixtures (`conftest.py`)
+
+```python
+class FakeBridge(CapabilityBridge):
+    """In-memory fake that records all calls and returns canned data."""
+    def __init__(self):
+        self.call_log: list[SyscallEvent] = []
+        self.files: dict[str, bytes] = {}
+        self.fetch_responses: dict[str, FetchResult] = {}
+        self.allowed_urls: set[str] = {"*"}
+        self.scope_prefix: str | None = None
+        self.allowed_ops: set[str] | None = None
+
+class FakeAuditLogger(AuditLogger):
+    """Collects SyscallEvents in a list for assertion."""
+    def __init__(self):
+        self.events: list[SyscallEvent] = []
+
+class FakeIsolate(WasmIsolate):
+    """Scriptable fake — takes a callable to simulate code execution."""
+    ...
+
+@pytest.fixture
+def bridge() -> FakeBridge: ...
+
+@pytest.fixture
+def audit() -> FakeAuditLogger: ...
+
+@pytest.fixture
+def isolate_config() -> IsolateConfig: ...
+
+@pytest.fixture
+def pool(bridge) -> IsolatePool: ...
+```
+
+### Running the tests
+
+```bash
+# All wasm runner tests — should complete in < 5 seconds
+pytest tests/wasm_runner/ -x -q
+
+# Just security tests
+pytest tests/wasm_runner/test_security.py -v
+
+# With coverage
+pytest tests/wasm_runner/ --cov=src/wasm_runner --cov-report=term-missing
+```
+
+---
+
+## Phase 3 — Implementation
+
+**Goal:** Fill in every stub until all Phase 2 tests pass. No new tests added here — gaps go back to Phase 2.
+
+### 3a. POSIX Shim Layer (Python, not TS)
+
+> **Design change:** We implement the shim in Python rather than TypeScript. The shim runs as host-side code that translates POSIX-shaped calls into capability bridge calls. The Wasm isolate calls host functions (via WASI imports) which land in Python. This avoids a two-language build and keeps everything testable in pytest.
+
+| POSIX call | Shim behavior | CogOS capability |
+|------------|--------------|-----------------|
+| `fs.readFile(path)` | `translate_path` → `bridge.files_read` | `files.read` |
+| `fs.writeFile(path, data)` | `translate_path` → `bridge.files_write` | `files.write` |
+| `fs.readdir(path)` | `translate_path` → `bridge.files_search` | `files.search` |
+| `fs.stat(path)` | `translate_path` → `bridge.files_read` (existence check) | `files.read` |
+| `fs.unlink(path)` | `translate_path` → `bridge.files_delete` | `files.write` (delete) |
+| `fetch(url)` | `bridge.web_fetch` (URL allowlist) | `web_fetch` |
+| `child_process.exec(cmd)` | `bridge.process_spawn` (capped) | `procs.spawn` |
+| `process.env` | Read-only dict from `IsolateConfig.env` | Injected at init |
+| `process.exit(code)` | Signal host to terminate isolate | Lifecycle |
+| Anything unmapped | `raise PermissionError("EPERM")` | — |
+
+**Path translation rules:**
+- `/home/agent/workspace/*` → CogOS file key `workspace/*` (prefix = process namespace)
+- `/tmp/*` → ephemeral in-memory dict (no persistence, no bridge calls)
+- Everything else → `PermissionError("EPERM")`
+- `..` components resolved then checked (no traversal escape)
+- Null bytes, empty paths → `PermissionError`
+
+### 3b. Capability Bridge (Python)
+
+Concrete `CapabilityBridge` implementation using CogOS capability API:
+```python
+class HttpCapabilityBridge(CapabilityBridge):
+    def __init__(self, api_base: str, process_id: str, audit: AuditLogger): ...
+```
+
+- All calls include `X-Process-Id` header → server-side scope enforcement
+- All calls emit `SyscallEvent` via `AuditLogger`
+- Network errors → clean error propagation (not raw tracebacks)
+
+### 3c. Isolate Runtime (Python + wasmtime-py)
+
+```python
+class WasmtimeIsolate(WasmIsolate):
+    """Real implementation using wasmtime-py."""
+```
+
+- Boot: create wasmtime `Store` with `StoreLimits(memory_size=config.memory_limit_mb * 1024 * 1024)`
+- Fuel: `store.set_fuel(config.timeout_s * 1_000_000)` for CPU limiting
+- Host functions registered via `Linker.define_func` for each POSIX shim method
+- Execute: call Wasm module's entrypoint, collect stdout/stderr from captured buffers
+- Terminate: `store.close()` + release memory
+
+### 3d. Dispatch Integration
+
+| File | Change |
+|------|--------|
+| `src/cogos/db/models/executor.py` | Add `"wasm"` to dispatch_type |
+| `src/cogos/capabilities/scheduler.py` | `elif result.dispatch_type == "wasm":` → fire-and-forget, pool stays IDLE |
+| `src/cogtainer/local_dispatcher.py` | `elif result.dispatch_type == "wasm":` → spawn isolate locally |
+| `src/cogtainer/lambdas/dispatcher/handler.py` | Register `wasm-pool` executor on startup |
+| `src/cogtainer/cdk/stacks/cogent_stack.py` | Add Wasm Pool Lambda (Python 3.12, 512 MB, wasmtime layer) |
+
+### 3e. Cog config
+
+Authors opt in:
+```python
+config = CogConfig(
+    executor="wasm",
+    required_tags=["wasm"],
+    capabilities=["files", "web_fetch"],
+)
+```
+
+---
+
+## Phase 4 — Integration & Cogames Validation
+
+**Goal:** End-to-end validation with real Wasm runtime and a Cogames scenario.
+
+1. **Integration tests** (these DO use real wasmtime):
+   - `tests/integration/test_wasm_e2e.py` — boot → execute → capability calls → result
+   - `tests/integration/test_wasm_dispatch_e2e.py` — scheduler → wasm pool → isolate → done
+   - `tests/integration/test_wasm_concurrency_e2e.py` — 16 parallel isolates on one host
+
+2. **Cogames test cogent:**
+   - Writes strategy code to `/home/agent/workspace/`
    - Executes it via `child_process.exec`
-   - Reads results back
-   - Communicates with other agents via channels
-
-2. **Concurrency test** — Spin up 16+ simultaneous wasm processes on a single Lambda invocation to validate density claims.
-
-3. **Integration tests:**
-   - `tests/integration/test_wasm_dispatch.py` — end-to-end dispatch
-   - `tests/integration/test_wasm_capabilities.py` — capability scoping in isolate
-   - `tests/integration/test_wasm_posix_shim.py` — POSIX surface correctness
+   - Reads results, communicates via channels
+   - 16+ concurrent game-playing agents
 
 ---
 
 ## Execution Order
 
-| # | Phase | Dependencies | Est. complexity |
-|---|-------|-------------|-----------------|
-| 1 | POSIX shim (TS) | None | Medium — straightforward mapping |
-| 2 | Isolate runtime (Python) | Phase 1 shim artifact | Medium — wasmtime-py integration |
-| 3 | Dispatch integration | Phase 2 runtime | Low — follows existing patterns |
-| 4 | Capability hardening | Phases 1-3 | Medium — security review needed |
-| 5 | Cogames integration | Phases 1-4 | Low-Medium — validation |
+| # | Phase | Dependencies | Notes |
+|---|-------|-------------|-------|
+| 1 | Interfaces & Stubs | None | All `NotImplementedError`. Fast. |
+| 2 | Test Suite | Phase 1 stubs | All tests red. No real Wasm. < 5s to run. |
+| 3 | Implementation | Phase 2 tests | Fill stubs → tests go green. |
+| 4 | Integration | Phase 3 | Real wasmtime, real dispatch, Cogames. |
 
-**Phase 1-2** can be developed in parallel (shim TS + runtime Python) since the bridge interface is defined upfront.
+**Phase 1 → 2 is the critical path.** Once the test harness is solid, Phase 3 implementation can proceed with high confidence and fast feedback.
 
 ---
 
