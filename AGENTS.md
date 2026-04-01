@@ -360,72 +360,21 @@ cf.cancel_update_stack(StackName='cogtainer-agora-alpha')
 - **If health checks fail**, check: (a) is the container actually running? (b) is the correct port exposed? (c) does the security group allow traffic?
 - **If ECR pull fails**, the execution role needs `ecr:GetAuthorizationToken` + `ecr:BatchGetImage` on `Resource: "*"`.
 
-## Dashboard Testing with agent-browser
+## Dashboard Testing
 
-Use the `agent-browser` skill to test the CogOS Dashboard interactively.
+When asked to test the dashboard, follow these steps:
 
-### Prerequisites
-
-Start the dashboard:
-
-```bash
-COGENT=local cogos dashboard start
-```
-
-Or manually:
-
-```bash
-source dashboard/ports.sh
-USE_LOCAL_DB=1 uv run uvicorn cogos.api.app:app --host 0.0.0.0 --port "$DASHBOARD_BE_PORT" --reload
-cd dashboard/frontend && npm run dev
-```
-
-### Quick Start
-
-```bash
-source dashboard/ports.sh
-npx agent-browser open "http://localhost:$DASHBOARD_FE_PORT" && npx agent-browser wait --load networkidle && npx agent-browser snapshot -i
-```
-
-### Dashboard Panels to Test
-
-The dashboard uses CogOS routers. Key tabs:
-
-| Tab | Description | Key interactions |
-|-----|-------------|-----------------|
-| Overview | CogOS status, process counts, recent runs | Verify stat rendering |
-| Processes | Process list with detail panel | Click rows to open detail |
-| Files | File browser with version history | Click rows, edit versions |
-| Configure | Setup, Integrations, and Capabilities sub-tabs | Switch sub-tabs, click rows for detail |
-| Handlers | Event handler list with fire counts | View handler patterns |
-| Runs | Run history with scope logs | Click for run detail |
-| Events | Event log with tree view | Expand events, click tree |
-| Cron | Cron rules with toggle switches | Toggle on/off, create/edit |
-
-### Testing Workflow
-
-```bash
-# Open dashboard and orient
-source dashboard/ports.sh
-npx agent-browser open "http://localhost:$DASHBOARD_FE_PORT"
-npx agent-browser wait --load networkidle
-npx agent-browser snapshot -i
-
-# Click through each sidebar tab
-npx agent-browser click @e{N}  # Use ref from snapshot for sidebar tab
-npx agent-browser wait --load networkidle
-npx agent-browser snapshot -i
-
-# Test interactive elements (expand rows, toggle switches, etc.)
-npx agent-browser click @e{N}
-npx agent-browser snapshot -i
-
-# Check for console errors
-npx agent-browser console
-
-# Take annotated screenshots for visual review
-npx agent-browser screenshot --annotate ./test-output/dashboard.png
-```
+- To start with clean state: `pkill tilt && rm -r ./data`
+- Use the `tilt` cli to start, stop, inspect, etc cogos
+  - Do not use tilt's web interface. It's for humans
+  - Start the dashboard: `tilt up`. When you run this, print tilt's url so that I can open it if I need to. Note that this is not a daemon – you must keep this process running
+  - Wait for the dashboard to finish starting: `tilt wait --for=condition=Ready uiresource.tilt.dev/dashboard-frontend`
+  - Use `tilt` to discover the different resources and their endpoints. In particular, the `dashboard-frontend` resource is the one you want to use
+  - Also use `tilt logs` to view the logs. Note that most errors show up as regular log lines in tilt. Don't filter for errors
+- Use `dev-browser` to interact with the dashboard
+  - Read `dev-browswer --help` for more information
+  - Only use a single page instance (main) to visit the different pages in the app 
+  - Unless instructed otherwise, use `--headless`
 
 ### Dogfooding
 
